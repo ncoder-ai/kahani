@@ -241,6 +241,21 @@ class SemanticMemoryService:
         from sentence_transformers import CrossEncoder
         self.reranker = CrossEncoder(self.reranker_model_name)
     
+    async def encode_texts(self, texts: List[str]) -> "np.ndarray":
+        """
+        Encode a list of texts into embeddings using the bi-encoder.
+        Returns numpy array of shape (len(texts), embedding_dim).
+        Handles model loading and threading automatically.
+        """
+        import numpy as np
+        await self._ensure_model_loaded()
+        embeddings = await asyncio.to_thread(
+            lambda: self.embedding_model.encode(
+                texts, convert_to_numpy=True, show_progress_bar=False
+            )
+        )
+        return embeddings
+
     async def _ensure_reranker_loaded(self):
         """Lazy-load the reranker model on first use (async)"""
         if self.reranker is None and self.enable_reranking:

@@ -1018,6 +1018,129 @@ moments_and_npcs_cache_friendly:
       "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
     }}
 
+# Scene Event Extraction (cache-friendly, replaces character moments)
+# Extracts factual events from scenes for keyword-based retrieval
+scene_event_extraction:
+  cache_friendly:
+    user: |
+      === SCENE JUST GENERATED ===
+      {scene_content}
+
+      === EXTRACT KEY EVENTS ===
+      Characters: {character_names}
+
+      Write SHORT events (under 8 words). Only 2-3 per scene. Skip routine actions.
+
+      EXAMPLE 1 (Characters: Priya, Arjun):
+      Scene: "Priya placed the platter on the table. Arjun brushed her waist reaching past. She bumped her hip. Doorbell rang. Guests complimented the food."
+      {{"events": [
+        {{"text": "Arjun brushed Priya's waist", "characters": ["Arjun", "Priya"]}},
+        {{"text": "guests arrived for dinner", "characters": []}}
+      ]}}
+
+      EXAMPLE 2 (Characters: Ava, Rohan):
+      Scene: "Ava confronted Rohan about forgery. She slammed the papers down. Found the original letter in his drawer. Security arrived."
+      {{"events": [
+        {{"text": "Ava confronted Rohan about forgery", "characters": ["Ava", "Rohan"]}},
+        {{"text": "Ava found letter in Rohan's drawer", "characters": ["Ava"]}},
+        {{"text": "security called to office", "characters": []}}
+      ]}}
+
+      EXAMPLE 3 (Characters: Nisha, Kabir):
+      Scene: "Nisha kissed Kabir on the rooftop. He gave her a silver bracelet. They watched the sunset. She mentioned moving to Delhi."
+      {{"events": [
+        {{"text": "Nisha kissed Kabir on rooftop", "characters": ["Nisha", "Kabir"]}},
+        {{"text": "Kabir gave Nisha silver bracelet", "characters": ["Kabir", "Nisha"]}},
+        {{"text": "Nisha mentioned moving to Delhi", "characters": ["Nisha"]}}
+      ]}}
+
+      TOO LONG: "Nisha and Kabir shared a passionate kiss on the rooftop while watching the sunset" — trim to 6-8 words
+      "characters" = ONLY person names. Never objects or locations.
+      Return ONLY JSON: {{"events": [{{"text": "...", "characters": ["Name"]}}]}}
+
+  batch:
+    system: "You extract factual events from story scenes. Return only valid JSON."
+    user: |
+      Extract significant events from each scene below.
+
+      Characters: {character_names}
+
+      {scenes_content}
+
+      EXAMPLE (Characters: Priya, Arjun, Sanjay):
+      Scene 1: "Priya served dishes in the crowded kitchen, bumping her hip on the refrigerator. Arjun entered with empty plates and offered to help. The stove burner went out unexpectedly."
+      Scene 2: "Sanjay stood close to Priya at the counter, accepting a bowl of curry. Arjun watched from across the room. Priya poured wine from the bottle Arjun held."
+      Scene 3: "Arjun wrapped his arms around Priya's waist in the kitchen. She pressed against him. He mentioned calling the contractor about renovations."
+      {{"scenes": {{
+        "1": [
+          {{"text": "stove burner went out while cooking", "characters": []}}
+        ],
+        "2": [
+          {{"text": "Sanjay accepted curry from Priya at counter", "characters": ["Sanjay", "Priya"]}}
+        ],
+        "3": [
+          {{"text": "Arjun embraced Priya's waist in kitchen", "characters": ["Arjun", "Priya"]}},
+          {{"text": "Arjun proposed calling contractor for renovation", "characters": ["Arjun"]}}
+        ]
+      }}}}
+      SKIPPED: "served dishes" (routine), "entered with plates" (routine), "watched from room" (passive)
+
+      "characters" = ONLY person name strings. Never objects, body parts, or locations.
+
+      RULES:
+      - 2-4 events per scene, max 10 words each — terse keyword fragments
+      - Only SIGNIFICANT events — skip routine actions
+      - Return ONLY valid JSON
+
+# Combined Scene Events + NPC Extraction (cache-friendly)
+# Replaces moments_and_npcs_cache_friendly — uses same cache prefix
+events_and_npcs_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT SCENE EVENTS AND NPCs ===
+    Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
+
+    EXAMPLE 1:
+    Scene: "Priya placed the platter on the table, bending forward. Arjun's hand brushed her waist as he reached past her. She bumped her hip on the counter corner. Sanjay watched from the doorway."
+    Explicit characters: Priya, Arjun  |  Exclude: Priya, Arjun
+    {{
+      "events": [
+        {{"text": "Arjun brushed Priya's waist reaching past her", "characters": ["Arjun", "Priya"]}}
+      ],
+      "npcs": [
+        {{"name": "Sanjay", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": false, "context_snippets": ["Sanjay watched from the doorway"], "properties": {{"role": "unknown", "description": "Person watching from doorway"}}}}
+      ]
+    }}
+
+    EXAMPLE 2:
+    Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. A waiter refilled their glasses. Ava found the original letter hidden in his drawer."
+    Explicit characters: Ava  |  Exclude: Ava
+    {{
+      "events": [
+        {{"text": "Ava refused to sign, confronted Mr. Hahn", "characters": ["Ava", "Mr. Hahn"]}},
+        {{"text": "Ava found original letter in Mr. Hahn's drawer", "characters": ["Ava"]}}
+      ],
+      "npcs": [
+        {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
+      ]
+    }}
+    SKIPPED: "placed platter" (routine), "bumped hip" (trivial), "slammed fist" (gesture), waiter (no name)
+
+    "characters" = ONLY person name strings. Never objects, body parts, or locations.
+
+    RULES:
+    - Events: 2-4 terse keyword fragments, max 10 words each. Only SIGNIFICANT events.
+    - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+
+    Return ONLY JSON:
+    {{
+      "events": [{{"text": "...", "characters": ["Name"]}}],
+      "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
+    }}
+
 # Plot Structure Prompts
 plot_generation:
   complete_plot:

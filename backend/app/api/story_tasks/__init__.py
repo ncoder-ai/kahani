@@ -4,8 +4,9 @@ Stories API module.
 This module contains the stories router and related background tasks.
 """
 from .background_tasks import (
-    # Progress store
+    # Progress stores
     extraction_progress_store,
+    scene_event_extraction_progress_store,
 
     # Lock getters
     get_chapter_extraction_lock,
@@ -30,11 +31,13 @@ from .background_tasks import (
     run_chapter_summary_background,
     rollback_plot_progress_in_background,
     rollback_working_memory_and_relationships_in_background,
+    run_scene_event_extraction_background,
 )
 
 __all__ = [
-    # Progress store
+    # Progress stores
     'extraction_progress_store',
+    'scene_event_extraction_progress_store',
 
     # Lock getters
     'get_chapter_extraction_lock',
@@ -59,4 +62,5 @@ __all__ = [
     'run_chapter_summary_background',
     'rollback_plot_progress_in_background',
     'rollback_working_memory_and_relationships_in_background',
+    'run_scene_event_extraction_background',
 ]

@@ -93,10 +93,10 @@ class SceneVariantServiceAdapter:
                 entity_states_snapshot = context.get('_entity_states_snapshot')
                 if entity_states_snapshot:
                     logger.info(f"[SNAPSHOT] Auto-extracted entity_states_snapshot from context ({len(entity_states_snapshot)} chars)")
-            # Extract full context snapshot (includes story_focus, relationship_context)
-            context_snapshot = context.get('_context_snapshot')
+            # Extract prompt prefix snapshot (full messages list for variant cache consistency)
+            context_snapshot = context.get('_prompt_prefix_snapshot')
             if context_snapshot:
-                logger.info(f"[SNAPSHOT] Auto-extracted context_snapshot from context ({len(context_snapshot)} chars)")
+                logger.info(f"[SNAPSHOT] Auto-extracted prompt_prefix_snapshot from context ({len(context_snapshot)} chars)")
         return llm_service.create_scene_with_variant(self.db, story_id, sequence_number, content, title, custom_prompt, choices, generation_method, branch_id, chapter_id, entity_states_snapshot=entity_states_snapshot, context_snapshot=context_snapshot)
 
     async def regenerate_scene_variant(self, scene_id: int, custom_prompt: str = None, user_settings: dict = None, user_id: int = None, branch_id: int = None):

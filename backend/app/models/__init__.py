@@ -29,6 +29,7 @@ from .npc_tracking import NPCMention, NPCTracking, NPCTrackingSnapshot
 from .brainstorm_session import BrainstormSession
 from .chapter_brainstorm_session import ChapterBrainstormSession
 from .character_interaction import CharacterInteraction
+from .scene_event import SceneEvent
 from .generated_image import GeneratedImage
 from .working_memory import WorkingMemory
 from .contradiction import Contradiction
@@ -54,6 +55,7 @@ __all__ = [
     "BrainstormSession",
     "ChapterBrainstormSession",
     "CharacterInteraction",
+    "SceneEvent",
     "GeneratedImage",
     "WorkingMemory",
     "Contradiction",

@@ -20,6 +20,7 @@ from .llm.prompts import prompt_manager
 from .llm.extraction_service import extract_json_robust
 from ..config import settings
 from ..models import Scene, SceneVariant, Story, Chapter, StoryCharacter, Character
+from ..models.scene_event import SceneEvent
 from .llm.service import UnifiedLLMService
 
 logger = logging.getLogger(__name__)
@@ -321,6 +322,46 @@ async def process_scene_embeddings(
         return results
 
 
+def _store_scene_events(
+    db: Session,
+    events: list,
+    story_id: int,
+    scene_id: int,
+    scene_sequence: int,
+    chapter_id: Optional[int],
+    branch_id: Optional[int]
+) -> int:
+    """Store extracted scene events in the database. Returns count stored."""
+    # Delete existing events for this scene (idempotent re-extraction)
+    db.query(SceneEvent).filter(SceneEvent.scene_id == scene_id).delete()
+
+    stored = 0
+    for event in events:
+        text = event.get('text', '').strip()
+        if not text or len(text) < 5:
+            continue
+        chars = event.get('characters', [])
+        if not isinstance(chars, list):
+            chars = []
+        # Filter: keep only plain strings (person names), drop dicts/objects/non-strings
+        chars = [c for c in chars if isinstance(c, str) and len(c) > 0]
+
+        db.add(SceneEvent(
+            story_id=story_id,
+            branch_id=branch_id,
+            scene_id=scene_id,
+            scene_sequence=scene_sequence,
+            chapter_id=chapter_id,
+            event_text=text[:500],
+            characters_involved=chars,
+        ))
+        stored += 1
+
+    if stored:
+        db.flush()
+    return stored
+
+
 async def _try_combined_extraction(
     scenes_data: List[Tuple[int, int, Optional[int], str]],
     story_id: int,
@@ -333,22 +374,9 @@ async def _try_combined_extraction(
     skip_entity_states: bool = False
 ) -> bool:
     """
-    Extract character moments and NPCs using cache-friendly multi-message structure.
+    Extract scene events and NPCs using cache-friendly multi-message structure.
 
-    NOTE: This function ONLY extracts character moments and NPCs.
-    Entity states are handled by inline entity extraction.
-    Plot events are handled by separate plot extraction.
-
-    Args:
-        scenes_data: List of (scene_id, sequence_number, chapter_id, scene_content) tuples
-        story_id: Story ID
-        user_id: User ID
-        user_settings: User settings
-        db: Database session
-        results: Results dictionary to update
-        branch_id: Optional branch ID for filtering (if not provided, uses active branch)
-        scene_generation_context: Context from scene generation for cache-friendly extraction
-        skip_entity_states: Ignored (entity states now handled separately)
+    Replaces the old moments+NPCs combined extraction.
 
     Returns:
         True if extraction succeeded, False otherwise
@@ -356,103 +384,91 @@ async def _try_combined_extraction(
     try:
         from .llm.service import UnifiedLLMService
         from .npc_tracking_service import NPCTrackingService
-        from .character_memory_service import get_character_memory_service
         from ..models import StoryCharacter, Character
-        import json
-        import re
 
-        # Get character names for character moments
+        # Get character names
         story_characters = db.query(StoryCharacter).filter(
             StoryCharacter.story_id == story_id
         ).all()
 
         character_names = []
         explicit_character_names = []
-        character_map = {}
         for sc in story_characters:
             char = db.query(Character).filter(Character.id == sc.character_id).first()
             if char:
                 character_names.append(char.name)
                 explicit_character_names.append(char.name)
-                character_map[char.name.lower()] = char
 
-        # === CACHE-FRIENDLY EXTRACTION ===
-        # Use lean extraction that only gets character moments + NPCs
-        # Entity states and plot events are handled by separate background tasks
-        if scene_generation_context is not None:
-            logger.info("[EXTRACTION] Using cache-friendly moments+NPCs extraction")
+        if scene_generation_context is None:
+            logger.warning("[EXTRACTION] No scene_generation_context available, skipping combined extraction")
+            return False
 
-            # For single scene, use direct extraction
-            if len(scenes_data) == 1:
-                scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
+        logger.info("[EXTRACTION] Using cache-friendly events+NPCs extraction")
 
-                try:
-                    llm_service = UnifiedLLMService()
-                    response = await llm_service.extract_moments_and_npcs_cache_friendly(
-                        scene_content=scene_content,
-                        character_names=character_names,
-                        explicit_character_names=explicit_character_names,
-                        context=scene_generation_context,
-                        user_id=user_id,
-                        user_settings=user_settings,
+        if len(scenes_data) != 1:
+            logger.info(f"[EXTRACTION] Skipping combined extraction for {len(scenes_data)} scenes - using separate batch")
+            return False
+
+        scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
+
+        try:
+            llm_service = UnifiedLLMService()
+            response = await llm_service.extract_events_and_npcs_cache_friendly(
+                scene_content=scene_content,
+                character_names=character_names,
+                explicit_character_names=explicit_character_names,
+                context=scene_generation_context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+                max_tokens=2000
+            )
+
+            if response:
+                extraction_results = extract_json_robust(response)
+
+                # Store scene events
+                events = extraction_results.get('events', [])
+                if events:
+                    stored = _store_scene_events(
                         db=db,
-                        max_tokens=2000
+                        events=events,
+                        story_id=story_id,
+                        scene_id=scene_id,
+                        scene_sequence=sequence_number,
+                        chapter_id=chapter_id_local,
+                        branch_id=branch_id,
                     )
+                    results['scene_events'] = results.get('scene_events', 0) + stored
+                    logger.info(f"[SCENE EVENTS] Extracted {stored} events for scene {scene_id}")
 
-                    if response:
-                        # Parse response using robust extractor
-                        extraction_results = extract_json_robust(response)
-
-                        # Store character moments
-                        char_service = get_character_memory_service()
-                        moments = extraction_results.get('character_moments', [])
-                        for moment in moments:
-                            moment['scene_id'] = scene_id
-                        if moments:
-                            stored_moments = await char_service.store_character_moments_batch(
-                                story_id=story_id,
-                                moments=moments,
-                                character_map=character_map,
+                # Store NPCs
+                npcs = extraction_results.get('npcs', [])
+                if npcs:
+                    npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
+                    for npc_data in npcs:
+                        try:
+                            await npc_service.track_npc(
                                 db=db,
+                                story_id=story_id,
+                                scene_id=scene_id,
+                                scene_sequence=sequence_number,
+                                npc_data=npc_data,
                                 branch_id=branch_id
                             )
-                            results['character_moments'] += stored_moments
+                            results['npc_tracking'] += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to track NPC: {e}")
 
-                        # Store NPCs
-                        npcs = extraction_results.get('npcs', [])
-                        if npcs:
-                            npc_service = NPCTrackingService(user_id=user_id, user_settings=user_settings)
-                            for npc_data in npcs:
-                                try:
-                                    await npc_service.track_npc(
-                                        db=db,
-                                        story_id=story_id,
-                                        scene_id=scene_id,
-                                        scene_sequence=sequence_number,
-                                        npc_data=npc_data,
-                                        branch_id=branch_id
-                                    )
-                                    results['npc_tracking'] += 1
-                                except Exception as e:
-                                    logger.warning(f"Failed to track NPC: {e}")
+                logger.info(f"[EXTRACTION] Events+NPCs extraction successful: events={results.get('scene_events', 0)}, npcs={results['npc_tracking']}")
+                return True
 
-                        logger.info(f"[EXTRACTION] Moments+NPCs extraction successful: moments={results['character_moments']}, npcs={results['npc_tracking']}")
-                        return True
-
-                except Exception as e:
-                    logger.warning(f"[EXTRACTION] Cache-friendly moments+NPCs extraction failed: {e}")
-                    return False
-            else:
-                # For multiple scenes, skip combined extraction - let separate NPC batch handle it
-                logger.info(f"[EXTRACTION] Skipping combined extraction for {len(scenes_data)} scenes - using separate NPC batch")
-                return False
-
-        # No context available - can't use cache-friendly extraction
-        logger.warning("[EXTRACTION] No scene_generation_context available, skipping combined extraction")
-        return False
+        except Exception as e:
+            logger.warning(f"[EXTRACTION] Cache-friendly events+NPCs extraction failed: {e}")
+            return False
 
     except Exception as e:
-        logger.error(f"Moments+NPCs extraction failed: {e}", exc_info=True)
+        logger.error(f"Events+NPCs extraction failed: {e}", exc_info=True)
         return False
 
 
@@ -636,6 +652,7 @@ async def batch_process_scene_extractions(
     
     results = {
         'scenes_processed': 0,
+        'scene_events': 0,
         'character_moments': 0,
         'plot_events': 0,
         'entity_states': 0,
@@ -963,46 +980,9 @@ async def batch_process_scene_extractions(
                 except Exception as e:
                     logger.error(f"Cache-friendly NPC extraction failed: {e}")
 
-                # 2. Cache-friendly plot events extraction
+                # 2. Cache-friendly scene events extraction (replaces plot events + character moments)
                 try:
-                    plot_service = get_plot_thread_service()
-                    existing_threads = await plot_service.get_unresolved_threads(story_id, db)
-                    thread_context = ""
-                    if existing_threads:
-                        thread_list = [f"- {t['description']}" for t in existing_threads[:5]]
-                        thread_context = f"\n{chr(10).join(thread_list)}"
-
-                    plot_events = await llm_service.extract_plot_events_fallback_cache_friendly(
-                        scene_content=scene_content,
-                        thread_context=thread_context,
-                        context=scene_generation_context,
-                        user_id=user_id,
-                        user_settings=user_settings,
-                        db=db
-                    )
-                    if plot_events:
-                        for event in plot_events:
-                            try:
-                                await plot_service.store_plot_event(
-                                    story_id=story_id,
-                                    scene_id=scene_id,
-                                    event_type=event.get('event_type', 'development'),
-                                    description=event.get('description', ''),
-                                    importance=event.get('importance', 50),
-                                    confidence=event.get('confidence', 70),
-                                    db=db,
-                                    branch_id=branch_id
-                                )
-                                results['plot_events'] += 1
-                            except Exception as e:
-                                logger.warning(f"Failed to store plot event: {e}")
-                        logger.info(f"[EXTRACTION] Cache-friendly extracted {len(plot_events)} plot events")
-                except Exception as e:
-                    logger.error(f"Cache-friendly plot events extraction failed: {e}")
-
-                # 3. Cache-friendly character moments extraction
-                try:
-                    moments = await llm_service.extract_character_moments_cache_friendly(
+                    events_response = await llm_service.extract_scene_events_cache_friendly(
                         scene_content=scene_content,
                         character_names=character_names,
                         context=scene_generation_context,
@@ -1010,21 +990,23 @@ async def batch_process_scene_extractions(
                         user_settings=user_settings,
                         db=db
                     )
-                    if moments:
-                        char_service = get_character_memory_service()
-                        for moment in moments:
-                            moment['scene_id'] = scene_id
-                        stored = await char_service.store_character_moments_batch(
-                            story_id=story_id,
-                            moments=moments,
-                            character_map=character_map,
-                            db=db,
-                            branch_id=branch_id
-                        )
-                        results['character_moments'] += stored
-                        logger.info(f"[EXTRACTION] Cache-friendly extracted {len(moments)} character moments")
+                    if events_response:
+                        events_data = extract_json_robust(events_response)
+                        events = events_data.get('events', [])
+                        if events:
+                            stored = _store_scene_events(
+                                db=db,
+                                events=events,
+                                story_id=story_id,
+                                scene_id=scene_id,
+                                scene_sequence=sequence_number,
+                                chapter_id=chapter_id_local,
+                                branch_id=branch_id,
+                            )
+                            results['scene_events'] = results.get('scene_events', 0) + stored
+                            logger.info(f"[SCENE EVENTS] Fallback extracted {stored} events for scene {scene_id}")
                 except Exception as e:
-                    logger.error(f"Cache-friendly character moments extraction failed: {e}")
+                    logger.error(f"Cache-friendly scene events extraction failed: {e}")
 
             else:
                 # Original batch extraction path (multiple scenes or no context)
@@ -1045,37 +1027,9 @@ async def batch_process_scene_extractions(
                 except Exception as e:
                     logger.error(f"Failed to batch extract NPCs: {e}")
 
-                try:
-                    # 2. Batch extract plot events
-                    plot_service = get_plot_thread_service()
-                    plot_events_map = await plot_service.extract_plot_events_from_scenes_batch(
-                        scenes=scenes_data,
-                        story_id=story_id,
-                        user_id=user_id,
-                        user_settings=user_settings,
-                        db=db
-                    )
-                    total_plot_events = sum(len(events) for events in plot_events_map.values())
-                    results['plot_events'] += total_plot_events
-                    logger.warning(f"[EXTRACTION] Batch extracted {total_plot_events} plot events")
-                except Exception as e:
-                    logger.error(f"Failed to batch extract plot events: {e}")
-
-                try:
-                    # 3. Batch extract character moments
-                    char_service = get_character_memory_service()
-                    moments_map = await char_service.extract_character_moments_from_scenes_batch(
-                        scenes=scenes_data,
-                        story_id=story_id,
-                        user_id=user_id,
-                        user_settings=user_settings,
-                        db=db
-                    )
-                    total_moments = sum(len(moments) for moments in moments_map.values())
-                    results['character_moments'] += total_moments
-                    logger.warning(f"[EXTRACTION] Batch extracted {total_moments} character moments")
-                except Exception as e:
-                    logger.error(f"Failed to batch extract character moments: {e}")
+                # Note: Plot events and character moments extraction removed.
+                # Scene events are extracted via cache-friendly single-scene path only.
+                # Batch path only handles NPCs now.
         
         # PER-SCENE PROCESSING: Scene embeddings and entity states (still per-scene)
         for scene_id, variant_id, sequence_number, scene_content in scenes_for_embeddings:
@@ -1159,6 +1113,12 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
         await plot_service.delete_plot_events(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted plot events for scene {scene_id}")
         
+        # Delete scene events
+        scene_events_deleted = db.query(SceneEvent).filter(
+            SceneEvent.scene_id == scene_id
+        ).delete()
+        logger.debug(f"[CLEANUP] Deleted {scene_events_deleted} scene events for scene {scene_id}")
+
         # Delete NPC mentions
         from ..models.npc_tracking import NPCMention
         npc_mentions_deleted = db.query(NPCMention).filter(

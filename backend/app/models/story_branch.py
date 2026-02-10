@@ -69,6 +69,9 @@ class StoryBranch(Base):
     # Character interactions
     character_interactions = relationship("CharacterInteraction", back_populates="branch", cascade="all, delete-orphan")
 
+    # Scene events
+    scene_events = relationship("SceneEvent", back_populates="branch", cascade="all, delete-orphan")
+
     # Generated images
     generated_images = relationship("GeneratedImage", back_populates="branch", cascade="all, delete-orphan")
 

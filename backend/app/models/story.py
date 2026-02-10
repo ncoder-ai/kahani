@@ -84,6 +84,9 @@ class Story(Base):
     
     # Character Interaction Relationships
     character_interactions = relationship("CharacterInteraction", back_populates="story", cascade="all, delete-orphan")
+
+    # Scene Event Index
+    scene_events = relationship("SceneEvent", back_populates="story", cascade="all, delete-orphan")
     
     # Story Branches
     branches = relationship("StoryBranch", back_populates="story", cascade="all, delete-orphan", order_by="StoryBranch.created_at", foreign_keys="StoryBranch.story_id")

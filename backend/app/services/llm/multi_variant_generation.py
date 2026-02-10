@@ -210,7 +210,7 @@ class MultiVariantGeneration:
         max_tokens = base_max_tokens + choices_buffer_tokens
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -307,7 +307,7 @@ class MultiVariantGeneration:
         max_tokens = base_max_tokens + choices_buffer_tokens
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -372,7 +372,7 @@ class MultiVariantGeneration:
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -422,7 +422,7 @@ class MultiVariantGeneration:
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -682,7 +682,7 @@ class MultiVariantGeneration:
         max_tokens = base_max_tokens + choices_buffer_tokens
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,
@@ -809,7 +809,7 @@ class MultiVariantGeneration:
         max_tokens = base_max_tokens + choices_buffer_tokens
 
         # Use cache-friendly helper for consistent message prefix
-        messages = self._service._build_cache_friendly_message_prefix(
+        messages = await self._service._build_cache_friendly_message_prefix(
             context=context,
             user_id=user_id,
             user_settings=user_settings,

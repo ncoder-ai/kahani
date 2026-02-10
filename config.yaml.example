@@ -151,8 +151,8 @@ semantic_memory:
 # EXTRACTION & NPC TRACKING
 # ----------------------------------------------------------------------------
 extraction:
-  auto_extract_character_moments: true
-  auto_extract_plot_events: true
+  auto_extract_character_moments: false  # Replaced by scene events
+  auto_extract_plot_events: false        # Replaced by scene events
   confidence_threshold: 70
 
 extraction_model:
@@ -315,8 +315,8 @@ user_defaults:
     semantic_scenes_in_context: 5
     semantic_context_weight: 0.4
     character_moments_in_context: 3
-    auto_extract_character_moments: true
-    auto_extract_plot_events: true
+    auto_extract_character_moments: false  # Replaced by scene events
+    auto_extract_plot_events: false        # Replaced by scene events
     extraction_confidence_threshold: 70
     plot_event_extraction_threshold: 5
     fill_remaining_context: true  # Fill remaining context window with older scenes (disable for weaker LLMs)

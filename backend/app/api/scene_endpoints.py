@@ -996,9 +996,9 @@ async def generate_scene_streaming_endpoint(
                         logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
                     else:
                         logger.warning("Choice parsing failed or no choices found, using fallback generation")
-                    # Reuse the existing scene generation context - don't create minimal dict
-                    # The scene_content will be added to context as current_situation in generate_choices()
-                    choices = await llm_service.generate_choices(full_content, context, current_user.id, user_settings, db)
+                    # Reuse the scene generation context (scene_context, not context) so the
+                    # improved semantic_scenes_text and _semantic_improved flag carry over → cache hit
+                    choices = await llm_service.generate_choices(full_content, scene_context, current_user.id, user_settings, db)
 
                 # Format and save choices
                 for i, choice_text in enumerate(choices):

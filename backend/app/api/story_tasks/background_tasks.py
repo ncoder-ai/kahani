@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 # Format: {story_id: {batches_processed: int, total_batches: int, interactions_found: int}}
 extraction_progress_store: Dict[int, Dict] = {}
 
+# In-memory progress tracking for scene event extraction
+# Format: {story_id: {scenes_processed: int, total_scenes: int, events_found: int}}
+scene_event_extraction_progress_store: Dict[int, Dict] = {}
+
 # Per-chapter extraction locks to prevent concurrent plot extractions
 _chapter_extraction_locks: Dict[int, asyncio.Lock] = {}
 # Per-story entity extraction locks to prevent concurrent entity recalculations
@@ -2001,3 +2005,200 @@ async def initialize_branch_entity_states_in_background(
         logger.error(f"[BRANCH:ENTITY:ERROR] trace_id={trace_id} error={e}")
         import traceback
         logger.error(f"[BRANCH:ENTITY:TRACEBACK] {traceback.format_exc()}")
+
+
+async def run_scene_event_extraction_background(
+    story_id: int,
+    branch_id: int,
+    user_id: int,
+    user_settings: dict,
+):
+    """
+    Background task to retroactively extract scene events from existing scenes.
+    Processes each scene independently using the cache_friendly single-scene prompt.
+    """
+    from ...services.llm.service import UnifiedLLMService
+    from ...services.llm.extraction_service import ExtractionLLMService, extract_json_robust
+    from ...services.llm.prompts import prompt_manager
+    from ...models.scene_event import SceneEvent
+    from ...config import settings
+
+    logger.info(f"[EVENT_EXTRACT] Starting per-scene extraction for story {story_id}")
+
+    extraction_db = SessionLocal()
+
+    # Try extraction LLM first, fallback to main
+    extraction_service = None
+    extraction_settings = user_settings.get('extraction_model_settings', {})
+    if extraction_settings.get('enabled', False):
+        try:
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = extraction_settings.get('url', ext_defaults.get('url'))
+            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
+            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature', 0.3))
+            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens', 2048))
+
+            if url and model:
+                llm_settings = user_settings.get('llm_settings', {})
+                timeout_total = llm_settings.get('timeout_total', 240)
+                extraction_service = ExtractionLLMService(
+                    url=url,
+                    model=model,
+                    api_key=api_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout_total=timeout_total
+                )
+                logger.info(f"[EVENT_EXTRACT] Using extraction LLM: {model}")
+        except Exception as e:
+            logger.warning(f"[EVENT_EXTRACT] Failed to init extraction service: {e}, falling back to main LLM")
+
+    main_llm = UnifiedLLMService() if not extraction_service else None
+
+    try:
+        # Get all scenes
+        scene_query = extraction_db.query(Scene).filter(Scene.story_id == story_id)
+        if branch_id:
+            scene_query = scene_query.filter(Scene.branch_id == branch_id)
+        scenes = scene_query.order_by(Scene.sequence_number).all()
+        total_scenes = len(scenes)
+
+        if total_scenes == 0:
+            logger.info(f"[EVENT_EXTRACT] No scenes found for story {story_id}")
+            return
+
+        # Get character names
+        story_chars = extraction_db.query(StoryCharacter).filter(
+            StoryCharacter.story_id == story_id
+        ).all()
+        char_names = []
+        for sc in story_chars:
+            char = extraction_db.query(Character).filter(Character.id == sc.character_id).first()
+            if char:
+                char_names.append(char.name)
+        character_names_str = ", ".join(char_names) if char_names else "None"
+
+        scene_event_extraction_progress_store[story_id] = {
+            'scenes_processed': 0,
+            'total_scenes': total_scenes,
+            'events_found': 0,
+        }
+
+        scenes_processed = 0
+        events_found = 0
+
+        for scene in scenes:
+            try:
+                # Get scene content
+                flow = extraction_db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True
+                ).first()
+                if not flow or not flow.scene_variant:
+                    scenes_processed += 1
+                    continue
+
+                scene_content = flow.scene_variant.content
+
+                # Build prompt using single-scene template
+                prompt_text = prompt_manager.get_prompt(
+                    "scene_event_extraction.cache_friendly", "user",
+                    character_names=character_names_str,
+                    scene_content=scene_content
+                )
+
+                messages = [
+                    {"role": "system", "content": "You extract factual events from story scenes. Return only valid JSON."},
+                    {"role": "user", "content": prompt_text},
+                ]
+
+                # Call LLM
+                response = None
+                try:
+                    if extraction_service:
+                        response = await extraction_service.generate_with_messages(
+                            messages=messages,
+                            max_tokens=1024
+                        )
+                    elif main_llm:
+                        import copy
+                        ext_user_settings = copy.deepcopy(user_settings)
+                        ext_user_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                        ext_user_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                        response = await main_llm._generate_with_messages(
+                            messages=messages,
+                            user_id=user_id,
+                            user_settings=ext_user_settings,
+                            max_tokens=1024
+                        )
+                except Exception as e:
+                    logger.error(f"[EVENT_EXTRACT] LLM call failed for scene {scene.sequence_number}: {e}")
+                    scenes_processed += 1
+                    continue
+
+                if not response:
+                    scenes_processed += 1
+                    continue
+
+                # Parse response
+                result = extract_json_robust(response)
+                scene_events_data = result.get('events', [])
+
+                # Delete existing events for this scene
+                extraction_db.query(SceneEvent).filter(
+                    SceneEvent.scene_id == scene.id
+                ).delete()
+
+                for event_data in scene_events_data:
+                    text = event_data.get('text', '').strip()
+                    if not text or len(text) < 5:
+                        continue
+                    chars = event_data.get('characters', [])
+                    if not isinstance(chars, list):
+                        chars = []
+                    # Filter: keep only plain strings (person names)
+                    chars = [c for c in chars if isinstance(c, str) and len(c) > 0]
+
+                    extraction_db.add(SceneEvent(
+                        story_id=story_id,
+                        branch_id=branch_id,
+                        scene_id=scene.id,
+                        scene_sequence=scene.sequence_number,
+                        chapter_id=scene.chapter_id,
+                        event_text=text[:500],
+                        characters_involved=chars,
+                    ))
+                    events_found += 1
+
+                extraction_db.commit()
+
+            except Exception as e:
+                logger.error(f"[EVENT_EXTRACT] Scene {scene.sequence_number} error: {e}")
+                extraction_db.rollback()
+
+            scenes_processed += 1
+            if scenes_processed % 10 == 0 or scenes_processed == total_scenes:
+                scene_event_extraction_progress_store[story_id] = {
+                    'scenes_processed': scenes_processed,
+                    'total_scenes': total_scenes,
+                    'events_found': events_found,
+                }
+                logger.info(f"[EVENT_EXTRACT] {scenes_processed}/{total_scenes} scenes: {events_found} events total")
+
+            # Rate limit
+            await asyncio.sleep(0.3)
+
+        logger.info(f"[EVENT_EXTRACT] Complete: {events_found} events from {total_scenes} scenes")
+        if story_id in scene_event_extraction_progress_store:
+            del scene_event_extraction_progress_store[story_id]
+
+    except Exception as e:
+        logger.error(f"[EVENT_EXTRACT] Fatal error: {e}")
+        import traceback
+        logger.error(f"[EVENT_EXTRACT] Traceback: {traceback.format_exc()}")
+        if story_id in scene_event_extraction_progress_store:
+            del scene_event_extraction_progress_store[story_id]
+
+    finally:
+        extraction_db.close()

@@ -18,7 +18,9 @@ from ..models import Story, User
 from ..api.auth import get_current_user
 from .story_tasks import (
     extraction_progress_store,
+    scene_event_extraction_progress_store,
     run_interaction_extraction_background,
+    run_scene_event_extraction_background,
 )
 
 logger = logging.getLogger(__name__)
@@ -347,4 +349,108 @@ async def extract_interactions_retroactively(
         "num_batches": num_batches,
         "interaction_types": story.interaction_types,
         "status": "processing"
+    }
+
+
+# =============================================================================
+# SCENE EVENT EXTRACTION ENDPOINTS
+# =============================================================================
+
+@router.post("/{story_id}/extract-events")
+async def extract_events_retroactively(
+    story_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retroactively extract scene events from existing scenes.
+    Processes each scene independently for reliable extraction.
+    """
+    from ..models import Scene, StoryBranch, UserSettings
+
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+
+    # Get active branch
+    active_branch = db.query(StoryBranch).filter(
+        StoryBranch.story_id == story_id,
+        StoryBranch.is_active == True
+    ).first()
+    branch_id = active_branch.id if active_branch else None
+
+    # Count scenes
+    scene_query = db.query(Scene).filter(Scene.story_id == story_id)
+    if branch_id:
+        scene_query = scene_query.filter(Scene.branch_id == branch_id)
+    scene_count = scene_query.count()
+
+    if scene_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No scenes found in this story"
+        )
+
+    # Get user settings
+    user_settings_record = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+    user_settings = user_settings_record.to_dict() if user_settings_record else {}
+
+    background_tasks.add_task(
+        run_scene_event_extraction_background,
+        story_id=story_id,
+        branch_id=branch_id,
+        user_id=current_user.id,
+        user_settings=user_settings,
+    )
+
+    return {
+        "message": f"Scene event extraction started: {scene_count} scenes",
+        "story_id": story_id,
+        "scene_count": scene_count,
+        "status": "processing"
+    }
+
+
+@router.get("/{story_id}/extract-events/progress")
+async def get_event_extraction_progress(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get progress of retroactive scene event extraction."""
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found"
+        )
+
+    progress = scene_event_extraction_progress_store.get(story_id)
+    if not progress:
+        return {
+            "in_progress": False,
+            "scenes_processed": 0,
+            "total_scenes": 0,
+            "events_found": 0
+        }
+
+    return {
+        "in_progress": True,
+        "scenes_processed": progress.get('scenes_processed', 0),
+        "total_scenes": progress.get('total_scenes', 0),
+        "events_found": progress.get('events_found', 0)
     }
