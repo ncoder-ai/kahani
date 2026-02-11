@@ -269,6 +269,11 @@ class UnifiedLLMService:
         if pov_reminder:
             system_prompt += "\n\n" + pov_reminder
 
+        # 4.5. Inject content permission (uncensored or family-friendly) into system prompt
+        from ...utils.content_filter import get_content_permission_prompt
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+        system_prompt += "\n\n" + get_content_permission_prompt(user_allow_nsfw)
+
         # 5. Build messages array
         messages = [{"role": "system", "content": system_prompt.strip()}]
 
@@ -936,14 +941,7 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": task_content})
 
         logger.info(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages")
-        
-        # Call LLM with multi-message structure
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        if should_inject_nsfw_filter(user_allow_nsfw):
-            messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
-        
+
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, None)
         gen_params["messages"] = messages
@@ -1042,13 +1040,6 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": task_content})
 
         logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
-
-        # Apply NSFW filter
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-
-        if should_inject_nsfw_filter(user_allow_nsfw):
-            messages[0]["content"] = messages[0]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
 
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, None)
@@ -4697,8 +4688,9 @@ Chapter Conclusion:"""
             messages.append({
                 "role": "user",
                 "content": "=== RELATED PAST SCENES ===\n"
-                    "The following scenes from earlier in the story are directly relevant to what happens next. "
-                    "Use these details - DO NOT invent or contradict what's described here:\n\n"
+                    "These are ACTUAL scenes from earlier in the story. When referencing past events, "
+                    "use ONLY details found here — do not invent, embellish, or assume what happened. "
+                    "If a past event isn't in these scenes, don't reference it.\n\n"
                     + semantic_scenes_text
             })
 
@@ -5262,23 +5254,23 @@ Chapter Conclusion:"""
         """
         client = self.get_user_client(user_id, user_settings)
 
-        # Inject NSFW filter into system message if needed
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # Find and modify system message, or add one
+        # Inject content permission (uncensored or family-friendly) into system message
+        # Skip if already injected (e.g. by _build_cache_friendly_message_prefix)
+        if not skip_nsfw_filter:
+            from ...utils.content_filter import get_content_permission_prompt
+            user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+            content_prompt = get_content_permission_prompt(user_allow_nsfw)
             system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
             if system_idx is not None:
-                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+                if "CONTENT POLICY:" not in messages[system_idx]["content"] and "CONTENT POLICY -" not in messages[system_idx]["content"]:
+                    messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
             else:
-                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"NSFW filter injected for user {user_id}")
-        
+                messages.insert(0, {"role": "system", "content": content_prompt})
+
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
-        
+
         # Get timeout from user settings or fallback to system default
         user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
         gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
@@ -5326,19 +5318,19 @@ Chapter Conclusion:"""
         """
         client = self.get_user_client(user_id, user_settings)
 
-        # Inject NSFW filter into system message if needed
-        from ...utils.content_filter import get_nsfw_prevention_prompt, should_inject_nsfw_filter
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        
-        if not skip_nsfw_filter and should_inject_nsfw_filter(user_allow_nsfw):
-            # Find and modify system message, or add one
+        # Inject content permission (uncensored or family-friendly) into system message
+        # Skip if already injected (e.g. by _build_cache_friendly_message_prefix)
+        if not skip_nsfw_filter:
+            from ...utils.content_filter import get_content_permission_prompt
+            user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
+            content_prompt = get_content_permission_prompt(user_allow_nsfw)
             system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
             if system_idx is not None:
-                messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + get_nsfw_prevention_prompt()
+                if "CONTENT POLICY:" not in messages[system_idx]["content"] and "CONTENT POLICY -" not in messages[system_idx]["content"]:
+                    messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
             else:
-                messages.insert(0, {"role": "system", "content": get_nsfw_prevention_prompt()})
-            logger.debug(f"NSFW filter injected for streaming user {user_id}")
-        
+                messages.insert(0, {"role": "system", "content": content_prompt})
+
         # Get streaming parameters
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages

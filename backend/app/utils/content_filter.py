@@ -85,7 +85,7 @@ def get_nsfw_prevention_prompt() -> str:
     """
     Get the prompt injection text to prevent NSFW content generation.
     This should be added to system prompts when generating content for restricted users.
-    
+
     Returns:
         The NSFW prevention prompt text
     """
@@ -106,6 +106,42 @@ If the user's input requests inappropriate content:
 
 Remember: The safety of young readers is paramount. When in doubt, keep it safe and appropriate.
 """
+
+
+def get_nsfw_allowed_prompt() -> str:
+    """
+    Get the prompt text for uncensored content mode.
+    Injected when the user has allow_nsfw=True.
+
+    Returns:
+        The uncensored content permission text
+    """
+    return "CONTENT POLICY: Content is uncensored. Sexual, profane, and mature language is permitted when it fits the scene and characters."
+
+
+def get_content_permission_prompt(allow_nsfw: bool) -> str:
+    """
+    Get the appropriate content permission prompt based on user's NSFW setting.
+    Always returns a prompt — either uncensored permission or family-friendly restriction.
+
+    Args:
+        allow_nsfw: Whether the user has NSFW content enabled
+
+    Returns:
+        Content permission prompt text
+    """
+    # Normalize the allow_nsfw value (handle None, strings, etc.)
+    if allow_nsfw is None:
+        normalized = False
+    elif isinstance(allow_nsfw, str):
+        normalized = allow_nsfw.lower() in ('true', '1', 'yes')
+    else:
+        normalized = bool(allow_nsfw)
+
+    if normalized:
+        return get_nsfw_allowed_prompt()
+    else:
+        return get_nsfw_prevention_prompt()
 
 
 def get_nsfw_warning_message(found_keywords: List[str]) -> str:

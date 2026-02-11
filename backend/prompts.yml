@@ -344,9 +344,7 @@ scene_base:
 
     {prose_style_instruction}
 
-    SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships.
-
-    IMPORTANT - PAST EVENTS: When referencing memories, marks, past moments, or anything that "happened before," use the "Relevant Past Events" section which contains the actual scenes where those events occurred. DO NOT invent or hallucinate details about past events - use the specific details provided in context.
+    SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships. Never invent details about past events — use only what's provided in context.
   
   # Standard formatting rules for all scenes
   formatting: |
@@ -414,10 +412,9 @@ scene_base:
 
     Show these events in vivid detail. Start at the BEGINNING—don't skip ahead.
     Follow each character's DIALOGUE STYLE. Minimize adverbs/adjectives.
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
     {prose_style_reminder}
     {tone_reminder}
-
-    CRITICAL - USING PAST EVENTS: If the prompt references past events (memories, marks, prior moments, things that happened before), check the "Relevant Past Events" section in the context. Use THOSE SPECIFIC DETAILS - don't invent or hallucinate what happened. The semantic search has found the actual scenes where those events occurred.
 
     Write {scene_length_description} depicting: {immediate_situation}
 
@@ -428,6 +425,7 @@ scene_base:
     PACING: Let the scene unfold at its own natural pace. Chapter plot beats are goals spread across many scenes—you don't need to hit any specific beat in this scene. Focus on making THIS scene engaging and immersive.
 
     DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
 
     {prose_style_reminder}
     {tone_reminder}
@@ -445,6 +443,7 @@ scene_base:
 
     Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
 
     {prose_style_reminder}
     {tone_reminder}
@@ -462,6 +461,7 @@ scene_base:
     Rewrite the scene above incorporating the requested enhancement.
     Maintain the same core events and outcomes. Keep consistency with established story elements.
     Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
     Write approximately {scene_length_description} in length.
 
     {prose_style_reminder}

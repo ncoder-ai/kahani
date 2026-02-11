@@ -533,7 +533,8 @@ class ContextManager:
 
         # Add contradiction context (unresolved continuity warnings) - always fresh
         try:
-            contradiction_context = self._build_contradiction_context(db, story_id, branch_id, current_seq)
+            current_scene_sequence = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+            contradiction_context = self._build_contradiction_context(db, story_id, branch_id, current_scene_sequence)
             if contradiction_context:
                 base_context["contradiction_context"] = contradiction_context
         except Exception as e:
