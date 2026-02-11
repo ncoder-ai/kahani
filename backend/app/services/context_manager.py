@@ -521,10 +521,6 @@ class ContextManager:
                 if context_snapshot.get("story_focus"):
                     base_context["story_focus"] = context_snapshot["story_focus"]
                     logger.info(f"[LINEAR CONTEXT] Applied snapshotted story_focus")
-                if context_snapshot.get("relationship_context"):
-                    base_context["relationship_context"] = context_snapshot["relationship_context"]
-                    logger.info(f"[LINEAR CONTEXT] Applied snapshotted relationship_context")
-
         # If no snapshot available, build dynamic context
         if not context_snapshot:
             # Add story focus (working memory + active plot threads)
@@ -535,22 +531,9 @@ class ContextManager:
             except Exception as e:
                 logger.warning(f"[CONTEXT BUILD] Failed to build story focus: {e}")
 
-            # Add relationship context (character relationship arcs)
-            try:
-                # Get current scene sequence for neglect detection
-                current_seq = None
-                if scenes:
-                    current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
-
-                relationship_context = self._build_relationship_context(db, story_id, branch_id, current_seq)
-                if relationship_context:
-                    base_context["relationship_context"] = relationship_context
-            except Exception as e:
-                logger.warning(f"[CONTEXT BUILD] Failed to build relationship context: {e}")
-
         # Add contradiction context (unresolved continuity warnings) - always fresh
         try:
-            contradiction_context = self._build_contradiction_context(db, story_id, branch_id)
+            contradiction_context = self._build_contradiction_context(db, story_id, branch_id, current_seq)
             if contradiction_context:
                 base_context["contradiction_context"] = contradiction_context
         except Exception as e:
@@ -691,9 +674,12 @@ Appearance: {char.get('appearance', '')}
             logger.warning(f"[CONTEXT BUILD] Error building story focus: {e}")
             return None
 
-    def _build_contradiction_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[List[str]]:
+    def _build_contradiction_context(self, db: Session, story_id: int, branch_id: Optional[int], current_scene_sequence: Optional[int] = None) -> Optional[List[str]]:
         """
         Build contradiction context from unresolved contradictions.
+
+        Only includes contradictions from recent scenes (within the visible context window)
+        so the LLM only sees warnings it can actually address.
 
         Returns a list of concise warning strings for the LLM to naturally address.
         """
@@ -714,6 +700,14 @@ Appearance: {char.get('appearance', '')}
             )
             if branch_id:
                 query = query.filter(Contradiction.branch_id == branch_id)
+
+            # Recency filter: only show contradictions from scenes within the recent
+            # context window (keep_recent_scenes * batch_size). Older contradictions
+            # are stale — characters naturally move between rooms over many scenes.
+            if current_scene_sequence:
+                recent_window = self.keep_recent_scenes * self.scene_batch_size
+                min_scene = current_scene_sequence - recent_window
+                query = query.filter(Contradiction.scene_sequence >= min_scene)
 
             contradictions = query.order_by(Contradiction.detected_at.desc()).limit(10).all()
 
@@ -738,90 +732,6 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Error building contradiction context: {e}")
-            return None
-
-    def _build_relationship_context(
-        self,
-        db: Session,
-        story_id: int,
-        branch_id: Optional[int],
-        current_scene_sequence: Optional[int] = None
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Build relationship context from relationship summaries.
-
-        Returns a dict with:
-        - relationships: List of relationship info for context
-        - neglected: Relationships that haven't had recent interaction
-        """
-        try:
-            from ..models import RelationshipSummary
-
-            # Check if relationship graph is enabled
-            ctx_settings = self.user_settings.get('context_settings', {})
-            if not ctx_settings.get('enable_relationship_graph', True):
-                return None
-
-            # Get relationship summaries
-            query = db.query(RelationshipSummary).filter(
-                RelationshipSummary.story_id == story_id
-            )
-            if branch_id:
-                query = query.filter(RelationshipSummary.branch_id == branch_id)
-
-            summaries = query.all()
-
-            if not summaries:
-                return None
-
-            # Build relationship list
-            relationships = []
-            neglected = []
-
-            for s in summaries:
-                # Skip weak/undeveloped relationships
-                if abs(s.current_strength or 0) < 0.2 and (s.total_interactions or 0) < 2:
-                    continue
-
-                relationships.append({
-                    "characters": [s.character_a, s.character_b],
-                    "type": s.current_type,
-                    "strength": s.current_strength,
-                    "trajectory": s.trajectory,
-                    "arc": s.arc_summary,
-                    "last_change": s.last_change,
-                    "interactions": s.total_interactions,
-                    "last_scene": s.last_scene_sequence
-                })
-
-                # Check for neglected relationships
-                if current_scene_sequence and s.last_scene_sequence:
-                    scenes_since = current_scene_sequence - s.last_scene_sequence
-                    if scenes_since > 3 and (s.current_strength or 0) > 0.3:
-                        neglected.append({
-                            "characters": [s.character_a, s.character_b],
-                            "last_seen": s.last_scene_sequence,
-                            "scenes_ago": scenes_since
-                        })
-
-            if not relationships:
-                return None
-
-            # Sort by strength (strongest first), with character names as tiebreaker for cache stability
-            relationships.sort(key=lambda r: (-abs(r['strength'] or 0), r.get('characters', [''])[0]))
-
-            result = {
-                "relationships": relationships[:8],  # Limit for context efficiency
-            }
-
-            if neglected:
-                result["neglected"] = neglected[:3]
-
-            logger.info(f"[CONTEXT BUILD] Relationships: {len(relationships)} total, {len(neglected)} neglected")
-            return result
-
-        except Exception as e:
-            logger.warning(f"[CONTEXT BUILD] Error building relationship context: {e}")
             return None
 
     async def _build_scene_context(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
@@ -1324,8 +1234,6 @@ Appearance: {char.get('appearance', '')}
             "pacing_guidance": None,
             # Working memory & active plot threads
             "story_focus": full_context.get("story_focus"),
-            # Character relationship context
-            "relationship_context": full_context.get("relationship_context"),
             # Contradiction context (unresolved continuity warnings)
             "contradiction_context": full_context.get("contradiction_context"),
             # Entity states (character states, locations, objects) - passed separately for independent message positioning
@@ -1936,10 +1844,6 @@ Appearance: {char.get('appearance', '')}
             if context_snapshot.get("story_focus"):
                 base_context["story_focus"] = context_snapshot["story_focus"]
                 logger.info(f"[HYBRID CONTEXT] Applied snapshotted story_focus for cache consistency")
-            if context_snapshot.get("relationship_context"):
-                base_context["relationship_context"] = context_snapshot["relationship_context"]
-                logger.info(f"[HYBRID CONTEXT] Applied snapshotted relationship_context for cache consistency")
-
         # Only build dynamic context if no snapshot was available
         if not context_snapshot:
             # Add story focus (working memory + active plot threads)
@@ -1950,21 +1854,12 @@ Appearance: {char.get('appearance', '')}
             except Exception as e:
                 logger.warning(f"[HYBRID CONTEXT BUILD] Failed to build story focus: {e}")
 
-            # Add relationship context (character relationship arcs)
-            try:
-                current_seq = None
-                if scenes:
-                    current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
-
-                relationship_context = self._build_relationship_context(db, story_id, branch_id, current_seq)
-                if relationship_context:
-                    base_context["relationship_context"] = relationship_context
-            except Exception as e:
-                logger.warning(f"[HYBRID CONTEXT BUILD] Failed to build relationship context: {e}")
-
         # Add contradiction context (unresolved continuity warnings)
         try:
-            contradiction_context = self._build_contradiction_context(db, story_id, branch_id)
+            current_seq_for_contradictions = None
+            if scenes:
+                current_seq_for_contradictions = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+            contradiction_context = self._build_contradiction_context(db, story_id, branch_id, current_seq_for_contradictions)
             if contradiction_context:
                 base_context["contradiction_context"] = contradiction_context
         except Exception as e:
@@ -2058,7 +1953,7 @@ Appearance: {char.get('appearance', '')}
         # Remove duplicates and sort for clarity
         all_recent_scene_sequences = sorted(set(all_recent_scene_sequences))
 
-        semantic_tokens = int(remaining_tokens * 0.25)
+        semantic_tokens = int(remaining_tokens * 0.50)
         character_tokens = int(remaining_tokens * 0.15)
         entity_tokens = int(remaining_tokens * 0.05)
         summary_tokens = int(remaining_tokens * 0.05)
@@ -2783,47 +2678,27 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[SEMANTIC SEARCH] Top {len(selected_info)} candidates (score, seq#): {selected_info}")
 
             # Get scene content within token budget (now using chronologically sorted results)
+            # No per-scene truncation — include full scene content; token budget controls total inclusion
             relevant_parts = []
             used_tokens = 0
-
-            # Calculate max chars per scene based on token budget and number of scenes
-            # Aim to fit all scenes, with reasonable content per scene (at least 800 chars each)
-            num_scenes = len(filtered_results_with_scenes)
-            chars_per_token = 4  # rough estimate
-            max_chars_per_scene = max(800, (token_budget * chars_per_token) // max(num_scenes, 1))
-            max_chars_per_scene = min(max_chars_per_scene, 2000)  # Cap at 2000 chars per scene
 
             for result, scene in filtered_results_with_scenes:
                 variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
                 if not variant:
                     continue
 
-                similarity_score = result.get('similarity_score', 0.0)
                 keyword_matches = result.get('keyword_matches', [])
-
-                # Include more content for scenes with keyword matches (they're more relevant)
-                content_limit = max_chars_per_scene if keyword_matches else min(max_chars_per_scene, 600)
-                truncated = len(variant.content) > content_limit
-                content_preview = variant.content[:content_limit] + ("..." if truncated else "")
 
                 # Include keyword match info to help LLM understand relevance
                 match_info = f" [matched: {', '.join(keyword_matches)}]" if keyword_matches else ""
-                scene_text = f"[Relevant from Scene {scene.sequence_number}{match_info}]:\n{content_preview}"
+                scene_text = f"[Relevant from Scene {scene.sequence_number}{match_info}]:\n{variant.content}"
                 scene_tokens = self.count_tokens(scene_text)
 
                 if used_tokens + scene_tokens <= token_budget:
                     relevant_parts.append(scene_text)
                     used_tokens += scene_tokens
                 else:
-                    # Try with smaller content if we're over budget
-                    shorter_content = variant.content[:400] + "..."
-                    shorter_text = f"[Relevant from Scene {scene.sequence_number}{match_info}]:\n{shorter_content}"
-                    shorter_tokens = self.count_tokens(shorter_text)
-                    if used_tokens + shorter_tokens <= token_budget:
-                        relevant_parts.append(shorter_text)
-                        used_tokens += shorter_tokens
-                    else:
-                        break
+                    break
 
             if relevant_parts:
                 logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)}/{self.semantic_scenes_in_context} semantic scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}, total chars: {sum(len(p) for p in relevant_parts)}")
@@ -3193,7 +3068,58 @@ Appearance: {char.get('appearance', '')}
                 except Exception as e:
                     logger.warning(f"[EVENT INDEX] Semantic scoring failed, using keyword-only: {e}")
 
-            # --- Merge: max(keyword, semantic) per event ---
+            # --- Character relevance: extract queried character names from sub-queries ---
+            queried_chars = set()
+            try:
+                from ..models.character import Character as CharModel, StoryCharacter
+                story_chars = (
+                    db.query(CharModel.name)
+                    .join(StoryCharacter, StoryCharacter.character_id == CharModel.id)
+                    .filter(StoryCharacter.story_id == story_id)
+                    .all()
+                )
+                # Build name variant mapping: any name form → canonical first name
+                # "Radhika Sharma" → {"radhika": "radhika", "sharma": "radhika", "radhika sharma": "radhika"}
+                # This handles events stored as "Radhika", "Mrs. Sharma", or "Radhika Sharma"
+                name_to_canonical = {}  # any variant → canonical first name
+                all_first_names = set()
+                for (cname,) in story_chars:
+                    parts = cname.lower().split()
+                    first = parts[0]
+                    all_first_names.add(first)
+                    name_to_canonical[cname.lower()] = first  # full name
+                    for part in parts:
+                        if part not in name_to_canonical:
+                            name_to_canonical[part] = first  # first/last name
+
+                # Extract ACTOR characters: the first character name in each sub-query,
+                # then keep only those appearing as actor in majority of sub-queries.
+                # "Ali groped Radhika breasts" → Ali is actor (first name, position 0)
+                # Majority vote filters out noise from passive-voice sub-queries.
+                from collections import Counter
+                actor_counts = Counter()
+                for sq in sub_queries:
+                    sq_lower = sq.lower()
+                    earliest_pos = len(sq_lower)
+                    earliest_canonical = None
+                    for variant, canonical in name_to_canonical.items():
+                        pos = sq_lower.find(variant)
+                        if pos != -1 and pos < earliest_pos:
+                            earliest_pos = pos
+                            earliest_canonical = canonical
+                    if earliest_canonical:
+                        actor_counts[earliest_canonical] += 1
+                # Keep characters that are actor in >1 sub-query (or sole sub-query)
+                threshold = 2 if len(sub_queries) > 2 else 1
+                for name, count in actor_counts.items():
+                    if count >= threshold:
+                        queried_chars.add(name)
+                if queried_chars:
+                    logger.info(f"[EVENT INDEX] Queried characters: {queried_chars}")
+            except Exception:
+                pass
+
+            # --- Merge: max(keyword, semantic) per event, with character relevance ---
             all_indices = set(keyword_scores.keys()) | set(per_query_top.keys())
             matches = []
             for idx in all_indices:
@@ -3205,6 +3131,23 @@ Appearance: {char.get('appearance', '')}
                 has_kw = bool(kw and kw.get("has_keyword_match"))
 
                 event = all_events[idx]
+
+                # Demote events attributed to different characters than queried
+                # Resolve event names through variant mapping (handles "Sharma" → "radhika")
+                if queried_chars and event.characters_involved:
+                    event_canonicals = set()
+                    for c in event.characters_involved:
+                        c_lower = c.lower()
+                        canonical = name_to_canonical.get(c_lower) or name_to_canonical.get(c_lower.split()[0])
+                        if canonical:
+                            event_canonicals.add(canonical)
+                        else:
+                            event_canonicals.add(c_lower)  # NPC or unknown — use as-is
+                    if event_canonicals & queried_chars:
+                        pass  # Correct character — keep score
+                    else:
+                        best_score *= 0.5  # Wrong character — demote
+
                 matches.append({
                     "scene_sequence": event.scene_sequence,
                     "event_text": event.event_text,
@@ -3222,6 +3165,15 @@ Appearance: {char.get('appearance', '')}
                 if m.get("has_keyword_match"):
                     best_by_seq[seq]["has_keyword_match"] = True
 
+            # Debug: check specific scenes of interest
+            for dbg_seq in [52, 53, 54]:
+                if dbg_seq in best_by_seq:
+                    m = best_by_seq[dbg_seq]
+                    logger.info(f"[EVENT INDEX DBG] seq={dbg_seq} score={m['score']:.3f} "
+                               f"kw={m.get('has_keyword_match', False)} '{m['event_text'][:80]}'")
+                else:
+                    logger.info(f"[EVENT INDEX DBG] seq={dbg_seq} NOT in matches")
+
             # Sort: keyword matches first (more precise), then by score
             # This ensures scenes matching LLM synonyms get reserved slots over
             # semantic-only matches that may be thematically similar but factually wrong.
@@ -3237,6 +3189,11 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[EVENT INDEX] Found {len(top_matches)} matches "
                            f"(keyword={kw_count}, semantic={len(per_query_top)}, "
                            f"top={top_matches[0]['score']:.2f}: '{top_matches[0]['event_text'][:60]}')")
+                # Debug: log top 8 event matches with scene sequence, score, and event snippet
+                for rank, m in enumerate(top_matches[:8]):
+                    logger.info(f"[EVENT INDEX] #{rank+1} seq={m['scene_sequence']} "
+                               f"score={m['score']:.3f} kw={m.get('has_keyword_match', False)} "
+                               f"'{m['event_text'][:80]}'...")
 
             return top_matches
 
@@ -3303,35 +3260,24 @@ Appearance: {char.get('appearance', '')}
             )
 
             if intent_type == "recall" and event_matches:
-                # RECALL: Top 5 event matches are GUARANTEED in final output.
-                # Floor at 0.90 ensures they survive token budget formatting.
-                for em in event_matches[:5]:
+                # RECALL: Pin all event matches + surroundings. Reserved slot
+                # selection deferred until after RRF, when we can combine
+                # event scores with RRF scores for better ranking.
+                for em in event_matches:
                     center_seq = em['scene_sequence']
-                    pin_score = max(em.get('score', 0.5), 0.90)
-                    reserved_event_seqs[center_seq] = pin_score
-                    pinned_scene_scores[center_seq] = pin_score
+                    match_score = em.get('score', 0.5)
+                    if center_seq not in pinned_scene_scores or match_score > pinned_scene_scores[center_seq]:
+                        pinned_scene_scores[center_seq] = match_score
                     pinned_scene_sequences.add(center_seq)
-                    # ±2 surrounding scenes with decay (not reserved, just pinned)
                     for offset in [-2, -1, 1, 2]:
                         seq = center_seq + offset
                         if seq > 0:
-                            decay_score = em.get('score', 0.5) * max(0.4, 1.0 - 0.3 * abs(offset))
+                            decay_score = match_score * max(0.4, 1.0 - 0.3 * abs(offset))
                             if seq not in pinned_scene_scores or decay_score > pinned_scene_scores[seq]:
                                 pinned_scene_scores[seq] = decay_score
                             pinned_scene_sequences.add(seq)
-                # Remaining event matches beyond top 5 get normal pinning
-                for em in event_matches[5:]:
-                    center_seq = em['scene_sequence']
-                    match_score = em.get('score', 0.5)
-                    for offset in range(-2, 3):
-                        seq = center_seq + offset
-                        if seq > 0:
-                            pin_score = match_score * max(0.4, 1.0 - 0.3 * abs(offset))
-                            if seq not in pinned_scene_scores or pin_score > pinned_scene_scores[seq]:
-                                pinned_scene_scores[seq] = pin_score
-                            pinned_scene_sequences.add(seq)
-                logger.info(f"[EVENT INDEX] Reserved {len(reserved_event_seqs)} scenes, "
-                           f"pinned {len(pinned_scene_sequences)} total from {len(event_matches)} matches")
+                logger.info(f"[EVENT INDEX] Pinned {len(pinned_scene_sequences)} total "
+                           f"from {len(event_matches)} matches (reserved deferred to post-RRF)")
             elif event_matches:
                 # DIRECT/REACT: Event matches are pinned but not reserved
                 for em in event_matches:
@@ -3728,43 +3674,9 @@ Appearance: {char.get('appearance', '')}
                 flow = flow_by_scene.get(sid)
                 content_by_scene_id[sid] = (flow.scene_variant.content if flow and flow.scene_variant else "").lower()
 
-            # === CROSS-ENCODER RERANKING ===
-            # The cross-encoder processes (query, document) pairs jointly, so it can detect
-            # semantic matches that bi-encoders miss (e.g., "licked her pussy" matching
-            # "his tongue working between her legs"). Replaces phrase boost + content
-            # verification when available.
+            # Cross-encoder reranking disabled — adds ~23s latency for marginal quality gain.
+            # Event index + keyword scoring + content verification handle recall well enough.
             rerank_applied = False
-            if self.semantic_memory and user_intent:
-                rerank_candidates = {
-                    r['scene_id']: content_by_scene_id[r['scene_id']]
-                    for r in similar_scenes[:30]
-                    if content_by_scene_id.get(r['scene_id'])
-                }
-                if rerank_candidates:
-                    rerank_scores = await self.semantic_memory.rerank_scenes(
-                        query_text=user_intent,
-                        scene_contents=rerank_candidates
-                    )
-                    if rerank_scores:
-                        reranked_ids = set(rerank_scores.keys())
-                        for result in similar_scenes:
-                            sid = result['scene_id']
-                            if sid in reranked_ids:
-                                # Preserve any temporal boost from anchoring step
-                                temporal_boost = result.get('temporal_boost', 0.0)
-                                result['similarity_score'] = rerank_scores[sid] + temporal_boost
-                                result['rerank_score'] = rerank_scores[sid]
-                            else:
-                                # Scenes outside top 30: halve their score
-                                result['similarity_score'] *= 0.5
-                        similar_scenes.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
-                        rerank_applied = True
-                        top5_info = [(round(r.get('similarity_score', 0), 3),
-                                     round(r.get('rerank_score', 0), 3),
-                                     content_by_scene_id.get(r['scene_id'], '')[:40])
-                                    for r in similar_scenes[:5]]
-                        logger.info(f"[CROSS-ENCODER] Reranked {len(rerank_scores)} scenes. "
-                                   f"Top 5 (total, ce, preview): {top5_info}")
 
             if not rerank_applied:
                 # Fallback: phrase boost + content verification (when reranker unavailable)
@@ -3897,11 +3809,9 @@ Appearance: {char.get('appearance', '')}
             # right part of the timeline. Uses multiplicative boost so relevant
             # scenes get amplified while irrelevant ones stay low.
             # "earliest" boosts low sequence numbers, "latest" boosts high.
-            # Skip for recall intents — user is asking about specific past events;
-            # position boost would inflate recent scenes over actually relevant ones.
-            if intent_type == "recall" and temporal_type in ("earliest", "latest"):
-                logger.info(f"[TEMPORAL POSITION] Skipping {temporal_type} position boost — recall intent")
-            elif temporal_type in ("earliest", "latest") and filtered_results:
+            # Applied to all intents including recall — helps disambiguate when
+            # the same characters had similar interactions at different points.
+            if temporal_type in ("earliest", "latest") and filtered_results:
                 seqs = [seq_by_id_sel.get(r['scene_id'], 0) for r in filtered_results]
                 min_seq, max_seq = min(seqs), max(seqs)
                 seq_range = max(1, max_seq - min_seq)
@@ -3915,7 +3825,10 @@ Appearance: {char.get('appearance', '')}
                     else:  # latest
                         # Latest scenes get highest boost
                         position_ratio = (seq - min_seq) / seq_range
-                    multiplier = 1.0 + 0.50 * position_ratio
+                    # Penalty only: scenes in the wrong temporal direction get penalized,
+                    # scenes in the right direction keep their original score.
+                    # position_ratio 1.0 → ×1.0 (right direction), 0.0 → ×0.8 (wrong direction)
+                    multiplier = 0.8 + 0.2 * position_ratio
                     r['temporal_position_boost'] = multiplier
                     r['similarity_score'] *= multiplier
                     boosted += 1
@@ -3923,7 +3836,7 @@ Appearance: {char.get('appearance', '')}
                 filtered_results.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
                 top5 = [(round(r.get('similarity_score', 0), 3), seq_by_id_sel.get(r['scene_id'], '?'))
                          for r in filtered_results[:5]]
-                logger.info(f"[TEMPORAL POSITION] Applied {temporal_type} boost (×1.0–1.5) to {boosted} scenes. "
+                logger.info(f"[TEMPORAL POSITION] Applied {temporal_type} penalty (×0.8–1.0) to {boosted} scenes. "
                            f"Top 5: {top5}")
 
             # Don't pad with noise — remove low-relevance scenes before selection
@@ -3934,27 +3847,39 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[RELEVANCE FILTER] Removed {pre_filter_count - len(filtered_results)} "
                            f"scenes below {MIN_RELEVANCE} threshold")
 
+            # === RESERVED SLOT SELECTION ===
+            # Select top 3 event matches by event_score only (not RRF).
+            # The event index exists to find scenes the bi-encoder MISSES —
+            # penalizing zero-RRF scenes defeats that purpose.
+            if intent_type == "recall" and event_matches:
+                event_matches.sort(key=lambda em: em.get('score', 0.5), reverse=True)
+
+                reserved_event_seqs.clear()
+                for em in event_matches[:3]:
+                    center_seq = em['scene_sequence']
+                    reserved_event_seqs[center_seq] = em.get('score', 0.5) + 0.15
+                    pinned_scene_scores[center_seq] = em.get('score', 0.5) + 0.15
+
+                top5_info = [(em['scene_sequence'], f"ev={em.get('score', 0):.3f}")
+                             for em in event_matches[:5]]
+                logger.info(f"[EVENT RESERVED] Top 5 by event score: {top5_info}")
+                logger.info(f"[EVENT RESERVED] Reserved 3 clusters at seqs: {list(reserved_event_seqs.keys())}")
+
             # Select top-N, guaranteeing pinned scenes are included (budget-limited by pin score)
             filtered_results.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
 
             if pinned_scene_sequences:
-                # Partition: pinned scenes first, then fill remaining budget with top-scored
-                pinned = [r for r in filtered_results
-                          if seq_by_id_sel.get(r['scene_id']) in pinned_scene_sequences]
-
-                # Apply reserved floor scores — reserved scenes should survive token budget formatting
-                # even if their RRF score was lower than the floor
+                # Apply reserved additive bonus to event-matched scenes
                 if reserved_event_seqs:
-                    for r in pinned:
+                    for r in filtered_results:
                         seq = seq_by_id_sel.get(r['scene_id'])
                         if seq in reserved_event_seqs:
-                            floor = reserved_event_seqs[seq]
-                            if r['similarity_score'] < floor:
-                                r['similarity_score'] = floor
+                            r['similarity_score'] += 0.15
 
-                # Load any pinned scenes not already in the candidate pool
+                # Load pinned scenes not already in the candidate pool
                 existing_seqs = {seq_by_id_sel.get(r['scene_id']) for r in filtered_results}
                 missing_seqs = pinned_scene_sequences - existing_seqs
+                loaded_count = 0
                 if missing_seqs:
                     missing_scenes = db.query(Scene).filter(
                         Scene.story_id == story_id,
@@ -3968,35 +3893,54 @@ Appearance: {char.get('appearance', '')}
                         ).first()
                         if flow and flow.scene_variant:
                             seq = ms.sequence_number
+                            score = pinned_scene_scores.get(seq, 0.5)
+                            # Reserved scenes from DB also get additive bonus
+                            if seq in reserved_event_seqs:
+                                score += 0.15
                             r = {
                                 'scene_id': ms.id,
                                 'variant_id': flow.scene_variant.id,
                                 'sequence': seq,
                                 'chapter_id': ms.chapter_id,
-                                'similarity_score': pinned_scene_scores.get(seq, 0.5),
+                                'similarity_score': score,
                                 'pinned': True,
                             }
-                            pinned.append(r)
+                            filtered_results.append(r)
                             seq_by_id_sel[ms.id] = seq
-                    logger.info(f"[EVENT INDEX] Loaded {len(missing_scenes)} additional pinned scenes from DB")
+                            loaded_count += 1
+                    if loaded_count:
+                        logger.info(f"[EVENT INDEX] Loaded {loaded_count} additional pinned scenes from DB")
 
-                # Budget-limit pinned scenes: if more than scene_limit, keep highest-scored
-                if len(pinned) > scene_limit:
-                    for r in pinned:
-                        seq = seq_by_id_sel.get(r['scene_id'], r.get('sequence', 0))
-                        r['_pin_score'] = pinned_scene_scores.get(seq, r.get('similarity_score', 0.5))
-                    pinned.sort(key=lambda r: r['_pin_score'], reverse=True)
-                    pinned = pinned[:scene_limit]
-                    logger.info(f"[PIN BUDGET] Trimmed pinned to {scene_limit} "
-                               f"by score (top={pinned[0]['_pin_score']:.2f}, bottom={pinned[-1]['_pin_score']:.2f})")
+                # Guarantee reserved event clusters (-1, center, +1) for top event
+                # matches, then let everything else compete on score.
+                reserved_seqs = set()
+                if reserved_event_seqs:
+                    for center_seq in reserved_event_seqs:
+                        for offset in (-1, 0, 1):
+                            seq = center_seq + offset
+                            if seq > 0:
+                                reserved_seqs.add(seq)
 
-                non_pinned = [r for r in filtered_results
-                              if r['scene_id'] not in {r2['scene_id'] for r2 in pinned}]
-                remaining_budget = max(0, scene_limit - len(pinned))
-                selected = pinned + non_pinned[:remaining_budget]
-                logger.info(f"[SCENE SELECTION] {len(pinned)} pinned + "
-                           f"{min(remaining_budget, len(non_pinned))} ranked = {len(selected)} total"
-                           + (f" ({len(reserved_event_seqs)} reserved)" if reserved_event_seqs else ""))
+                reserved_ids = set()
+                reserved_selected = []
+                if reserved_seqs:
+                    for r in filtered_results:
+                        seq = seq_by_id_sel.get(r['scene_id'])
+                        if seq in reserved_seqs:
+                            reserved_selected.append(r)
+                            reserved_ids.add(r['scene_id'])
+
+                remaining_budget = scene_limit - len(reserved_selected)
+                rest = [r for r in filtered_results if r['scene_id'] not in reserved_ids]
+                rest.sort(key=lambda r: r.get('similarity_score', 0), reverse=True)
+                selected = reserved_selected + rest[:max(0, remaining_budget)]
+
+                pinned_in = sum(1 for r in selected
+                                if seq_by_id_sel.get(r['scene_id']) in pinned_scene_sequences)
+                ranked_in = len(selected) - pinned_in
+                logger.info(f"[SCENE SELECTION] {len(reserved_selected)} reserved (clusters) + "
+                           f"{pinned_in - len(reserved_selected)} pinned + {ranked_in} ranked "
+                           f"= {len(selected)} total")
             else:
                 selected = filtered_results[:scene_limit]
 
@@ -4016,34 +3960,23 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[SEMANTIC MULTI-QUERY] Selected {len(filtered_with_scenes)} scenes (score, seq#): {selected_info}")
 
             # Format within token budget — select by SCORE, present chronologically
-            # Step 1: Pre-load all variants and compute token costs
-            chars_per_token = 4
-            num_scenes = len(filtered_with_scenes)
-            max_chars_per_scene = max(800, (token_budget * chars_per_token) // max(num_scenes, 1))
-            max_chars_per_scene = min(max_chars_per_scene, 2000)
-
+            # No per-scene truncation — include full scene content; token budget controls total inclusion
             scene_entries = []
             for result, scene in filtered_with_scenes:
                 variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
                 if not variant:
                     continue
-                truncated = len(variant.content) > max_chars_per_scene
-                content_preview = variant.content[:max_chars_per_scene] + ("..." if truncated else "")
-                scene_text = f"[Relevant from Scene {scene.sequence_number}]:\n{content_preview}"
-                shorter_content = variant.content[:400] + "..."
-                shorter_text = f"[Relevant from Scene {scene.sequence_number}]:\n{shorter_content}"
+                scene_text = f"[Relevant from Scene {scene.sequence_number}]:\n{variant.content}"
                 scene_entries.append({
                     'result': result,
                     'scene': scene,
                     'full_text': scene_text,
                     'full_tokens': self.count_tokens(scene_text),
-                    'short_text': shorter_text,
-                    'short_tokens': self.count_tokens(shorter_text),
                     'score': result.get('similarity_score', 0),
                     'seq': scene.sequence_number,
                 })
 
-            # Step 2: Greedily select scenes by score (highest first) within token budget
+            # Greedily select scenes by score (highest first) within token budget
             scene_entries.sort(key=lambda e: e['score'], reverse=True)
             total_tokens_used = 0
             selected_entries = []
@@ -4051,10 +3984,6 @@ Appearance: {char.get('appearance', '')}
                 if total_tokens_used + entry['full_tokens'] <= token_budget:
                     entry['use_text'] = entry['full_text']
                     total_tokens_used += entry['full_tokens']
-                    selected_entries.append(entry)
-                elif total_tokens_used + entry['short_tokens'] <= token_budget:
-                    entry['use_text'] = entry['short_text']
-                    total_tokens_used += entry['short_tokens']
                     selected_entries.append(entry)
 
             # Step 3: Sort selected scenes chronologically for presentation
@@ -4553,7 +4482,7 @@ Appearance: {char.get('appearance', '')}
         Load context snapshot from the scene's active variant.
 
         Used during variant regeneration to ensure cache consistency by using
-        the exact same context (entity states, story_focus, relationship_context)
+        the exact same context (entity states, story_focus)
         that was present when the scene was generated.
 
         Args:
@@ -4561,7 +4490,7 @@ Appearance: {char.get('appearance', '')}
             scene_id: Scene ID to load snapshot for
 
         Returns:
-            Dict with snapshot fields (entity_states_text, story_focus, relationship_context)
+            Dict with snapshot fields (entity_states_text, story_focus)
             or None if no snapshot available. Falls back to legacy entity_states_snapshot
             if full context_snapshot is not available.
         """
@@ -4689,16 +4618,14 @@ Appearance: {char.get('appearance', '')}
                     "description": interaction.description
                 })
 
-            # Format output
+            # Format output — compact: type + scene number only, no descriptions
             parts = ["CHARACTER INTERACTION HISTORY:"]
-            parts.append("(Factual record of what has occurred between characters)")
             parts.append("")
 
             for (name_a, name_b), interactions_list in pair_interactions.items():
                 parts.append(f"{name_a} & {name_b}:")
                 for interaction in interactions_list:
-                    desc = f" - {interaction['description']}" if interaction['description'] else ""
-                    parts.append(f"  - {interaction['type']} (scene {interaction['scene']}){desc}")
+                    parts.append(f"  - {interaction['type']} (scene {interaction['scene']})")
                 parts.append("")
 
             # Add note about what hasn't happened

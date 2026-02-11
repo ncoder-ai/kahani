@@ -761,25 +761,33 @@ entity_only_extraction:
     {scene_content}
 
     === EXTRACT CHARACTER STATES ===
-    Extract ONLY from the scene above. Known characters: {character_names}. Chapter location: {chapter_location}
+    Extract the END state of each character from the scene above. Known characters: {character_names}. Chapter location: {chapter_location}
 
-    EXAMPLE:
+    Only extract characters who are PHYSICALLY PRESENT in this scene. Do NOT extract characters who are merely mentioned, remembered, or discussed.
+
+    EXAMPLE 1:
     Scene: "Lena paced the kitchen in her bathrobe, clutching a mug of tea. Her hands trembled. 'I can't do this,' she whispered. Across the counter, Jay leaned against the fridge, arms crossed, still in yesterday's wrinkled shirt."
-    Output:
     {{"characters": [
-      {{"name": "Lena", "location": "kitchen", "current_position": "pacing", "items_in_hand": ["mug of tea"], "emotional_state": "anxious", "physical_condition": "trembling", "current_attire": "bathrobe"}},
-      {{"name": "Jay", "location": "kitchen", "current_position": "leaning against fridge", "items_in_hand": [], "emotional_state": "guarded", "physical_condition": null, "current_attire": "wrinkled shirt"}}
+      {{"name": "Lena", "location": "kitchen", "current_position": "pacing", "emotional_state": "anxious", "physical_condition": null, "current_attire": "bathrobe"}},
+      {{"name": "Jay", "location": "kitchen", "current_position": "leaning against fridge", "emotional_state": "guarded", "physical_condition": null, "current_attire": "wrinkled shirt"}}
+    ]}}
+
+    EXAMPLE 2:
+    Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed. He was still in his muddy jeans from the crash."
+    {{"characters": [
+      {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
+      {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": "muddy jeans"}}
     ]}}
 
     RULES:
-    - location: Room/building name ("kitchen", "bedroom"), NOT furniture ("couch", "bed")
-    - current_position: Where in room ("sitting on couch", "standing by door")
-    - emotional_state: 1-2 words ("nervous", "angry"), NOT prose ("feeling conflicted about her choices")
-    - items_in_hand: Only what they're HOLDING right now, [] if nothing
-    - current_attire: What they're WEARING ("jeans and t-shirt", "nude"), null if not mentioned. USING a towel ≠ wearing it.
+    - location: ROOM name ("kitchen", "bedroom", "living room"), NOT furniture ("couch", "bed", "counter")
+    - current_position: Physical position ("sitting on couch", "standing by door", "lying in bed")
+    - emotional_state: 1-2 words max ("nervous", "playful", "torn"). NOT a sentence.
+    - physical_condition: Visible injuries, marks, or physical symptoms ONLY. "swollen cheek", "bite mark on neck", "limping". null if healthy/uninjured. NOT emotions, NOT arousal states.
+    - current_attire: What they're wearing at END of scene ("jeans and t-shirt", "nude", "unbuttoned shirt"). null if not mentioned.
 
-    Return ONLY JSON:
-    {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "items_in_hand": [], "emotional_state": "...", "physical_condition": "...", "current_attire": "..."}}]}}
+    Return ONLY JSON — no explanation, no markdown:
+    {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
 
 # Working Memory Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
@@ -812,40 +820,6 @@ working_memory_cache_friendly:
 
 # Relationship Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
-relationship_cache_friendly:
-  user: |
-    === SCENE JUST GENERATED ===
-    {scene_content}
-
-    === EXTRACT RELATIONSHIP UPDATES ===
-    CANONICAL CHARACTER NAMES (use EXACTLY these names): {character_names}
-    Characters in scene: {characters}
-    Previous relationships: {previous_relationships}
-
-    RELATIONSHIP TYPES: stranger, acquaintance, friend, close_friend, romantic, family, professional, rival, enemy
-    STRENGTH SCALE: -1.0 (hatred) to 1.0 (deep love)
-
-    RULES:
-    - Only extract relationships that CHANGED or were DEMONSTRATED in this scene
-    - ONLY characters who are PHYSICALLY PRESENT and INTERACTING (not fantasies/memories)
-    - Use EXACT canonical character names. ONE entry per pair.
-
-    Return JSON:
-    {{
-      "relationships": [
-        {{
-          "character_a": "Name1",
-          "character_b": "Name2",
-          "type": "friend",
-          "strength": 0.6,
-          "change": "what specifically changed",
-          "sentiment": "positive"
-        }}
-      ]
-    }}
-
-    Empty if no relationship moments: {{"relationships": []}}
-
 # Scene Summary for Embedding (cache-friendly)
 # Used to generate a 2-3 sentence factual summary before ChromaDB embedding
 # Uses same context structure as scene generation for cache hits
@@ -1029,58 +1003,73 @@ scene_event_extraction:
       === EXTRACT KEY EVENTS ===
       Characters: {character_names}
 
-      Write SHORT events (under 8 words). Only 2-3 per scene. Skip routine actions.
+      Extract 3-6 events per scene. Use the BLUNTEST, most common words — write how a friend would retell it, not how a novelist wrote it.
 
-      EXAMPLE 1 (Characters: Priya, Arjun):
-      Scene: "Priya placed the platter on the table. Arjun brushed her waist reaching past. She bumped her hip. Doorbell rang. Guests complimented the food."
+      VOCABULARY RULES:
+      - "shoved" NOT "applied force to his chest"
+      - "stole" NOT "discreetly took possession of"
+      - "kissed" NOT "pressed his lips against"
+      - "grabbed her arm" NOT "his fingers encircled her wrist"
+      - "groped" NOT "brushed against" or "trailed along" or "hands wandered"
+      - "spied/watched" NOT "observed the interaction"
+      - "phone call" NOT "call on hold"
+      - Include WHO, WHAT, and WHERE/CONTEXT in each event
+
+      EXAMPLE 1 (Characters: Claire, Matt, Josh):
+      Scene: "Josh lingered in the corridor, feigning interest in his phone screen. Through the doorway he could see Matt's hand resting on Claire's lower back, fingers tracing slow circles. Claire stood rigid at the kitchen counter."
       {{"events": [
-        {{"text": "Arjun brushed Priya's waist", "characters": ["Arjun", "Priya"]}},
-        {{"text": "guests arrived for dinner", "characters": []}}
+        {{"text": "Matt touched Claire's back at kitchen counter", "characters": ["Matt", "Claire"]}},
+        {{"text": "Josh spied on Matt and Claire from corridor", "characters": ["Josh", "Matt", "Claire"]}}
       ]}}
 
-      EXAMPLE 2 (Characters: Ava, Rohan):
-      Scene: "Ava confronted Rohan about forgery. She slammed the papers down. Found the original letter in his drawer. Security arrived."
+      EXAMPLE 2 (Characters: Sofia, Diego):
+      Scene: "Sofia confronted Diego about the forged documents. She slammed papers on his desk. Found the original letter hidden in his drawer. Security was called."
       {{"events": [
-        {{"text": "Ava confronted Rohan about forgery", "characters": ["Ava", "Rohan"]}},
-        {{"text": "Ava found letter in Rohan's drawer", "characters": ["Ava"]}},
-        {{"text": "security called to office", "characters": []}}
+        {{"text": "Sofia confronted Diego about forgery at office", "characters": ["Sofia", "Diego"]}},
+        {{"text": "Sofia found hidden letter in Diego's drawer", "characters": ["Sofia"]}},
+        {{"text": "security called to Diego's office", "characters": []}}
       ]}}
 
-      EXAMPLE 3 (Characters: Nisha, Kabir):
-      Scene: "Nisha kissed Kabir on the rooftop. He gave her a silver bracelet. They watched the sunset. She mentioned moving to Delhi."
+      EXAMPLE 3 (Characters: Elena, Marcus):
+      Scene: "Marcus snatched the envelope from the table before Elena could reach it. She lunged but he shoved her back. He tore it open and read the contents aloud while she screamed at him to stop."
       {{"events": [
-        {{"text": "Nisha kissed Kabir on rooftop", "characters": ["Nisha", "Kabir"]}},
-        {{"text": "Kabir gave Nisha silver bracelet", "characters": ["Kabir", "Nisha"]}},
-        {{"text": "Nisha mentioned moving to Delhi", "characters": ["Nisha"]}}
+        {{"text": "Marcus stole envelope from Elena", "characters": ["Marcus", "Elena"]}},
+        {{"text": "Marcus shoved Elena away from table", "characters": ["Marcus", "Elena"]}},
+        {{"text": "Marcus read private letter aloud to Elena", "characters": ["Marcus", "Elena"]}}
       ]}}
 
-      TOO LONG: "Nisha and Kabir shared a passionate kiss on the rooftop while watching the sunset" — trim to 6-8 words
+      NOT extracted: "she stood rigid" (no action), "his heart raced" (internal feeling), "the sunset was beautiful" (description)
       "characters" = ONLY person names. Never objects or locations.
       Return ONLY JSON: {{"events": [{{"text": "...", "characters": ["Name"]}}]}}
 
   batch:
     system: "You extract factual events from story scenes. Return only valid JSON."
     user: |
-      Extract significant events from each scene below.
+      Extract significant events from each scene below. Use the BLUNTEST, most common words — write how a friend would retell it, not how a novelist wrote it.
 
       Characters: {character_names}
 
       {scenes_content}
 
-      EXAMPLE (Characters: Priya, Arjun, Sanjay):
-      Scene 1: "Priya served dishes in the crowded kitchen, bumping her hip on the refrigerator. Arjun entered with empty plates and offered to help. The stove burner went out unexpectedly."
-      Scene 2: "Sanjay stood close to Priya at the counter, accepting a bowl of curry. Arjun watched from across the room. Priya poured wine from the bottle Arjun held."
-      Scene 3: "Arjun wrapped his arms around Priya's waist in the kitchen. She pressed against him. He mentioned calling the contractor about renovations."
+      VOCABULARY RULES:
+      - "shoved" NOT "applied force to"; "stole" NOT "discreetly took"; "groped" NOT "brushed against"
+      - "spied/watched" NOT "observed the interaction"; "phone call" NOT "call on hold"
+      - Include WHO, WHAT, and WHERE/CONTEXT in each event
+
+      EXAMPLE (Characters: Claire, Matt, Josh):
+      Scene 1: "Claire served dishes in the crowded kitchen, bumping her hip on the refrigerator. Matt entered with empty plates and offered to help. The stove burner went out unexpectedly."
+      Scene 2: "Josh stood close to Claire at the counter, accepting a bowl of curry. Matt watched from across the room. Claire poured wine from the bottle Matt held."
+      Scene 3: "Matt wrapped his arms around Claire's waist in the kitchen. She pressed against him. He mentioned calling the contractor about renovations."
       {{"scenes": {{
         "1": [
-          {{"text": "stove burner went out while cooking", "characters": []}}
+          {{"text": "stove burner went out while cooking in kitchen", "characters": []}}
         ],
         "2": [
-          {{"text": "Sanjay accepted curry from Priya at counter", "characters": ["Sanjay", "Priya"]}}
+          {{"text": "Josh accepted curry from Claire at counter", "characters": ["Josh", "Claire"]}}
         ],
         "3": [
-          {{"text": "Arjun embraced Priya's waist in kitchen", "characters": ["Arjun", "Priya"]}},
-          {{"text": "Arjun proposed calling contractor for renovation", "characters": ["Arjun"]}}
+          {{"text": "Matt grabbed Claire's waist in kitchen", "characters": ["Matt", "Claire"]}},
+          {{"text": "Matt proposed calling contractor for renovation", "characters": ["Matt"]}}
         ]
       }}}}
       SKIPPED: "served dishes" (routine), "entered with plates" (routine), "watched from room" (passive)
@@ -1088,7 +1077,7 @@ scene_event_extraction:
       "characters" = ONLY person name strings. Never objects, body parts, or locations.
 
       RULES:
-      - 2-4 events per scene, max 10 words each — terse keyword fragments
+      - 3-6 events per scene, blunt everyday words, include location/context
       - Only SIGNIFICANT events — skip routine actions
       - Return ONLY valid JSON
 
@@ -1817,7 +1806,7 @@ entity_state_extraction:
   # Single scene extraction (used by entity_state_service.py main LLM fallback)
   single:
     system: |
-      You are a precise story state tracker. Extract entity states as JSON.
+      You are a precise story state tracker. Extract character states as JSON.
       Focus on FACTS only - no interpretation, no purple prose.
 
     user: |
@@ -1827,131 +1816,39 @@ entity_state_extraction:
 
       Known Characters: {character_names}
 
+      Extract the END state of each PHYSICALLY PRESENT character. Do NOT extract characters who are merely mentioned, remembered, or discussed.
+
       EXAMPLE 1:
       Scene: "Mira stood by the kitchen window, gripping a glass of water. Her pulse raced. Across the room, Samir sat on the barstool, scrolling his phone. 'I saw the email,' he said quietly. Mira set the glass on the counter and turned to face him."
       Chapter Location: apartment
       Output:
       {{
         "characters": [
-          {{
-            "name": "Mira",
-            "location": "kitchen",
-            "current_position": "standing by window",
-            "items_in_hand": [],
-            "emotional_state": "anxious",
-            "physical_condition": "elevated pulse",
-            "current_attire": null,
-            "possessions_gained": [],
-            "possessions_lost": [],
-            "knowledge_gained": ["Samir saw the email"],
-            "relationship_changes": {{}}
-          }},
-          {{
-            "name": "Samir",
-            "location": "kitchen",
-            "current_position": "sitting on barstool",
-            "items_in_hand": ["phone"],
-            "emotional_state": "serious",
-            "physical_condition": null,
-            "current_attire": null,
-            "possessions_gained": [],
-            "possessions_lost": [],
-            "knowledge_gained": [],
-            "relationship_changes": {{}}
-          }}
-        ],
-        "locations": [{{"name": "kitchen", "condition": null, "atmosphere": "tense", "occupants": ["Mira", "Samir"]}}],
-        "objects": []
+          {{"name": "Mira", "location": "kitchen", "current_position": "facing Samir", "emotional_state": "anxious", "physical_condition": null, "current_attire": null}},
+          {{"name": "Samir", "location": "kitchen", "current_position": "sitting on barstool", "emotional_state": "serious", "physical_condition": null, "current_attire": null}}
+        ]
       }}
-      Note: Glass set down = removed from items_in_hand. "Pulse raced" = "elevated pulse" not "feeling overwhelmed by confrontation". Phone actively used = in items_in_hand.
 
       EXAMPLE 2:
-      Scene: "After the shower, Lena wrapped herself in a towel and found the note on the dresser. She read it twice, her eyes widening. She pulled on jeans and a sweater, stuffed the note in her pocket, and headed for the door."
-      Chapter Location: hotel room
-      Output:
-      {{
-        "characters": [
-          {{
-            "name": "Lena",
-            "location": "hotel room",
-            "current_position": "heading for door",
-            "items_in_hand": [],
-            "emotional_state": "alarmed",
-            "physical_condition": null,
-            "current_attire": "jeans and sweater",
-            "possessions_gained": ["note"],
-            "possessions_lost": [],
-            "knowledge_gained": ["read contents of note"],
-            "relationship_changes": {{}}
-          }}
-        ],
-        "locations": [{{"name": "hotel room", "condition": null, "atmosphere": null, "occupants": ["Lena"]}}],
-        "objects": []
-      }}
-      Note: Towel was worn briefly then replaced by jeans/sweater — final attire is what matters. Note in pocket = possession, not in hand. Dresser = furniture, NOT a location.
-
-      COMMON MISTAKES (avoid these):
-      - emotional_state: "feeling a shift in her role" → use "nervous" or "conflicted"
-      - location: "chaise" or "by the window" → use room name like "bedroom"
-      - current_attire: "dries hands on towel" → null (USING not WEARING)
-      - objects: extracting "table", "hands", "coffee" → only extract plot-critical items
-
-      Return ONLY valid JSON:
-      {{
-        "characters": [
-          {{
-            "name": "character name",
-            "location": "{chapter_location} or specific room",
-            "current_position": "physical position in room",
-            "items_in_hand": [],
-            "emotional_state": "1-2 words or null",
-            "physical_condition": "1-3 words or null",
-            "current_attire": "specific clothing or nude or null",
-            "possessions_gained": [],
-            "possessions_lost": [],
-            "knowledge_gained": [],
-            "relationship_changes": {{}}
-          }}
-        ],
-        "locations": [{{"name": "{chapter_location}", "condition": null, "atmosphere": null, "occupants": []}}],
-        "objects": []
-      }}
-
-      If no changes for a category, use empty array. Return ONLY JSON.
-
-  # Extraction service template (used by extraction_service.py for small local models)
-  extraction_service:
-    system: |
-      You are a precise story state tracker. Extract entity states as JSON.
-      Focus on FACTS only - no interpretation, no purple prose.
-
-    user: |
-      Chapter Location: {chapter_location}
-      Scene #{scene_sequence}:
-      {scene_content}
-      Known Characters: {character_names}
-
-      EXAMPLE:
-      Scene: "Mira stood by the kitchen window, gripping a glass of water. Her pulse raced. Samir sat on the barstool scrolling his phone. 'I saw the email,' he said."
+      Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed."
       Chapter Location: apartment
       Output:
       {{
         "characters": [
-          {{"name": "Mira", "location": "kitchen", "current_position": "standing by window", "items_in_hand": ["glass of water"], "emotional_state": "anxious", "physical_condition": "elevated pulse", "current_attire": null}},
-          {{"name": "Samir", "location": "kitchen", "current_position": "sitting on barstool", "items_in_hand": ["phone"], "emotional_state": "serious", "physical_condition": null, "current_attire": null}}
-        ],
-        "locations": [{{"name": "kitchen", "condition": null, "atmosphere": "tense", "occupants": ["Mira", "Samir"]}}],
-        "objects": []
+          {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
+          {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": null}}
+        ]
       }}
 
       RULES:
-      - location: Room name ("{chapter_location}" default). Furniture is NOT a location.
-      - emotional_state: 1-2 words ("nervous", "angry"). NOT prose ("feeling conflicted about choices").
-      - current_attire: What's WORN on body. USING a towel ≠ wearing it. Null if not mentioned.
-      - items_in_hand: Only what's actively HELD. [] if nothing.
-      - objects: Only plot-critical items. No furniture, body parts, or casual mentions.
+      - location: ROOM name ("kitchen", "bedroom"), NOT furniture ("couch", "bed")
+      - current_position: Physical position ("sitting on couch", "standing by door")
+      - emotional_state: 1-2 words max ("nervous", "playful"). NOT a sentence.
+      - physical_condition: Visible injuries/marks ONLY ("swollen cheek", "bite mark on neck"). null if healthy.
+      - current_attire: What they're wearing at END of scene. null if not mentioned.
 
-      Return JSON with characters, locations, objects arrays.
+      Return ONLY valid JSON:
+      {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
 
   # Batch/combined extraction (used by extraction_service.py and semantic_integration.py)
   batch:
@@ -1988,22 +1885,19 @@ entity_state_extraction:
         ],
         "entity_states": {{
           "characters": [
-            {{"name": "Kai", "location": "clinic", "emotional_state": "tense", "physical_condition": "wounded", "current_attire": null, "possessions_gained": [], "possessions_lost": [], "knowledge_gained": ["received unknown text"], "relationship_changes": {{}}}}
-          ],
-          "locations": [{{"name": "clinic", "condition": null, "atmosphere": "sterile", "occupants": ["Kai", "Dr. Reyes"]}}],
-          "objects": []
+            {{"name": "Kai", "location": "clinic", "current_position": "sitting on exam table", "emotional_state": "tense", "physical_condition": "wound being stitched", "current_attire": null}}
+          ]
         }}
       }}
 
-      NOT extracted: fluorescent lights (object), exam table (furniture), hallway (sub-location not primary). "Gripped table" ≠ possession. Phone actively held = items_in_hand.
+      NOT extracted: fluorescent lights (object), exam table (furniture), hallway (sub-location not primary).
 
       RULES:
       - Character moments: significant only (confidence >= 70), max 5 per character. Pouring coffee = not significant.
       - NPCs: NAMED PEOPLE only, max 5 total. No objects/materials/furniture/unnamed people.
       - Plot events: importance >= 70, confidence >= 80, max 5 total.
-      - Entity states: 1-2 word emotional_state, room-level locations, no furniture as locations, no body parts as objects.
-      - Attire: only what's WORN on body. Using towel ≠ wearing it. Null if not mentioned.
-      - Objects: only weapons, plot devices, items given/taken. Max 3-5, no furniture/body parts.
+      - Entity states: 1-2 word emotional_state, room-level locations, physical_condition = visible injuries/marks ONLY (null if healthy).
+      - Attire: only what's WORN on body at END of scene. Null if not mentioned.
 
       Return ONLY valid JSON:
       {{
@@ -2017,9 +1911,7 @@ entity_state_extraction:
           {{"event_type": "complication", "description": "Description", "importance": 85, "confidence": 95, "involved_characters": ["Name"]}}
         ],
         "entity_states": {{
-          "characters": [{{"name": "name", "location": "room", "emotional_state": "1-2 words", "physical_condition": "1-3 words or null", "current_attire": "clothing or null", "possessions_gained": [], "possessions_lost": [], "knowledge_gained": [], "relationship_changes": {{}}}}],
-          "locations": [{{"name": "room/building", "condition": null, "atmosphere": null, "occupants": []}}],
-          "objects": []
+          "characters": [{{"name": "name", "location": "room", "current_position": "position in room", "emotional_state": "1-2 words", "physical_condition": "visible injuries or null", "current_attire": "clothing or null"}}]
         }}
       }}
 
@@ -2097,74 +1989,6 @@ working_memory_update:
       "recent_focus": ["item1", "item2"],
       "character_spotlight": {{"CharName": "reason for spotlight"}}
     }}
-
-# =============================================================================
-# RELATIONSHIP EXTRACTION - Character relationship tracking
-# =============================================================================
-relationship_extraction:
-  system: |
-    You extract relationship changes between characters from story scenes.
-
-    RELATIONSHIP TYPES:
-    - stranger: No prior connection
-    - acquaintance: Know each other casually
-    - friend: Positive bond, trust
-    - close_friend: Deep trust, share secrets
-    - romantic: Romantic feelings or relationship
-    - family: Blood or chosen family
-    - professional: Work/business relationship
-    - rival: Competition, but not hostile
-    - enemy: Active hostility or conflict
-
-    STRENGTH SCALE (-1.0 to 1.0):
-    - -1.0: Intense hatred, would harm
-    - -0.5: Dislike, distrust
-    -  0.0: Neutral, indifferent
-    -  0.5: Positive, friendly
-    -  1.0: Deep love/loyalty
-
-    RULES:
-    - Only extract relationships that CHANGED or were DEMONSTRATED in this scene
-    - Include the specific moment that shows/changes the relationship
-    - Be precise about what changed vs what was just shown
-    - Order characters alphabetically in each pair for consistency
-    - ONLY extract relationships for characters who are PHYSICALLY PRESENT and INTERACTING in the scene
-    - Do NOT extract relationships from fantasies, dreams, memories, or flashbacks unless the fantasy itself changes how a present character feels
-    - If a character is merely MENTIONED or REMEMBERED but not present, do NOT create a relationship entry for them
-    - Return exactly ONE entry per character pair per scene (the most significant interaction)
-    - You MUST use the EXACT canonical character names provided. Do not use nicknames, shortened forms, or full names if the canonical name differs.
-
-  user: |
-    Scene content:
-    {scene_content}
-
-    CANONICAL CHARACTER NAMES (use EXACTLY these names):
-    {character_names}
-
-    Characters in scene: {characters}
-
-    Previous relationship states:
-    {previous_relationships}
-
-    Extract relationship updates for character pairs that interacted meaningfully in this scene.
-    Use ONLY the canonical character names listed above. ONE entry per character pair.
-
-    Return JSON:
-    {{
-      "relationships": [
-        {{
-          "character_a": "Name1",
-          "character_b": "Name2",
-          "type": "friend",
-          "strength": 0.6,
-          "change": "what specifically changed or was demonstrated",
-          "sentiment": "positive"
-        }}
-      ]
-    }}
-
-    Only include pairs with meaningful interaction. Return empty array if no relationship moments:
-    {{"relationships": []}}
 
 # =============================================================================
 # BRAINSTORM - Story Idea Exploration

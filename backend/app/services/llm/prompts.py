@@ -958,13 +958,10 @@ Chapter Conclusion:"""
             "pacing.progress_complete": ("pacing", "progress_complete"),
             # Working memory prompts
             "working_memory_update": ("working_memory_update", ""),
-            # Relationship extraction prompts
-            "relationship_extraction": ("relationship_extraction", ""),
             # Cache-friendly extraction prompts
             "plot_extraction": ("plot_extraction", ""),
             "combined_extraction": ("combined_extraction", ""),
             "working_memory_cache_friendly": ("working_memory_cache_friendly", ""),
-            "relationship_cache_friendly": ("relationship_cache_friendly", ""),
             "npc_extraction_cache_friendly": ("npc_extraction_cache_friendly", ""),
             "character_moments_cache_friendly": ("character_moments_cache_friendly", ""),
             "plot_events_cache_friendly": ("plot_events_cache_friendly", ""),

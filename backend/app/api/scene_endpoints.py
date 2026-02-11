@@ -41,7 +41,6 @@ from .story_tasks import (
     run_extractions_in_background,
     run_plot_extraction_in_background,
     update_working_memory_in_background,
-    update_relationship_graph_in_background,
     run_inline_entity_extraction_background,
     run_chapter_summary_background,
 )
@@ -472,22 +471,6 @@ async def generate_scene(
         )
     except Exception as e:
         logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
-
-    # Update relationship graph in background (character relationship tracking)
-    try:
-        background_tasks.add_task(
-            update_relationship_graph_in_background,
-            story_id=story_id,
-            branch_id=active_branch_id,
-            scene_id=scene.id,
-            scene_sequence=next_sequence,
-            scene_content=scene_content,
-            user_id=current_user.id,
-            user_settings=user_settings or {},
-            scene_generation_context=context  # Pass context for cache-friendly extraction
-        )
-    except Exception as e:
-        logger.error(f"[RELATIONSHIP] Failed to schedule update: {e}")
 
     return response_data
 
@@ -1402,24 +1385,7 @@ async def generate_scene_streaming_endpoint(
                 except Exception as e:
                     logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
 
-            # === RELATIONSHIP GRAPH UPDATE (extracts character relationship changes) ===
-            # Check if enabled before scheduling
-            if ctx_settings_for_tasks.get('enable_relationship_graph', True):
-                try:
-                    background_tasks.add_task(
-                        update_relationship_graph_in_background,
-                        story_id=story_id,
-                        branch_id=active_branch_id,
-                        scene_id=scene.id,
-                        scene_sequence=scene.sequence_number,
-                        scene_content=cleaned_full_content,
-                        user_id=current_user.id,
-                        user_settings=user_settings or {},
-                        scene_generation_context=context  # Pass context for cache-friendly extraction
-                    )
-                    logger.info(f"[RELATIONSHIP] Scheduled update for scene {scene.sequence_number}")
-                except Exception as e:
-                    logger.error(f"[RELATIONSHIP] Failed to schedule update: {e}")
+            # Relationship extraction removed — low ROI, separate LLM call not justified
 
             # Send [DONE] as the LAST event after all extraction status events
             yield "data: [DONE]\n\n"

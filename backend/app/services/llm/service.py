@@ -280,7 +280,7 @@ class UnifiedLLMService:
         # Try to improve semantic scenes with query decomposition + RRF.
         # Internal gates handle skipping: _semantic_improved flag (already ran this cycle),
         # no user_intent (extraction/summary contexts), no db, no extraction service.
-        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db)
+        await self._maybe_improve_semantic_scenes(messages, context, user_settings, db, user_id=user_id)
         # Mark as done regardless of success/failure — scene gen's result is the source of truth.
         # Prevents choices from re-running improvement with potentially different results.
         context["_semantic_improved"] = True
@@ -3457,135 +3457,6 @@ Chapter Conclusion:"""
             logger.error(f"[WORKING_MEMORY] Cache-friendly extraction failed: {e}")
             return None
 
-    async def extract_relationship_cache_friendly(
-        self,
-        scene_content: str,
-        character_names: List[str],
-        characters_in_scene: List[str],
-        previous_relationships: str,
-        context: Dict[str, Any],
-        user_id: int,
-        user_settings: Dict[str, Any],
-        db: Optional[Session] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Extract relationship updates using cache-friendly multi-message structure.
-
-        Uses SAME message structure as scene generation for maximum cache hits:
-        - Messages 1-N identical to scene generation (CACHED)
-        - Final USER message contains scene + extraction instruction
-
-        Routes to extraction LLM or main LLM - same structure for both.
-
-        Args:
-            scene_content: The generated scene text to analyze
-            character_names: Canonical character names
-            characters_in_scene: Characters present in the scene
-            previous_relationships: Summary of previous relationship states
-            context: The same context dict used for scene generation
-            user_id: User ID for LLM call
-            user_settings: User settings for LLM call
-            db: Database session for preset lookups
-
-        Returns:
-            List of relationship dicts, or empty list on failure
-        """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
-
-        # === FINAL USER MESSAGE: SCENE + RELATIONSHIP INSTRUCTION ===
-        cleaned_scene = self._clean_scene_numbers(scene_content)
-
-        character_names_str = ", ".join(character_names) if character_names else "None"
-        characters_str = ", ".join(characters_in_scene) if characters_in_scene else "None"
-
-        final_message = prompt_manager.get_prompt(
-            "relationship_cache_friendly", "user",
-            scene_content=cleaned_scene,
-            character_names=character_names_str,
-            characters=characters_str,
-            previous_relationships=previous_relationships or "None"
-        )
-        messages.append({"role": "user", "content": final_message})
-
-        logger.info(f"[RELATIONSHIP] Cache-friendly structure: {len(messages)} messages")
-
-        # Write debug output for debugging cache issues
-        from ...config import settings
-        if settings.prompt_debug:
-            try:
-                prompt_file_path = self._get_prompt_debug_path("prompt_relationship_extraction.json")
-                debug_data = {
-                    "extraction_type": "relationship",
-                    "messages": messages,
-                    "generation_parameters": {
-                        "max_tokens": 1024,
-                        "temperature": 0.3
-                    }
-                }
-                with open(prompt_file_path, "w", encoding="utf-8") as f:
-                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                logger.warning(f"Failed to write relationship extraction prompt debug file: {e}")
-
-        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
-        try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[RELATIONSHIP] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=1024
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[RELATIONSHIP] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                response = await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=1024
-                )
-
-            if not response:
-                return []
-
-            # Parse JSON response
-            import re
-            from ..chapter_progress_service import clean_llm_json
-            response_text = response.strip()
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if json_match:
-                try:
-                    data = json.loads(json_match.group())
-                    return data.get('relationships', [])
-                except json.JSONDecodeError:
-                    cleaned = clean_llm_json(json_match.group())
-                    data = json.loads(cleaned)
-                    return data.get('relationships', [])
-
-            return []
-
-        except Exception as e:
-            logger.error(f"[RELATIONSHIP] Cache-friendly extraction failed: {e}")
-            return []
-
     async def generate_scene_summary_cache_friendly(
         self,
         scene_content: str,
@@ -4143,7 +4014,8 @@ Chapter Conclusion:"""
         messages: List[Dict[str, str]],
         context: Dict[str, Any],
         user_settings: Dict[str, Any],
-        db: Optional[Session]
+        db: Optional[Session],
+        user_id: Optional[int] = None,
     ) -> bool:
         """
         Try to improve semantic search results via query decomposition + RRF.
@@ -4186,11 +4058,10 @@ Chapter Conclusion:"""
                 logger.info("[SEMANTIC DECOMPOSE] Skipped: db is None")
                 return False
 
-            # Gate: need extraction service
-            extraction_service = self._get_extraction_service(user_settings)
-            if not extraction_service:
-                logger.info("[SEMANTIC DECOMPOSE] Skipped: no extraction service")
-                return False
+            # Route to extraction LLM if available, otherwise main LLM
+            ext_settings = user_settings.get('extraction_model_settings', {})
+            use_extraction_model = ext_settings.get('enabled', False)
+            extraction_service = self._get_extraction_service(user_settings) if use_extraction_model else None
 
             # Gate: need context_manager ref and search state
             ctx_mgr = context.get("_context_manager_ref")
@@ -4309,13 +4180,40 @@ Chapter Conclusion:"""
                 "Return ONLY JSON: {\"intent\": \"...\", \"temporal\": \"...\", \"queries\": [...], \"keywords\": [...]}\n\n"
                 f"Text to decompose:\n{user_intent}"
             )
-            decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
-
-            # Call extraction LLM
-            response = await extraction_service.generate_with_messages(
-                messages=decompose_messages,
-                max_tokens=300
-            )
+            if extraction_service:
+                # Use extraction LLM (fast, ~1.7s)
+                decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
+                logger.info("[SEMANTIC DECOMPOSE] Using extraction LLM")
+                response = await extraction_service.generate_with_messages(
+                    messages=decompose_messages,
+                    max_tokens=300
+                )
+            else:
+                # Fall back to main LLM with cache-friendly prefix
+                import copy
+                decompose_messages = copy.deepcopy(messages)
+                decompose_messages.append({"role": "user", "content": char_context + decompose_task})
+                decompose_settings = copy.deepcopy(user_settings)
+                decompose_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                decompose_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                logger.info("[SEMANTIC DECOMPOSE] Using main LLM with cache-friendly prefix")
+                # Debug save for cache-friendliness verification
+                from ...config import settings as app_settings
+                if app_settings.prompt_debug:
+                    try:
+                        debug_path = self._get_prompt_debug_path("prompt_sent_decompose.json")
+                        with open(debug_path, "w", encoding="utf-8") as f:
+                            json.dump({"messages": decompose_messages}, f, indent=2, ensure_ascii=False)
+                        logger.info(f"[PROMPT DEBUG] Saved decompose prompt to {debug_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to write decompose prompt debug file: {e}")
+                response = await self._generate_with_messages(
+                    messages=decompose_messages,
+                    user_id=user_id,
+                    user_settings=decompose_settings,
+                    max_tokens=300,
+                    skip_nsfw_filter=True
+                )
 
             if not response or not response.strip():
                 logger.info("[SEMANTIC DECOMPOSE] Empty response from extraction LLM")
@@ -4558,16 +4456,17 @@ Chapter Conclusion:"""
         Message order (most stable → most dynamic):
         1. Story Foundation: genre, tone, setting, scenario, characters (per story)
         2. Character Dialogue Styles: voice/speech patterns (per story)
-        3. Chapter Context: story_so_far, previous/current chapter summaries (per chapter)
-        4. Completed Scene Batches: stable scene history (per batch)
-        5. Character Interaction History: firsts between characters (rarely changes)
-        6. Character Relationships: relationship arcs and strength (occasionally changes)
-        7. Character States: entity states, locations, objects (periodically changes)
+        3. Story History: cumulative summary of previous chapters (per chapter)
+        4. Chapter Direction: plot milestones, climax, resolution (static per chapter)
+        5. Completed Scene Batches: stable scene history (per batch)
+        6. Character Interaction History: firsts between characters (rarely changes)
+        7. Continuity Warnings: unresolved contradictions (if any)
+        8. Current Chapter: location, time, scenario, progress (updates ~every 10 scenes)
         ──── cache break point ────
-        8. Relevant Context: semantic search results (changes every scene)
-        9. Recent Scenes: active scene batch (changes every scene)
-        10. Story Focus: working memory, threads, character attention (changes every scene)
-        11. Continuity Warnings: unresolved contradictions (if any)
+        10. Recent Scenes: active scene batch (changes every scene)
+        11. Relevant Context: character context (changes every scene)
+        12. Related Past Scenes: semantic search results (changes every scene)
+        13. Pacing Guidance: adaptive next-beat nudge (changes every scene)
 
         NOTE: Chapter Plot Guidance and Pacing are NOT included in prefix.
         Plot guidance is passed only to choice generation via the task message.
@@ -4632,29 +4531,11 @@ Chapter Conclusion:"""
                 "content": "=== STORY HISTORY ===\n" + cleaned_story_so_far
             })
 
-        # === MESSAGE 3: CURRENT CHAPTER (setting + progress so far) ===
-        current_chapter_parts = []
-
-        if context.get("chapter_location"):
-            current_chapter_parts.append(f"Location: {context['chapter_location']}")
-        if context.get("chapter_time_period"):
-            current_chapter_parts.append(f"Time: {context['chapter_time_period']}")
-        if context.get("chapter_scenario"):
-            current_chapter_parts.append(f"Scenario: {context['chapter_scenario']}")
-        if context.get("current_chapter_summary"):
-            # Clean scene numbers from summary to avoid teaching LLM to generate them
-            cleaned_summary = clean_scene_numbers_from_summary(context['current_chapter_summary'])
-            current_chapter_parts.append(f"Progress So Far:\n{cleaned_summary}")
-
-        if current_chapter_parts:
-            messages.append({
-                "role": "user",
-                "content": "=== CURRENT CHAPTER ===\n" + "\n\n".join(current_chapter_parts)
-            })
-
-        # === MESSAGE 4: CHAPTER DIRECTION (static chapter arc - does not change per scene) ===
-        # This shows the overall chapter plan: key events, climax, resolution
-        # It's static per chapter for optimal caching
+        # === MESSAGE 3: CHAPTER DIRECTION (static chapter arc - does not change per scene) ===
+        # Moved BEFORE CURRENT CHAPTER for cache optimization:
+        # CHAPTER DIRECTION is static per chapter, while CURRENT CHAPTER updates ~every 10 scenes
+        # (auto_summary). Placing static content first means auto_summary updates don't invalidate
+        # the ~30K of scene batches + interaction data that follows.
         chapter_plot = context.get("chapter_plot")
         if chapter_plot:
             direction_parts = []
@@ -4677,28 +4558,25 @@ Chapter Conclusion:"""
                     "content": "=== CHAPTER DIRECTION ===\n" + "\n\n".join(direction_parts)
                 })
 
-        # === MESSAGES 5+: Scene Batches + Suffix Sections ===
+        # === MESSAGES 4+: Scene Batches + Suffix Sections ===
         #
         # Full message order (most stable → most dynamic):
         #   1. STORY FOUNDATION (stable per story)
         #   2. CHARACTER DIALOGUE STYLES (stable per story)
         #   3. STORY HISTORY (stable per chapter - cumulative summary)
-        #   4. CURRENT CHAPTER (location, time, scenario, progress - updates as chapter progresses)
-        #   5. CHAPTER DIRECTION (plot milestones - static per chapter)
+        #   4. CHAPTER DIRECTION (plot milestones - static per chapter)
         #   A. Completed scene batches (stable per batch, cached)
         #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
-        #   C. CHARACTER STATES (snapshotted for variants - stable)
-        #   D. CHARACTER RELATIONSHIPS (snapshotted, stable between scenes - moved up for cache)
-        #   E. STORY FOCUS (working memory/threads - snapshotted, stable between scenes)
         #   F. CONTINUITY WARNINGS (stable between consecutive scenes)
+        #   *. CURRENT CHAPTER (location, time, scenario, progress - updates ~every 10 scenes)
         #   ──── DYNAMIC SECTIONS (change every scene, placed at end) ────
         #   G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE)
         #   H. RELEVANT CONTEXT (character context)
         #   I. RELATED PAST SCENES (semantic search)
         #   J. PACING GUIDANCE (adaptive next-beat nudge - LAST before task for max attention)
         #
-        # Cache optimization: Stable sections (D, E, F) moved BEFORE RECENT SCENES
-        # to maximize cached prefix. These are identical between consecutive scenes.
+        # Cache optimization: CURRENT CHAPTER moved after stable sections so its periodic
+        # auto_summary updates only invalidate the dynamic tail (which changes every scene anyway).
 
         previous_scenes_text = context.get("previous_scenes", "")
 
@@ -4753,44 +4631,8 @@ Chapter Conclusion:"""
         # Entity states extraction quality was too poor to provide value.
         # Token budget freed up for semantic search results.
 
-        # --- D. CHARACTER RELATIONSHIPS (snapshotted, stable between consecutive scenes) ---
-        # Moved BEFORE RECENT SCENES for cache optimization - identical between scenes
-        relationship_context = context.get("relationship_context")
-        if relationship_context and relationship_context.get("relationships"):
-            rel_parts = []
-
-            for rel in relationship_context["relationships"][:6]:  # Limit for token efficiency
-                chars = " <-> ".join(rel["characters"])
-                strength = rel.get("strength", 0)
-                if strength > 0:
-                    indicator = "+" * min(int(strength * 3) + 1, 3)
-                elif strength < 0:
-                    indicator = "-" * min(int(abs(strength) * 3) + 1, 3)
-                else:
-                    indicator = "~"
-
-                # Strip scene counts from arc summary for cache stability
-                # e.g., "acquaintance -> romantic (warming over 289 scenes)" -> "acquaintance -> romantic (warming)"
-                arc_text = rel.get('arc', 'developing')
-                if arc_text:
-                    arc_text = re.sub(r'\s+over\s+\d+\s+scenes?\)?', ')', arc_text)
-                    arc_text = arc_text.replace('()', '').strip()  # Clean up empty parens
-
-                rel_parts.append(
-                    f"{chars}: {rel.get('type', 'unknown')} [{indicator}]\n"
-                    f"  Arc: {arc_text}"
-                )
-
-            rel_text = "\n".join(rel_parts)
-
-            if relationship_context.get("neglected"):
-                neglected_chars = [" & ".join(n["characters"]) for n in relationship_context["neglected"]]
-                rel_text += f"\n\nNeglected (consider reconnecting): {', '.join(neglected_chars)}"
-
-            messages.append({
-                "role": "user",
-                "content": f"=== CHARACTER RELATIONSHIPS ===\n{rel_text}"
-            })
+        # --- D. CHARACTER RELATIONSHIPS — REMOVED ---
+        # Relationship extraction removed — low ROI for the extra LLM call cost.
 
         # --- E. STORY FOCUS — REMOVED ---
         # Plot events extraction (which fed active_threads) cut. Minimal ROI.
@@ -4807,6 +4649,28 @@ Chapter Conclusion:"""
                     "Naturally address or acknowledge them in your writing "
                     "(e.g., mention travel between locations, explain emotional shifts):\n\n"
                     + "\n".join(contradiction_context)
+            })
+
+        # --- *. CURRENT CHAPTER (updates ~every 10 scenes when auto_summary refreshes) ---
+        # Placed after stable sections (scene batches, interactions, warnings)
+        # so that periodic auto_summary updates only invalidate the dynamic tail below.
+        current_chapter_parts = []
+
+        if context.get("chapter_location"):
+            current_chapter_parts.append(f"Location: {context['chapter_location']}")
+        if context.get("chapter_time_period"):
+            current_chapter_parts.append(f"Time: {context['chapter_time_period']}")
+        if context.get("chapter_scenario"):
+            current_chapter_parts.append(f"Scenario: {context['chapter_scenario']}")
+        if context.get("current_chapter_summary"):
+            # Clean scene numbers from summary to avoid teaching LLM to generate them
+            cleaned_summary = clean_scene_numbers_from_summary(context['current_chapter_summary'])
+            current_chapter_parts.append(f"Progress So Far:\n{cleaned_summary}")
+
+        if current_chapter_parts:
+            messages.append({
+                "role": "user",
+                "content": "=== CURRENT CHAPTER ===\n" + "\n\n".join(current_chapter_parts)
             })
 
         # ──── DYNAMIC SECTIONS BELOW (change every scene, cache breaks here) ────

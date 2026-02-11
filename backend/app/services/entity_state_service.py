@@ -74,8 +74,7 @@ def has_meaningful_character_state(char_update: Dict[str, Any]) -> bool:
     # Key fields that are most important for continuity (require 2 of 3)
     key_fields = ['location', 'emotional_state', 'physical_condition']
     # Secondary fields that also count
-    secondary_fields = ['current_attire', 'possessions_gained', 'possessions_lost',
-                        'knowledge_gained', 'relationship_changes']
+    secondary_fields = ['current_attire', 'current_position']
 
     key_field_count = 0
     secondary_field_count = 0

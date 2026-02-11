@@ -124,6 +124,7 @@ class UserSettings(Base):
     extraction_model_thinking_disable_method = Column(String(50), nullable=True)  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "custom"
     extraction_model_thinking_disable_custom = Column(Text, nullable=True)  # Custom tag pattern to strip
     use_main_llm_for_plot_extraction = Column(Boolean, nullable=True)  # Use main LLM for plot event extraction (more accurate)
+    use_main_llm_for_decomposition = Column(Boolean, nullable=True)  # Use main LLM for query decomposition (avoids extraction LLM contention)
 
     # Advanced Settings
     custom_system_prompt = Column(Text, nullable=True)
@@ -283,7 +284,8 @@ class UserSettings(Base):
                 "thinking_disable_method": self.extraction_model_thinking_disable_method if self.extraction_model_thinking_disable_method is not None else ext_model_defaults.get("thinking_disable_method", "none"),
                 "thinking_disable_custom": self.extraction_model_thinking_disable_custom or ext_model_defaults.get("thinking_disable_custom", ""),
                 "enable_combined_extraction": True,  # Default: enabled, combines all extractions in one LLM call
-                "use_main_llm_for_plot_extraction": self.use_main_llm_for_plot_extraction if self.use_main_llm_for_plot_extraction is not None else False
+                "use_main_llm_for_plot_extraction": self.use_main_llm_for_plot_extraction if self.use_main_llm_for_plot_extraction is not None else False,
+                "use_main_llm_for_decomposition": self.use_main_llm_for_decomposition if self.use_main_llm_for_decomposition is not None else False
             },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
