@@ -972,7 +972,8 @@ Chapter Conclusion:"""
             "scene_event_extraction.batch": ("scene_event_extraction", "batch"),
             "chapter_summary_cache_friendly": ("summary_generation", "chapter_summary_cache_friendly"),
             "scene_summary_for_embedding": ("scene_summary_for_embedding", ""),
-            "agent_recall": ("agent_recall", "")
+            "agent_recall": ("agent_recall", ""),
+            "semantic_decompose": ("semantic_decompose", "")
         }
         
         if template_key not in yaml_mapping:

@@ -3550,3 +3550,78 @@ agent_recall:
     The next scene will involve: {user_intent}
 
     Find past scenes that contain events, details, or context REFERENCED by this upcoming action.
+
+# =============================================================================
+# SEMANTIC DECOMPOSITION
+# =============================================================================
+# Classifies user intent (direct/recall/react) and generates focused sub-queries
+# for the multi-query semantic search pipeline. Used by _maybe_improve_semantic_scenes().
+
+semantic_decompose:
+  user: |
+    === CLASSIFY & DECOMPOSE ===
+    First classify the intent, then generate search queries to find relevant PAST scenes.
+
+    INTENT TYPES:
+    - direct: Scene continues current action (search for: clothing, location, objects, actions)
+    - recall: Character asks about, discusses, or remembers past events. Includes questions like "when/how did X happen?", "who did this?", explaining or recounting something from the past
+    - react: Character discovers something RIGHT NOW in the current scene and reacts emotionally (catches someone in the act, finds evidence, walks in on something)
+
+    KEY DISTINCTION: If a character ASKS about or DISCUSSES past events (even recent ones like marks, injuries, encounters) → recall. If a character DISCOVERS something in real-time → react.
+
+    TEMPORAL POSITION — When in the story timeline are the referenced events?
+    - earliest: The FIRST time something happened (first kiss, when they first met, back when it all started)
+    - latest: The MOST RECENT occurrence — ONLY when text explicitly says "last time", "just yesterday", "the other night"
+    - any: No specific timeline position, asking WHEN something happened, or multiple events across time
+    Default to any. Only use earliest/latest when the text has explicit temporal words.
+    "when did X happen?" / "who did X?" = any (the user is asking, not specifying a timeframe).
+
+    SUB-QUERY RULES:
+    1. Maximum 3 queries.
+    2. Query 1 MUST use the user's EXACT action words — preserve specific verbs, body parts, and descriptions verbatim. Do NOT rephrase into clinical or generic terms.
+    3. Each query must target a DIFFERENT aspect — never generate near-duplicates.
+    4. Do NOT replace specific words with generic alternatives. "licked her pussy" ≠ "intimate physical contact". "bruise marks" ≠ "physical encounter".
+    5. No temporal qualifiers like "(recent)" — the temporal field handles timing.
+
+    EXAMPLE 1 (direct, any):
+    A is wearing a red jacket and they are at the rooftop garden
+    {{"intent": "direct", "temporal": "any", "queries": ["A in a red jacket", "at the rooftop garden"]}}
+
+    EXAMPLE 2 (recall, earliest):
+    A blushes and starts telling B about the first time C touched her
+    {{"intent": "recall", "temporal": "earliest", "queries": ["C first touched A", "C initial physical contact with A"], "keywords": ["touched", "touch", "groped", "hands on", "physical contact"]}}
+    DROPPED: "A blushes", "telling B" — these describe the CURRENT scene, not the PAST events
+
+    EXAMPLE 3 (recall, any):
+    A asks B about the bruise marks on her body and when C had left them
+    {{"intent": "recall", "temporal": "any", "queries": ["bruise marks on B body", "C caused bruise marks on B"], "keywords": ["bruise", "marks", "bruises", "wounds", "injuries", "left marks"]}}
+    This is recall (asking about past events), NOT react. Temporal is any because A is asking WHEN.
+
+    EXAMPLE 4 (recall, earliest):
+    A then describes the time when C had licked her pussy
+    {{"intent": "recall", "temporal": "earliest", "queries": ["C licked A pussy", "C tongue between A legs", "C oral A"], "keywords": ["licked", "pussy", "oral", "tongue", "between legs", "cunnilingus"]}}
+    Query 1 keeps EXACT words. Query 2 uses story-vocabulary variant. Query 3 adds clinical term.
+    keywords: user's exact action words + 2-3 synonyms for text search.
+    WRONG: ["C intimate with A", "C first sexual encounter with A"] — too generic, matches every scene.
+
+    EXAMPLE 5 (react, latest):
+    A walks into the room and finds B with marks all over — storms out in fury
+    {{"intent": "react", "temporal": "latest", "queries": ["marks on B body", "who hurt B recently"]}}
+    This is react because A is DISCOVERING the marks RIGHT NOW. No keywords for react/direct.
+
+    EXAMPLE 6 (recall, any):
+    A asks B about the blowjob she gave C on camera
+    {{"intent": "recall", "temporal": "any", "queries": ["B blowjob C on camera", "B oral C", "camera recording"], "keywords": ["blowjob", "oral sex", "oral", "sucked", "mouth on", "deep throat", "camera"]}}
+
+    For recall: queries must target the PAST EVENTS being referenced, not the current scene.
+    DROP: emotions, the act of telling/remembering, vague phrases.
+    KEEP: specific verbs and nouns from the user's text, time anchors.
+
+    RECALL KEYWORDS (required for recall intent, omit for direct/react):
+    The 'keywords' array contains the user's EXACT action words + 2-3 synonyms per action.
+    These are used for substring text search — include words that might appear in event descriptions.
+
+    Return ONLY JSON: {{"intent": "...", "temporal": "...", "queries": [...], "keywords": [...]}}
+
+    Text to decompose:
+    {user_intent}
