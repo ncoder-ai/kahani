@@ -150,6 +150,7 @@ class UnifiedLLMService:
         user_settings: Dict[str, Any],
         max_tokens: Optional[int] = None,
         task_type: str = "main",
+        force_main_llm: bool = False,
     ) -> str:
         """Single routing function for all LLM generation.
 
@@ -158,15 +159,21 @@ class UnifiedLLMService:
             "extraction"  - Extraction LLM if enabled, else main LLM with extraction settings
             "agent"       - Same routing as extraction
 
+        force_main_llm:
+            When True, skip extraction LLM even if available (still uses extraction
+            settings like low temperature). Used by callers with per-task overrides
+            like use_main_llm_for_plot_extraction.
+
         When falling back to main LLM for extraction/agent tasks, uses temperature
         and reasoning settings from service_defaults.extraction_service in config.
         """
         if task_type in ("extraction", "agent"):
-            extraction_service = self._get_extraction_service(user_settings)
-            if extraction_service:
-                return await extraction_service.generate_with_messages(messages, max_tokens)
+            if not force_main_llm:
+                extraction_service = self._get_extraction_service(user_settings)
+                if extraction_service:
+                    return await extraction_service.generate_with_messages(messages, max_tokens)
 
-            # Fallback: main LLM with extraction-appropriate settings from config
+            # Main LLM with extraction-appropriate settings from config
             import copy
             from ...config import settings as app_settings
             ext_defaults = app_settings.service_defaults.get("extraction_service", {})
@@ -2738,44 +2745,15 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write plot extraction prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
+        # === ROUTE TO APPROPRIATE LLM ===
         ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
-        # Check if user wants to use main LLM for plot extraction specifically
         use_main_for_plot = ext_settings.get('use_main_llm_for_plot_extraction', False)
-        if use_main_for_plot:
-            use_extraction_model = False
-            logger.info("[PLOT_EXTRACTION] Using main LLM (use_main_llm_for_plot_extraction enabled)")
 
         try:
-            if use_extraction_model:
-                # Use extraction LLM with SAME message structure
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[PLOT_EXTRACTION] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=500
-                    )
-                else:
-                    # Fall through to main LLM if extraction service unavailable
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                # Use main LLM with SAME message structure
-                logger.info("[PLOT_EXTRACTION] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                response = await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=500
-                )
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=500, task_type="extraction", force_main_llm=use_main_for_plot,
+            )
 
             logger.info(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
 
@@ -2895,36 +2873,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write combined extraction prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[COMBINED_EXTRACTION] Using extraction LLM with cache-friendly structure")
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[COMBINED_EXTRACTION] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                return await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=max_tokens
-                )
-
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+            )
         except Exception as e:
             logger.error(f"[COMBINED_EXTRACTION] Extraction failed: {e}")
             raise
@@ -3012,36 +2965,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write batch extraction prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[BATCH_EXTRACTION] Using extraction LLM with cache-friendly structure")
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[BATCH_EXTRACTION] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                return await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=max_tokens
-                )
-
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+            )
         except Exception as e:
             logger.error(f"[BATCH_EXTRACTION] Extraction failed: {e}")
             raise
@@ -3085,35 +3013,11 @@ Chapter Conclusion:"""
 
         logger.info(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[EVENTS_NPCS] Using extraction LLM")
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[EVENTS_NPCS] Using main LLM")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                return await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=max_tokens
-                )
-
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+            )
         except Exception as e:
             logger.error(f"[EVENTS_NPCS] Extraction failed: {e}")
             raise
@@ -3154,33 +3058,11 @@ Chapter Conclusion:"""
 
         logger.info(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                return await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=max_tokens
-                )
-
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+            )
         except Exception as e:
             logger.error(f"[SCENE_EVENTS] Extraction failed: {e}")
             raise
@@ -3240,33 +3122,13 @@ Chapter Conclusion:"""
 
         # === ROUTE TO APPROPRIATE LLM ===
         use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False)
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        extraction_enabled = ext_settings.get('enabled', False)
 
         try:
-            if use_extraction_llm and extraction_enabled:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[CHAPTER_SUMMARY] Using extraction LLM with cache-friendly structure")
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-
-            # Use main LLM (default or fallback)
-            logger.info("[CHAPTER_SUMMARY] Using main LLM with cache-friendly structure")
-            import copy
-            summary_settings = copy.deepcopy(user_settings)
-            summary_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-            summary_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-            return await self._generate_with_messages(
-                messages=messages,
-                user_id=user_id,
-                user_settings=summary_settings,
-                max_tokens=max_tokens
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+                force_main_llm=not use_extraction_llm,
             )
-
         except Exception as e:
             logger.error(f"[CHAPTER_SUMMARY] Cache-friendly generation failed: {e}")
             raise
@@ -3342,36 +3204,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write entity extraction prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[ENTITY_ONLY_EXTRACTION] Using extraction LLM with cache-friendly structure")
-                    return await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=max_tokens
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[ENTITY_ONLY_EXTRACTION] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                return await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=max_tokens
-                )
-
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+            )
         except Exception as e:
             logger.error(f"[ENTITY_ONLY_EXTRACTION] Extraction failed: {e}")
             raise
@@ -3443,35 +3280,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write working memory prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM (SAME MESSAGES FOR BOTH) ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[WORKING_MEMORY] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(
-                        messages=messages,
-                        max_tokens=512
-                    )
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[WORKING_MEMORY] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-
-                response = await self._generate_with_messages(
-                    messages=messages,
-                    user_id=user_id,
-                    user_settings=extraction_settings,
-                    max_tokens=512
-                )
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=512, task_type="extraction",
+            )
 
             if not response:
                 return None
@@ -3527,25 +3340,11 @@ Chapter Conclusion:"""
 
         logger.info(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[SCENE_SUMMARY] Using extraction LLM")
-                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=300)
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[SCENE_SUMMARY] Using main LLM")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=300)
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=300, task_type="extraction",
+            )
 
             if not response:
                 return None
@@ -3649,25 +3448,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write NPC extraction prompt debug file: {e}")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[NPC_EXTRACTION] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1500)
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[NPC_EXTRACTION] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1500)
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=1500, task_type="extraction",
+            )
 
             if not response:
                 return []
@@ -3747,25 +3532,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write character moments prompt debug file: {e}")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[CHARACTER_MOMENTS] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1500)
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[CHARACTER_MOMENTS] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1500)
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=1500, task_type="extraction",
+            )
 
             if not response:
                 return []
@@ -3847,25 +3618,11 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write plot fallback extraction prompt debug file: {e}")
 
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_extraction_model = ext_settings.get('enabled', False)
-
         try:
-            if use_extraction_model:
-                extraction_service = self._get_extraction_service(user_settings)
-                if extraction_service:
-                    logger.info("[PLOT_EVENTS_FALLBACK] Using extraction LLM with cache-friendly structure")
-                    response = await extraction_service.generate_with_messages(messages=messages, max_tokens=1000)
-                else:
-                    use_extraction_model = False
-
-            if not use_extraction_model:
-                logger.info("[PLOT_EVENTS_FALLBACK] Using main LLM with cache-friendly structure")
-                import copy
-                extraction_settings = copy.deepcopy(user_settings)
-                extraction_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                extraction_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                response = await self._generate_with_messages(messages=messages, user_id=user_id, user_settings=extraction_settings, max_tokens=1000)
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=1000, task_type="extraction",
+            )
 
             if not response:
                 return []
