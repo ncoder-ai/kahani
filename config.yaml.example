@@ -448,6 +448,11 @@ service_defaults:
   character_generation:
     max_tokens: 2000
     temperature: 0.8
+  recall_agent:
+    enabled: false              # Enable agentic recall (replaces deterministic pipeline for recall intents)
+    quality_score: 0.85         # Score assigned to agent-verified scenes (must beat 0.60 quality gate)
+    max_turns: 8                # Max LLM calls per agent run
+    timeout: 90                 # Max seconds per agent run
 
 # ----------------------------------------------------------------------------
 # IMAGE GENERATION

@@ -143,6 +143,52 @@ class UnifiedLLMService:
             os.makedirs(logs_dir, exist_ok=True)  # Ensure directory exists
             return os.path.join(logs_dir, filename)
 
+    async def generate_for_task(
+        self,
+        messages: List[Dict[str, str]],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        max_tokens: Optional[int] = None,
+        task_type: str = "main",
+    ) -> str:
+        """Single routing function for all LLM generation.
+
+        task_type:
+            "main"       - Main LLM with user's normal settings
+            "extraction"  - Extraction LLM if enabled, else main LLM with extraction settings
+            "agent"       - Same routing as extraction
+
+        When falling back to main LLM for extraction/agent tasks, uses temperature
+        and reasoning settings from service_defaults.extraction_service in config.
+        """
+        if task_type in ("extraction", "agent"):
+            extraction_service = self._get_extraction_service(user_settings)
+            if extraction_service:
+                return await extraction_service.generate_with_messages(messages, max_tokens)
+
+            # Fallback: main LLM with extraction-appropriate settings from config
+            import copy
+            from ...config import settings as app_settings
+            ext_defaults = app_settings.service_defaults.get("extraction_service", {})
+            fallback_settings = copy.deepcopy(user_settings)
+            fallback_settings.setdefault('llm_settings', {})['temperature'] = ext_defaults.get("default_temperature", 0.3)
+            fallback_settings['llm_settings']['reasoning_effort'] = 'disabled'
+            return await self._generate_with_messages(
+                messages=messages,
+                user_id=user_id,
+                user_settings=fallback_settings,
+                max_tokens=max_tokens,
+                skip_nsfw_filter=True,
+            )
+
+        # Default: main LLM with user's normal settings
+        return await self._generate_with_messages(
+            messages=messages,
+            user_id=user_id,
+            user_settings=user_settings,
+            max_tokens=max_tokens,
+        )
+
     def _format_plot_for_choices(self, context: Dict[str, Any], user_settings: Optional[Dict[str, Any]] = None) -> str:
         """
         Format chapter plot info for inclusion in choices reminder.
@@ -4238,16 +4284,55 @@ Chapter Conclusion:"""
                        f"Sub-queries: {sub_queries}"
                        + (f", Keywords: {keywords}" if keywords else ""))
 
-            # Run multi-query search via context_manager
-            improved_text, mq_top_score = await ctx_mgr.search_and_format_multi_query(
-                sub_queries=sub_queries,
-                context=context,
-                db=db,
-                intent_type=intent_type,
-                temporal_type=temporal_type,
-                user_intent=user_intent,
-                keywords=keywords
-            )
+            # Try recall agent for recall intents
+            improved_text, mq_top_score = None, 0.0
+
+            if intent_type == "recall":
+                from ..agent.recall_agent import run_recall_agent
+
+                # Wrap generate_for_task as the LLM interface the agent runner expects
+                _self = self
+                _user_id = user_id
+                _user_settings = user_settings
+                class _AgentLLM:
+                    async def generate_with_messages(self, messages, max_tokens=None):
+                        return await _self.generate_for_task(
+                            messages=messages,
+                            user_id=_user_id,
+                            user_settings=_user_settings,
+                            max_tokens=max_tokens or 500,
+                            task_type="agent",
+                        )
+                agent_llm = _AgentLLM()
+
+                agent_result = await run_recall_agent(
+                    extraction_service=agent_llm,
+                    semantic_memory=ctx_mgr.semantic_memory,
+                    context_manager=ctx_mgr,
+                    db=db,
+                    story_id=search_state.get("story_id", 0),
+                    branch_id=search_state.get("branch_id"),
+                    user_intent=user_intent,
+                    char_context=char_context,
+                    exclude_sequences=search_state.get("exclude_sequences"),
+                    token_budget=search_state.get("token_budget", 2000),
+                    prompt_debug=settings.prompt_debug,
+                )
+                if agent_result:
+                    improved_text, mq_top_score = agent_result
+                    logger.info(f"[SEMANTIC DECOMPOSE] Recall agent succeeded")
+
+            # Deterministic pipeline: all non-recall intents, or agent failed/disabled
+            if not improved_text:
+                improved_text, mq_top_score = await ctx_mgr.search_and_format_multi_query(
+                    sub_queries=sub_queries,
+                    context=context,
+                    db=db,
+                    intent_type=intent_type,
+                    temporal_type=temporal_type,
+                    user_intent=user_intent,
+                    keywords=keywords
+                )
 
             if not improved_text:
                 logger.info("[SEMANTIC DECOMPOSE] Multi-query search returned no results")
