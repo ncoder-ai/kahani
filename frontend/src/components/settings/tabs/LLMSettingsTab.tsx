@@ -561,6 +561,80 @@ export default function LLMSettingsTab({
                     )}
                   </div>
                 </div>
+
+                {/* Local Thinking Model Settings */}
+                <div className="pt-4 pb-4 px-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <h4 className="text-sm font-medium text-white mb-3">Thinking Control</h4>
+                  <p className="text-xs text-gray-400 mb-3">
+                    For local thinking models (Qwen3, DeepSeek, etc.) that produce &lt;think&gt; tags. Not needed for API providers.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2">Thinking Model Type</label>
+                      <select
+                        value={llmSettings.thinking_model_type || 'none'}
+                        onChange={(e) => setLlmSettings({
+                          ...llmSettings,
+                          thinking_model_type: e.target.value === 'none' ? null : e.target.value
+                        })}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2.5 text-white focus:border-pink-500 focus:ring-1 focus:ring-pink-500"
+                      >
+                        {THINKING_DISABLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {THINKING_DISABLE_OPTIONS.find(o => o.value === (llmSettings.thinking_model_type || 'none'))?.description}
+                      </div>
+                    </div>
+
+                    {/* Custom Pattern Input */}
+                    {llmSettings.thinking_model_type === 'custom' && (
+                      <div>
+                        <label className="block text-sm font-medium text-white mb-2">
+                          Custom Pattern (Regex)
+                        </label>
+                        <input
+                          type="text"
+                          value={llmSettings.thinking_model_custom_pattern ?? ''}
+                          onChange={(e) => setLlmSettings({
+                            ...llmSettings,
+                            thinking_model_custom_pattern: e.target.value
+                          })}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white font-mono text-sm"
+                          placeholder="<think>[\s\S]*?</think>"
+                        />
+                        <div className="text-xs text-gray-400 mt-1">
+                          Regex pattern to strip from responses
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Per-task thinking toggle */}
+                    {llmSettings.thinking_model_type && llmSettings.thinking_model_type !== 'none' && (
+                      <div>
+                        <label className="flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={llmSettings.thinking_enabled_generation ?? false}
+                            onChange={(e) => setLlmSettings({
+                              ...llmSettings,
+                              thinking_enabled_generation: e.target.checked
+                            })}
+                            className="mr-2 rounded border-gray-600 bg-gray-700 text-pink-500 focus:ring-pink-500"
+                          />
+                          <span className="text-white text-sm">Thinking for story generation</span>
+                        </label>
+                        <p className="text-xs text-gray-400 mt-1 ml-6">
+                          Scenes, variants, choices, summaries. Adds latency but may improve quality.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Generation Parameters */}
@@ -857,15 +931,15 @@ export default function LLMSettingsTab({
                       </div>
                     </div>
 
-                    {/* Thinking Disable Settings */}
+                    {/* Thinking Model Settings */}
                     <div className="pt-4 border-t border-gray-600">
-                      <h5 className="text-sm font-semibold text-white mb-3">Thinking/Reasoning Control</h5>
+                      <h5 className="text-sm font-semibold text-white mb-3">Thinking Control</h5>
 
                       <div className="space-y-4">
-                        {/* Thinking Disable Method Dropdown */}
+                        {/* Thinking Model Type Dropdown */}
                         <div>
                           <label className="block text-sm font-medium text-white mb-2">
-                            Thinking Disable Method
+                            Thinking Model Type
                           </label>
                           <select
                             value={extractionModelSettings.thinking_disable_method ?? 'none'}
@@ -904,6 +978,47 @@ export default function LLMSettingsTab({
                             />
                             <div className="text-xs text-gray-400 mt-1">
                               Regex pattern to strip from responses (e.g., &lt;think&gt;...&lt;/think&gt;)
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Per-task thinking toggles (only when a thinking model is configured) */}
+                        {extractionModelSettings.thinking_disable_method !== 'none' && (
+                          <div className="space-y-3 mt-3 p-3 bg-gray-700/30 rounded-lg">
+                            <p className="text-xs text-gray-400 font-medium">Choose which tasks use chain-of-thought reasoning</p>
+                            <div>
+                              <label className="flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={extractionModelSettings.thinking_enabled_extractions ?? false}
+                                  onChange={(e) => setExtractionModelSettings({
+                                    ...extractionModelSettings,
+                                    thinking_enabled_extractions: e.target.checked
+                                  })}
+                                  className="mr-2 rounded border-gray-600 bg-gray-700 text-pink-500 focus:ring-pink-500"
+                                />
+                                <span className="text-white text-sm">Thinking for extractions</span>
+                              </label>
+                              <p className="text-xs text-gray-400 mt-1 ml-6">
+                                Entity, NPC, plot, scene event extractions. Usually unnecessary — adds latency.
+                              </p>
+                            </div>
+                            <div>
+                              <label className="flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={extractionModelSettings.thinking_enabled_memory ?? true}
+                                  onChange={(e) => setExtractionModelSettings({
+                                    ...extractionModelSettings,
+                                    thinking_enabled_memory: e.target.checked
+                                  })}
+                                  className="mr-2 rounded border-gray-600 bg-gray-700 text-pink-500 focus:ring-pink-500"
+                                />
+                                <span className="text-white text-sm">Thinking for memory & recall</span>
+                              </label>
+                              <p className="text-xs text-gray-400 mt-1 ml-6">
+                                Query decomposition and agentic recall. Recommended — these tasks benefit from reasoning.
+                              </p>
                             </div>
                           </div>
                         )}

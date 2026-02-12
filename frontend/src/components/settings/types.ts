@@ -37,6 +37,9 @@ export interface LLMSettings {
   text_completion_preset?: string;
   reasoning_effort?: string | null;
   show_thinking_content?: boolean;
+  thinking_model_type?: string | null;       // 'none'|'qwen3'|'deepseek'|etc.
+  thinking_model_custom_pattern?: string;
+  thinking_enabled_generation?: boolean;     // default false
 }
 
 export interface ContextSettings {
@@ -86,19 +89,21 @@ export interface ExtractionModelSettings {
   // Thinking disable settings
   thinking_disable_method?: 'none' | 'qwen3' | 'deepseek' | 'mistral' | 'gemini' | 'openai' | 'kimi' | 'glm' | 'custom';
   thinking_disable_custom?: string;
+  thinking_enabled_extractions?: boolean;   // default false
+  thinking_enabled_memory?: boolean;        // default true
 }
 
-// Thinking disable method options for dropdown
+// Thinking model type options — how to control <think> tags for local thinking models
 export const THINKING_DISABLE_OPTIONS = [
-  { value: 'none', label: 'None', description: 'No thinking to disable' },
-  { value: 'qwen3', label: 'Qwen3 (/no_think)', description: 'Add /no_think prefix and strip <think> tags' },
-  { value: 'deepseek', label: 'DeepSeek', description: 'Strip <think>...</think> tags' },
-  { value: 'mistral', label: 'Mistral Magistral', description: 'Uses prompt_mode=null API parameter' },
-  { value: 'gemini', label: 'Gemini', description: 'Uses thinkingBudget=0 API parameter' },
-  { value: 'openai', label: 'OpenAI o1/o3', description: 'Uses reasoning_effort=none API parameter' },
-  { value: 'kimi', label: 'Kimi K2', description: 'Strip thinking tags (use Instruct variant)' },
-  { value: 'glm', label: 'GLM-4', description: 'API param + strips <think> tags (for KoboldCpp, set CoT to Prevented)' },
-  { value: 'custom', label: 'Custom', description: 'Define custom regex pattern to strip' },
+  { value: 'none', label: 'None (not a thinking model)', description: 'Model does not produce thinking tags' },
+  { value: 'qwen3', label: 'Qwen3', description: 'Uses /no_think prefix to suppress, strips <think> tags' },
+  { value: 'deepseek', label: 'DeepSeek', description: 'Strips <think> tags from output' },
+  { value: 'mistral', label: 'Mistral Magistral', description: 'Uses API parameter to control thinking' },
+  { value: 'gemini', label: 'Gemini', description: 'Uses API parameter to control thinking' },
+  { value: 'openai', label: 'OpenAI o1/o3', description: 'Uses API parameter to control thinking' },
+  { value: 'kimi', label: 'Kimi K2', description: 'Strips thinking tags (use Instruct variant)' },
+  { value: 'glm', label: 'GLM-4', description: 'API param + strips <think> tags' },
+  { value: 'custom', label: 'Custom', description: 'Define custom regex pattern to strip thinking tags' },
 ] as const;
 
 export interface TTSProvider {

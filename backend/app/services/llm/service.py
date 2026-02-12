@@ -151,6 +151,7 @@ class UnifiedLLMService:
         max_tokens: Optional[int] = None,
         task_type: str = "main",
         force_main_llm: bool = False,
+        allow_thinking: Optional[bool] = None,
     ) -> str:
         """Single routing function for all LLM generation.
 
@@ -164,14 +165,33 @@ class UnifiedLLMService:
             settings like low temperature). Used by callers with per-task overrides
             like use_main_llm_for_plot_extraction.
 
+        allow_thinking:
+            Controls whether the LLM can use chain-of-thought reasoning.
+            None (default) = auto-resolve from user settings:
+              - "extraction" tasks → thinking_enabled_extractions (default False)
+              - "agent" tasks → thinking_enabled_memory (default True)
+            True/False = explicit override.
+
         When falling back to main LLM for extraction/agent tasks, uses temperature
         and reasoning settings from service_defaults.extraction_service in config.
+
+        For extraction/agent tasks, thinking tags (<think>...</think> etc.) are
+        automatically stripped from responses so callers always get clean output.
         """
         if task_type in ("extraction", "agent"):
+            # Auto-resolve allow_thinking from per-task user settings if not explicitly set
+            if allow_thinking is None:
+                ext_settings = user_settings.get('extraction_model_settings', {})
+                if task_type == "agent":
+                    allow_thinking = ext_settings.get('thinking_enabled_memory', True)
+                else:
+                    allow_thinking = ext_settings.get('thinking_enabled_extractions', False)
+
             if not force_main_llm:
                 extraction_service = self._get_extraction_service(user_settings)
                 if extraction_service:
-                    return await extraction_service.generate_with_messages(messages, max_tokens)
+                    response = await extraction_service.generate_with_messages(messages, max_tokens, allow_thinking=allow_thinking)
+                    return self._strip_thinking_from_response(response)
 
             # Main LLM with extraction-appropriate settings from config
             import copy
@@ -179,14 +199,16 @@ class UnifiedLLMService:
             ext_defaults = app_settings.service_defaults.get("extraction_service", {})
             fallback_settings = copy.deepcopy(user_settings)
             fallback_settings.setdefault('llm_settings', {})['temperature'] = ext_defaults.get("default_temperature", 0.3)
-            fallback_settings['llm_settings']['reasoning_effort'] = 'disabled'
-            return await self._generate_with_messages(
+            if not allow_thinking:
+                fallback_settings['llm_settings']['reasoning_effort'] = 'disabled'
+            response = await self._generate_with_messages(
                 messages=messages,
                 user_id=user_id,
                 user_settings=fallback_settings,
                 max_tokens=max_tokens,
                 skip_nsfw_filter=True,
             )
+            return self._strip_thinking_from_response(response)
 
         # Default: main LLM with user's normal settings
         return await self._generate_with_messages(
@@ -195,6 +217,18 @@ class UnifiedLLMService:
             user_settings=user_settings,
             max_tokens=max_tokens,
         )
+
+    @staticmethod
+    def _strip_thinking_from_response(response: str) -> str:
+        """Strip thinking/reasoning tags from extraction/agent LLM responses.
+
+        Uses the centralized ThinkingTagParser which handles all known formats
+        (<think>, <thinking>, <reasoning>, [THINKING], etc.).
+        """
+        if not response:
+            return response
+        from .thinking_parser import strip_thinking_tags
+        return strip_thinking_tags(response)
 
     def _format_plot_for_choices(self, context: Dict[str, Any], user_settings: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -2752,7 +2786,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=500, task_type="extraction", force_main_llm=use_main_for_plot,
+                task_type="extraction", force_main_llm=use_main_for_plot,
             )
 
             logger.info(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
@@ -3283,7 +3317,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=512, task_type="extraction",
+                task_type="extraction",
             )
 
             if not response:
@@ -3343,7 +3377,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=300, task_type="extraction",
+                task_type="extraction",
             )
 
             if not response:
@@ -3451,7 +3485,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=1500, task_type="extraction",
+                task_type="extraction",
             )
 
             if not response:
@@ -3535,7 +3569,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=1500, task_type="extraction",
+                task_type="extraction",
             )
 
             if not response:
@@ -3621,7 +3655,7 @@ Chapter Conclusion:"""
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                max_tokens=1000, task_type="extraction",
+                task_type="extraction",
             )
 
             if not response:
@@ -3914,11 +3948,14 @@ Chapter Conclusion:"""
                 decompose_task = f"Classify intent (direct/recall/react) and generate sub-queries.\nReturn JSON: {{\"intent\": \"...\", \"temporal\": \"...\", \"queries\": [...], \"keywords\": [...]}}\n\nText to decompose:\n{user_intent}"
             if extraction_service:
                 # Use extraction LLM (fast, ~1.7s)
+                # Decomposition is a memory/recall task — use thinking_enabled_memory toggle
+                _allow_thinking_decompose = ext_settings.get('thinking_enabled_memory', True)
                 decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
-                logger.info("[SEMANTIC DECOMPOSE] Using extraction LLM")
+                logger.info(f"[SEMANTIC DECOMPOSE] Using extraction LLM (allow_thinking={_allow_thinking_decompose})")
                 response = await extraction_service.generate_with_messages(
                     messages=decompose_messages,
-                    max_tokens=300
+                    max_tokens=300,
+                    allow_thinking=_allow_thinking_decompose
                 )
             else:
                 # Fall back to main LLM with cache-friendly prefix
@@ -3989,14 +4026,16 @@ Chapter Conclusion:"""
                 _self = self
                 _user_id = user_id
                 _user_settings = user_settings
+                _allow_thinking = _user_settings.get('extraction_model_settings', {}).get('thinking_enabled_memory', True)
                 class _AgentLLM:
-                    async def generate_with_messages(self, messages, max_tokens=None):
+                    async def generate_with_messages(self, messages, max_tokens=None, **kwargs):
                         return await _self.generate_for_task(
                             messages=messages,
                             user_id=_user_id,
                             user_settings=_user_settings,
-                            max_tokens=max_tokens or 500,
+                            max_tokens=max_tokens,
                             task_type="agent",
+                            allow_thinking=_allow_thinking,
                         )
                 agent_llm = _AgentLLM()
 
@@ -5047,17 +5086,44 @@ Chapter Conclusion:"""
             else:
                 messages.insert(0, {"role": "system", "content": content_prompt})
 
+        # Apply local thinking model control for main LLM
+        llm_settings = user_settings.get('llm_settings', {}) if user_settings else {}
+        thinking_model_type = llm_settings.get('thinking_model_type') or 'none'
+        thinking_enabled_gen = llm_settings.get('thinking_enabled_generation', False)
+
+        if thinking_model_type != 'none' and not thinking_enabled_gen:
+            # Apply prompt prefix to suppress thinking (e.g., /no_think for Qwen3)
+            if thinking_model_type == 'qwen3':
+                messages = [msg.copy() for msg in messages]
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "user":
+                        messages[i]["content"] = f"/no_think {messages[i]['content']}"
+                        break
+
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
 
+        # Apply API-specific thinking disable params for main LLM
+        if thinking_model_type != 'none' and not thinking_enabled_gen:
+            if thinking_model_type == 'mistral':
+                gen_params["prompt_mode"] = None
+            elif thinking_model_type == 'openai':
+                gen_params["reasoning_effort"] = "none"
+            elif thinking_model_type == 'gemini':
+                gen_params["thinking_config"] = {"thinking_budget": 0}
+            elif thinking_model_type == 'glm':
+                extra = gen_params.get("extra_body", {})
+                extra["chat_template_kwargs"] = {"enable_thinking": False}
+                gen_params["extra_body"] = extra
+
         # Get timeout from user settings or fallback to system default
-        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
+        user_timeout = llm_settings.get('timeout_total') if user_settings else None
         gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
+
         try:
             response = await acompletion(**gen_params)
-            
+
             # Check finish_reason for truncation
             if hasattr(response, 'choices') and len(response.choices) > 0:
                 finish_reason = getattr(response.choices[0], 'finish_reason', None)
@@ -5065,9 +5131,25 @@ Chapter Conclusion:"""
                     logger.warning(f"[TRUNCATION] Response truncated due to token limit! max_tokens={max_tokens}")
                 elif finish_reason:
                     logger.debug(f"[GENERATION] Finish reason: {finish_reason}")
-            
-            return response.choices[0].message.content
-            
+
+            content = response.choices[0].message.content
+
+            # Strip thinking tags from response when local thinking model is enabled
+            if thinking_model_type != 'none' and thinking_enabled_gen and content:
+                from .extraction_service import THINKING_PATTERNS
+                pattern = THINKING_PATTERNS.get(thinking_model_type)
+                if not pattern and thinking_model_type == 'custom':
+                    custom_pat = llm_settings.get('thinking_model_custom_pattern', '')
+                    if custom_pat:
+                        try:
+                            pattern = re.compile(custom_pat, re.IGNORECASE | re.DOTALL)
+                        except re.error:
+                            pass
+                if pattern:
+                    content = pattern.sub("", content).strip()
+
+            return content
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Multi-message generation failed for user {user_id}: {error_msg}")
@@ -5111,15 +5193,42 @@ Chapter Conclusion:"""
             else:
                 messages.insert(0, {"role": "system", "content": content_prompt})
 
+        # Apply local thinking model control for main LLM
+        llm_settings = user_settings.get('llm_settings', {}) if user_settings else {}
+        thinking_model_type = llm_settings.get('thinking_model_type') or 'none'
+        thinking_enabled_gen = llm_settings.get('thinking_enabled_generation', False)
+
+        if thinking_model_type != 'none' and not thinking_enabled_gen:
+            # Apply prompt prefix to suppress thinking (e.g., /no_think for Qwen3)
+            if thinking_model_type == 'qwen3':
+                messages = [msg.copy() for msg in messages]
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "user":
+                        messages[i]["content"] = f"/no_think {messages[i]['content']}"
+                        break
+
         # Get streaming parameters
         gen_params = client.get_generation_params(max_tokens, temperature)
         gen_params["messages"] = messages
         gen_params["stream"] = True
-        
+
+        # Apply API-specific thinking disable params for main LLM
+        if thinking_model_type != 'none' and not thinking_enabled_gen:
+            if thinking_model_type == 'mistral':
+                gen_params["prompt_mode"] = None
+            elif thinking_model_type == 'openai':
+                gen_params["reasoning_effort"] = "none"
+            elif thinking_model_type == 'gemini':
+                gen_params["thinking_config"] = {"thinking_budget": 0}
+            elif thinking_model_type == 'glm':
+                extra = gen_params.get("extra_body", {})
+                extra["chat_template_kwargs"] = {"enable_thinking": False}
+                gen_params["extra_body"] = extra
+
         # Get timeout from user settings or fallback to system default
-        user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
+        user_timeout = llm_settings.get('timeout_total') if user_settings else None
         gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
-        
+
         # Write prompt to file for debugging (only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
@@ -5154,6 +5263,13 @@ Chapter Conclusion:"""
             content_chars = 0
             chunk_count = 0
             thinking_signaled = False
+
+            # Stream filter state for local thinking models that embed <think> in content
+            # When thinking_model_type is set and thinking is enabled, we parse the content
+            # stream to detect <think>...</think> blocks and route them as __THINKING__
+            local_think_filter = (thinking_model_type != 'none' and thinking_enabled_gen)
+            in_think_block = False
+            content_buffer = ""  # Small buffer for tag boundary detection
 
             async for chunk in response:
                 chunk_count += 1
@@ -5205,8 +5321,67 @@ Chapter Conclusion:"""
 
                     # Regular content
                     if hasattr(delta, 'content') and delta.content:
-                        content_chars += len(delta.content)
-                        yield delta.content
+                        text = delta.content
+
+                        # Stream filter for local thinking models (e.g., Qwen3, DeepSeek)
+                        # Detects <think>...</think> blocks in the content stream
+                        if local_think_filter:
+                            content_buffer += text
+                            # Process buffer for think tags
+                            while content_buffer:
+                                if in_think_block:
+                                    # Look for </think> closing tag
+                                    end_idx = content_buffer.lower().find("</think>")
+                                    if end_idx != -1:
+                                        # Yield thinking content up to tag
+                                        think_text = content_buffer[:end_idx]
+                                        if think_text:
+                                            reasoning_chars += len(think_text)
+                                            yield f"__THINKING__:{think_text}"
+                                        content_buffer = content_buffer[end_idx + 8:]  # skip </think>
+                                        in_think_block = False
+                                    elif len(content_buffer) > 50:
+                                        # Flush most of buffer as thinking, keep tail for tag detection
+                                        flush = content_buffer[:-8]
+                                        content_buffer = content_buffer[-8:]
+                                        reasoning_chars += len(flush)
+                                        yield f"__THINKING__:{flush}"
+                                    else:
+                                        break  # Wait for more data
+                                else:
+                                    # Look for <think> opening tag
+                                    start_idx = content_buffer.lower().find("<think>")
+                                    if start_idx != -1:
+                                        # Yield any content before the tag
+                                        before = content_buffer[:start_idx]
+                                        if before:
+                                            content_chars += len(before)
+                                            yield before
+                                        content_buffer = content_buffer[start_idx + 7:]  # skip <think>
+                                        in_think_block = True
+                                        has_reasoning = True
+                                        if not thinking_signaled:
+                                            thinking_signaled = True
+                                    elif len(content_buffer) > 50:
+                                        # Flush most of buffer as content, keep tail for tag detection
+                                        flush = content_buffer[:-7]
+                                        content_buffer = content_buffer[-7:]
+                                        content_chars += len(flush)
+                                        yield flush
+                                    else:
+                                        break  # Wait for more data
+                        else:
+                            content_chars += len(text)
+                            yield text
+
+            # Flush remaining buffer for local think filter
+            if local_think_filter and content_buffer:
+                if in_think_block:
+                    reasoning_chars += len(content_buffer)
+                    yield f"__THINKING__:{content_buffer}"
+                else:
+                    content_chars += len(content_buffer)
+                    yield content_buffer
 
             # Log summary
             logger.info(f"[MULTI-MSG STREAMING] chunks={chunk_count}, content_chars={content_chars}, reasoning_chars={reasoning_chars}, thinking_detected={thinking_signaled}")

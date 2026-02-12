@@ -171,6 +171,8 @@ extraction_model:
   # Methods: "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
   thinking_disable_method: "none"
   thinking_disable_custom: ""  # Custom tag pattern for "custom" method (e.g., "<think>", "[THINKING]")
+  thinking_enabled_extractions: false  # Allow thinking for extraction tasks (slower but potentially better)
+  thinking_enabled_memory: true        # Allow thinking for memory/recall tasks (benefits from CoT)
   recommended_models:
     - "qwen2.5-3b-instruct"
     - "ministral-3b-instruct"
@@ -375,6 +377,11 @@ user_defaults:
     min_p: 0.0
     thinking_disable_method: "none"  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
     thinking_disable_custom: ""  # Custom tag pattern when method is "custom"
+    thinking_enabled_extractions: false  # Allow thinking for extraction tasks
+    thinking_enabled_memory: true        # Allow thinking for memory/recall tasks
+  reasoning_settings:
+    thinking_model_type: null            # Local thinking model type for main LLM (null = none)
+    thinking_enabled_generation: false   # Allow thinking for story generation
   advanced:
     custom_system_prompt: ""
     experimental_features: false

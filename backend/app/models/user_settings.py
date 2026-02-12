@@ -36,6 +36,9 @@ class UserSettings(Base):
     # Reasoning/Thinking Settings
     reasoning_effort = Column(String(20), nullable=True)  # "disabled", "low", "medium", "high", or None (auto)
     show_thinking_content = Column(Boolean, nullable=True)  # Whether to display thinking text in UI
+    thinking_model_type = Column(String(50), nullable=True)  # "none", "qwen3", "deepseek", etc. for local thinking models
+    thinking_model_custom_pattern = Column(Text, nullable=True)  # Custom regex pattern for thinking tag removal
+    thinking_enabled_generation = Column(Boolean, nullable=True)  # Per-task: allow thinking for story generation
     
     # Context Management Settings
     context_max_tokens = Column(Integer, nullable=True)
@@ -123,6 +126,8 @@ class UserSettings(Base):
     extraction_model_min_p = Column(Float, nullable=True)
     extraction_model_thinking_disable_method = Column(String(50), nullable=True)  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "custom"
     extraction_model_thinking_disable_custom = Column(Text, nullable=True)  # Custom tag pattern to strip
+    extraction_model_thinking_enabled_extractions = Column(Boolean, nullable=True)  # Per-task: allow thinking for extractions
+    extraction_model_thinking_enabled_memory = Column(Boolean, nullable=True)  # Per-task: allow thinking for memory/recall
     use_main_llm_for_plot_extraction = Column(Boolean, nullable=True)  # Use main LLM for plot event extraction (more accurate)
     use_main_llm_for_decomposition = Column(Boolean, nullable=True)  # Use main LLM for query decomposition (avoids extraction LLM contention)
 
@@ -198,7 +203,10 @@ class UserSettings(Base):
                 "text_completion_template": self.text_completion_template or "",
                 "text_completion_preset": self.text_completion_preset if self.text_completion_preset is not None else text_completion_defaults.get("preset", "llama3"),
                 "reasoning_effort": self.reasoning_effort,  # None = auto, "disabled", "low", "medium", "high"
-                "show_thinking_content": self.show_thinking_content if self.show_thinking_content is not None else True
+                "show_thinking_content": self.show_thinking_content if self.show_thinking_content is not None else True,
+                "thinking_model_type": self.thinking_model_type if self.thinking_model_type is not None else None,
+                "thinking_model_custom_pattern": self.thinking_model_custom_pattern or "",
+                "thinking_enabled_generation": self.thinking_enabled_generation if self.thinking_enabled_generation is not None else False
             },
             "context_settings": {
                 "max_tokens": self.context_max_tokens if self.context_max_tokens is not None else ctx_defaults.get("max_tokens", 4000),
@@ -283,6 +291,8 @@ class UserSettings(Base):
                 "min_p": self.extraction_model_min_p if self.extraction_model_min_p is not None else ext_model_defaults.get("min_p", 0.0),
                 "thinking_disable_method": self.extraction_model_thinking_disable_method if self.extraction_model_thinking_disable_method is not None else ext_model_defaults.get("thinking_disable_method", "none"),
                 "thinking_disable_custom": self.extraction_model_thinking_disable_custom or ext_model_defaults.get("thinking_disable_custom", ""),
+                "thinking_enabled_extractions": self.extraction_model_thinking_enabled_extractions if self.extraction_model_thinking_enabled_extractions is not None else ext_model_defaults.get("thinking_enabled_extractions", False),
+                "thinking_enabled_memory": self.extraction_model_thinking_enabled_memory if self.extraction_model_thinking_enabled_memory is not None else ext_model_defaults.get("thinking_enabled_memory", True),
                 "enable_combined_extraction": True,  # Default: enabled, combines all extractions in one LLM call
                 "use_main_llm_for_plot_extraction": self.use_main_llm_for_plot_extraction if self.use_main_llm_for_plot_extraction is not None else False,
                 "use_main_llm_for_decomposition": self.use_main_llm_for_decomposition if self.use_main_llm_for_decomposition is not None else False
@@ -457,7 +467,11 @@ class UserSettings(Base):
             self.reasoning_effort = reasoning.get("effort")  # None = auto
         if self.show_thinking_content is None:
             self.show_thinking_content = reasoning.get("show_thinking_content", True)
-        
+        if self.thinking_model_type is None:
+            self.thinking_model_type = reasoning.get("thinking_model_type")
+        if self.thinking_enabled_generation is None:
+            self.thinking_enabled_generation = reasoning.get("thinking_enabled_generation", False)
+
         # Context Settings
         ctx = user_defaults.get("context_settings", {})
         if self.context_max_tokens is None:
@@ -616,6 +630,10 @@ class UserSettings(Base):
             self.extraction_model_thinking_disable_method = ext_model.get("thinking_disable_method", "none")
         if self.extraction_model_thinking_disable_custom is None:
             self.extraction_model_thinking_disable_custom = ext_model.get("thinking_disable_custom", "")
+        if self.extraction_model_thinking_enabled_extractions is None:
+            self.extraction_model_thinking_enabled_extractions = ext_model.get("thinking_enabled_extractions", False)
+        if self.extraction_model_thinking_enabled_memory is None:
+            self.extraction_model_thinking_enabled_memory = ext_model.get("thinking_enabled_memory", True)
 
         # Advanced Settings
         adv = user_defaults.get("advanced", {})

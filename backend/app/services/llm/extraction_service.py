@@ -145,7 +145,7 @@ class ExtractionLLMService:
     """OpenAI-compatible extraction service for small local models"""
 
     def __init__(self, url: str, model: str, api_key: str = "",
-                 temperature: float = 0.3, max_tokens: int = 1000,
+                 temperature: float = 0.3, max_tokens: Optional[int] = None,
                  timeout_total: float = 240,
                  top_p: float = 1.0, repetition_penalty: float = 1.0,
                  min_p: float = 0.0, thinking_disable_method: str = "none",
@@ -158,7 +158,7 @@ class ExtractionLLMService:
             model: Model name to use
             api_key: API key if required (empty string for local servers)
             temperature: Temperature for generation (default 0.3 for more deterministic)
-            max_tokens: Maximum tokens for response (default 1000)
+            max_tokens: Maximum tokens for response (None = let server decide, model stops naturally)
             timeout_total: Total timeout in seconds for requests (default 240, from user settings)
             top_p: Top-p (nucleus) sampling (default 1.0)
             repetition_penalty: Repetition penalty (default 1.0 = disabled)
@@ -174,7 +174,7 @@ class ExtractionLLMService:
         self.model = model
         self.api_key = api_key or "not-needed"  # Some servers don't require key
         self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens  # None = no limit (model stops naturally after producing output)
         self.timeout_total = timeout_total
 
         # Advanced sampling parameters
@@ -212,7 +212,11 @@ class ExtractionLLMService:
             return None
 
     def _strip_thinking_tags(self, content: str) -> str:
-        """Remove thinking tags from response content based on configured method"""
+        """Remove thinking tags and their content from response.
+
+        For thinking models, the response is: <think>reasoning</think>actual output
+        We strip the thinking block and return only the actual output.
+        """
         if not self._thinking_pattern or not content:
             return content
 
@@ -224,8 +228,10 @@ class ExtractionLLMService:
 
         return cleaned
 
-    def _get_prompt_prefix(self) -> str:
+    def _get_prompt_prefix(self, allow_thinking: bool = False) -> str:
         """Get any prompt prefix needed for thinking disable (e.g., /no_think for Qwen3)"""
+        if allow_thinking:
+            return ""
         if self.thinking_disable_method == "qwen3":
             return "/no_think "
         return ""
@@ -251,15 +257,26 @@ class ExtractionLLMService:
         # Use openai/ prefix for OpenAI-compatible APIs
         return f"openai/{self.model}"
     
-    def _get_generation_params(self, max_tokens: Optional[int] = None) -> Dict[str, Any]:
-        """Get generation parameters for API calls"""
+    def _get_generation_params(self, max_tokens: Optional[int] = None, allow_thinking: bool = False) -> Dict[str, Any]:
+        """Get generation parameters for API calls.
+
+        max_tokens precedence: explicit arg > self.max_tokens > omitted (server decides).
+        Omitting max_tokens lets thinking models (Qwen3, DeepSeek) use tokens for
+        reasoning without hitting an artificial ceiling. The model stops naturally
+        after producing the requested JSON, and timeout is the safety net.
+
+        When allow_thinking is True, API-specific thinking disable parameters are skipped
+        so the model can use chain-of-thought reasoning.
+        """
+        resolved_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         params = {
             "model": self._build_model_string(),
             "api_base": self.url,
             "api_key": self.api_key,
             "temperature": self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
         }
+        if resolved_max_tokens is not None:
+            params["max_tokens"] = resolved_max_tokens
 
         # Build extra_body for non-standard params (needed for KoboldCpp and other OpenAI-compat servers)
         extra_body = {}
@@ -274,17 +291,18 @@ class ExtractionLLMService:
         if self.min_p > 0.0:
             extra_body["min_p"] = self.min_p
 
-        # Add API-specific thinking disable parameters
-        if self.thinking_disable_method == "mistral":
-            params["prompt_mode"] = None
-        elif self.thinking_disable_method == "openai":
-            params["reasoning_effort"] = "none"
-        elif self.thinking_disable_method == "gemini":
-            params["thinking_config"] = {"thinking_budget": 0}
-        elif self.thinking_disable_method == "glm":
-            # GLM models support enable_thinking=False in chat template
-            # Pass via extra_body for vLLM/OpenAI-compatible servers
-            extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+        # Add API-specific thinking disable parameters (only when NOT allowing thinking)
+        if not allow_thinking:
+            if self.thinking_disable_method == "mistral":
+                params["prompt_mode"] = None
+            elif self.thinking_disable_method == "openai":
+                params["reasoning_effort"] = "none"
+            elif self.thinking_disable_method == "gemini":
+                params["thinking_config"] = {"thinking_budget": 0}
+            elif self.thinking_disable_method == "glm":
+                # GLM models support enable_thinking=False in chat template
+                # Pass via extra_body for vLLM/OpenAI-compatible servers
+                extra_body["chat_template_kwargs"] = {"enable_thinking": False}
 
         # Only add extra_body if it has content
         if extra_body:
@@ -292,7 +310,7 @@ class ExtractionLLMService:
 
         # Log the params being used (excluding api_key)
         log_params = {k: v for k, v in params.items() if k != "api_key"}
-        logger.info(f"[EXTRACTION] Generation params: temp={params.get('temperature')}, top_p={params.get('top_p', 1.0)}, extra_body={extra_body if extra_body else 'none'}")
+        logger.info(f"[EXTRACTION] Generation params: temp={params.get('temperature')}, top_p={params.get('top_p', 1.0)}, allow_thinking={allow_thinking}, extra_body={extra_body if extra_body else 'none'}")
 
         return params
     
@@ -307,16 +325,20 @@ class ExtractionLLMService:
         try:
             from litellm import acompletion
             
-            # Simple test request
+            # Simple test request — apply prompt prefix (e.g. /no_think for Qwen3)
+            prefix = self._get_prompt_prefix()
+            test_prompt = f"{prefix}Say 'OK'" if prefix else "Say 'OK'"
             params = self._get_generation_params(max_tokens=10)
             response = await acompletion(
                 **params,
-                messages=[{"role": "user", "content": "Say 'OK'"}],
+                messages=[{"role": "user", "content": test_prompt}],
                 timeout=self.timeout_total
             )
-            
+
             response_time = time.time() - start_time
             content = response.choices[0].message.content
+            # Strip thinking tags if present
+            content = self._strip_thinking_tags(content) if content else content
             
             if content:
                 return True, f"Connection successful (model responded)", response_time
@@ -385,7 +407,8 @@ class ExtractionLLMService:
         self,
         prompt: str,
         system_prompt: str = "",
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        allow_thinking: bool = False
     ) -> str:
         """
         Generic text generation method for extraction tasks.
@@ -394,6 +417,7 @@ class ExtractionLLMService:
             prompt: The user prompt
             system_prompt: Optional system prompt
             max_tokens: Maximum tokens for response
+            allow_thinking: When True, skip thinking disable (let model use CoT)
 
         Returns:
             Generated text response
@@ -401,10 +425,10 @@ class ExtractionLLMService:
         try:
             from litellm import acompletion
 
-            params = self._get_generation_params(max_tokens=max_tokens)
+            params = self._get_generation_params(max_tokens=max_tokens, allow_thinking=allow_thinking)
 
             # Apply prompt prefix if needed (e.g., /no_think for Qwen3)
-            prefix = self._get_prompt_prefix()
+            prefix = self._get_prompt_prefix(allow_thinking=allow_thinking)
             final_prompt = f"{prefix}{prompt}" if prefix else prompt
 
             messages = []
@@ -433,7 +457,8 @@ class ExtractionLLMService:
     async def generate_with_messages(
         self,
         messages: List[Dict[str, str]],
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        allow_thinking: bool = False
     ) -> str:
         """
         Generate using a full message array (for cache-friendly unified extraction).
@@ -444,6 +469,7 @@ class ExtractionLLMService:
         Args:
             messages: Full message array with role/content dicts
             max_tokens: Maximum tokens for response
+            allow_thinking: When True, skip thinking disable (let model use CoT)
 
         Returns:
             Generated text response
@@ -451,10 +477,10 @@ class ExtractionLLMService:
         try:
             from litellm import acompletion
 
-            params = self._get_generation_params(max_tokens=max_tokens)
+            params = self._get_generation_params(max_tokens=max_tokens, allow_thinking=allow_thinking)
 
             # Apply prompt prefix to last user message if needed (e.g., /no_think for Qwen3)
-            prefix = self._get_prompt_prefix()
+            prefix = self._get_prompt_prefix(allow_thinking=allow_thinking)
             if prefix:
                 messages = [msg.copy() for msg in messages]  # Don't mutate original
                 for i in range(len(messages) - 1, -1, -1):

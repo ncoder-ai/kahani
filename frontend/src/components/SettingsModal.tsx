@@ -111,6 +111,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     min_p: 0.0,
     thinking_disable_method: 'none',
     thinking_disable_custom: '',
+    thinking_enabled_extractions: false,
+    thinking_enabled_memory: true,
   });
 
   // Generation Preferences
@@ -225,6 +227,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               text_completion_preset: settings.llm_settings.text_completion_preset || 'llama3',
               reasoning_effort: settings.llm_settings.reasoning_effort || null,
               show_thinking_content: settings.llm_settings.show_thinking_content ?? true,
+              thinking_model_type: settings.llm_settings.thinking_model_type ?? null,
+              thinking_model_custom_pattern: settings.llm_settings.thinking_model_custom_pattern ?? '',
+              thinking_enabled_generation: settings.llm_settings.thinking_enabled_generation ?? false,
             });
             if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
               setCurrentEngine(settings.llm_settings.api_type);
@@ -303,6 +308,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             min_p: settings.extraction_model_settings.min_p ?? 0.0,
             thinking_disable_method: settings.extraction_model_settings.thinking_disable_method ?? 'none',
             thinking_disable_custom: settings.extraction_model_settings.thinking_disable_custom ?? '',
+            thinking_enabled_extractions: settings.extraction_model_settings.thinking_enabled_extractions ?? false,
+            thinking_enabled_memory: settings.extraction_model_settings.thinking_enabled_memory ?? true,
           });
         }
 

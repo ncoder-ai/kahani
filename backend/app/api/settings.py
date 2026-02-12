@@ -33,6 +33,10 @@ class LLMSettingsUpdate(BaseModel):
     # Reasoning/Thinking Settings
     reasoning_effort: Optional[str] = Field(default=None, pattern="^(disabled|low|medium|high)$")  # None = auto
     show_thinking_content: Optional[bool] = None  # Whether to display thinking text in UI
+    # Local thinking model settings (for Qwen3, DeepSeek, etc.)
+    thinking_model_type: Optional[str] = Field(default=None, pattern="^(none|qwen3|deepseek|mistral|gemini|openai|kimi|glm|custom)$")
+    thinking_model_custom_pattern: Optional[str] = None
+    thinking_enabled_generation: Optional[bool] = None
 
 class ContextSettingsUpdate(BaseModel):
     max_tokens: int = Field(ge=1000, le=1000000, default=4000)
@@ -135,6 +139,9 @@ class ExtractionModelSettingsUpdate(BaseModel):
         pattern="^(none|qwen3|deepseek|mistral|gemini|openai|kimi|glm|custom)$"
     )
     thinking_disable_custom: Optional[str] = None  # Custom tag pattern for "custom" method
+    # Per-task thinking toggles
+    thinking_enabled_extractions: Optional[bool] = None
+    thinking_enabled_memory: Optional[bool] = None
 
 
 class SamplerSettingValue(BaseModel):
@@ -348,7 +355,14 @@ async def update_user_settings(
             user_settings.reasoning_effort = llm.reasoning_effort if llm.reasoning_effort else None
         if llm.show_thinking_content is not None:
             user_settings.show_thinking_content = llm.show_thinking_content
-    
+        # Local thinking model settings
+        if llm.thinking_model_type is not None:
+            user_settings.thinking_model_type = llm.thinking_model_type if llm.thinking_model_type != 'none' else None
+        if llm.thinking_model_custom_pattern is not None:
+            user_settings.thinking_model_custom_pattern = llm.thinking_model_custom_pattern or None
+        if llm.thinking_enabled_generation is not None:
+            user_settings.thinking_enabled_generation = llm.thinking_enabled_generation
+
     # Update context settings
     if settings_update.context_settings:
         ctx = settings_update.context_settings
@@ -538,6 +552,11 @@ async def update_user_settings(
             user_settings.extraction_model_thinking_disable_method = ext.thinking_disable_method
         if ext.thinking_disable_custom is not None:
             user_settings.extraction_model_thinking_disable_custom = ext.thinking_disable_custom
+        # Per-task thinking toggles
+        if ext.thinking_enabled_extractions is not None:
+            user_settings.extraction_model_thinking_enabled_extractions = ext.thinking_enabled_extractions
+        if ext.thinking_enabled_memory is not None:
+            user_settings.extraction_model_thinking_enabled_memory = ext.thinking_enabled_memory
 
     # Update sampler settings
     if settings_update.sampler_settings:
