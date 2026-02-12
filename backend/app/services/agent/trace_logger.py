@@ -44,8 +44,15 @@ class AgentTraceLogger:
                 "final_answer": final_answer,
             }
 
-            filepath = os.path.join(logs_dir, f"{self.agent_name}_trace.json")
+            # Timestamped filename so traces don't overwrite each other
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = os.path.join(logs_dir, f"{self.agent_name}_trace_{ts}.json")
             with open(filepath, "w") as f:
+                json.dump(trace_data, f, indent=2, default=str)
+
+            # Also write latest as a fixed name for quick access
+            latest = os.path.join(logs_dir, f"{self.agent_name}_trace.json")
+            with open(latest, "w") as f:
                 json.dump(trace_data, f, indent=2, default=str)
 
             logger.info(f"[{self.agent_name}] Trace saved to {filepath}")

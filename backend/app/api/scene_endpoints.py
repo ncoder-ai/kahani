@@ -883,6 +883,14 @@ async def generate_scene_streaming_endpoint(
                 yield f"data: {json.dumps({'type': 'error', 'message': f'Scene generation failed: {error_msg}'})}\n\n"
                 return
 
+            # Propagate semantic improvement state from scene_context back to original context
+            # so background tasks (summary, extraction, working memory) don't re-run the agent
+            # AND get the same RELATED PAST SCENES text for cache-friendly prefix matching.
+            # scene_context is a .copy() of context — these fields were set on the copy during scene gen.
+            if scene_context.get("_semantic_improved"):
+                context["_semantic_improved"] = True
+                context["semantic_scenes_text"] = scene_context.get("semantic_scenes_text")
+
             # Save the scene to database FIRST (before choices)
             # Clean the final assembled content comprehensively (chunk cleaning may miss patterns)
             cleaned_full_content = llm_service._clean_scene_content(full_content.rstrip())

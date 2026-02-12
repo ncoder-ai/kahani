@@ -44,13 +44,31 @@ def parse_react_output(text: str) -> ParsedStep:
 
     text = text.strip()
 
+    # Normalize markdown-decorated ReAct labels to plain format.
+    # Small models often style them as bold (**Action:**) or headings (### Final Answer).
+
+    # Strip bold markers around ReAct labels (requires bold marker at line start)
+    text = re.sub(
+        r"^(?:\*{1,2})(Action\s*Input|Final\s*Answer|Thought|Action)(?:\*{1,2})?:(?:\*{1,2})?",
+        r"\1:",
+        text,
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+    # Strip heading prefixes from standalone ReAct labels (### Final Answer)
+    text = re.sub(
+        r"^#{1,6}\s+(Action\s*Input|Final\s*Answer|Thought|Action)\s*:?(?=\s*$)",
+        r"\1:",
+        text,
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+
     # All regexes use ^ with MULTILINE so "Action:" only matches at line start,
     # not inside prose like "the upcoming action:\n-"
     ML = re.MULTILINE | re.DOTALL | re.IGNORECASE
 
     # Extract Thought (everything between "Thought:" and next section)
     thought_match = re.search(
-        r"^Thought:\s*(.*?)(?=\n\s*^(?:Action:|Final Answer:)|$)",
+        r"^Thought:\s*(.*?)(?=\n\s*^(?:Action:|Final Answer:)|\Z)",
         text, ML
     )
     if thought_match:
@@ -75,9 +93,11 @@ def parse_react_output(text: str) -> ParsedStep:
         step.action = action_match.group(1).strip()
 
     # Extract Action Input (JSON block after "Action Input:" at start of line)
-    # Only capture up to the next start-of-line section marker or end
+    # Only capture up to the next start-of-line section marker or end of string.
+    # Use \Z (absolute end of string) not $ (end of line in MULTILINE mode)
+    # to ensure multi-line JSON blocks are fully captured.
     input_match = re.search(
-        r"^Action Input:\s*(.*?)(?=\n\s*^(?:Thought:|Action:|Final Answer:)|$)",
+        r"^Action Input:\s*(.*?)(?=\n\s*^(?:Thought:|Action:|Final Answer:)|\Z)",
         text, ML
     )
     if input_match:

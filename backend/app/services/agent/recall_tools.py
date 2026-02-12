@@ -21,7 +21,7 @@ def create_recall_tools(
     branch_id: Optional[int],
     exclude_sequences: Optional[List[int]] = None,
 ) -> List[Tool]:
-    """Create the 5 recall agent tools, closing over service references."""
+    """Create the recall agent tools, closing over service references."""
 
     # --- Tool 1: search_scenes ---
     async def search_scenes(query: str, top_k: int = 8) -> str:
@@ -69,6 +69,12 @@ def create_recall_tools(
                     keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
                 else:
                     keyword_list = list(keywords)
+
+            # Auto-extract keywords from queries when agent doesn't provide them.
+            # This ensures substring matching (Pass B) always fires, catching
+            # multi-word terms like "oral sex" that word-split scoring misses.
+            if not keyword_list:
+                keyword_list = [q.strip() for q in query_list if len(q.strip()) >= 3]
 
             results = await context_manager._lookup_scene_events(
                 sub_queries=query_list,
@@ -127,7 +133,7 @@ def create_recall_tools(
                 header += f" — {title}"
 
             # Truncate to prevent context overflow
-            max_chars = 2000
+            max_chars = 4000
             if len(content) > max_chars:
                 content = content[:max_chars] + "\n... (truncated)"
 
@@ -136,7 +142,67 @@ def create_recall_tools(
             logger.warning(f"[recall_tools] read_scene error: {e}")
             return f"Error: {e}"
 
-    # --- Tool 4: get_nearby_scenes ---
+    # --- Tool 4: read_scenes (batch) ---
+    async def read_scenes(sequences: str) -> str:
+        """Read multiple scenes at once. Returns shorter previews per scene to fit budget."""
+        try:
+            from ...models.scene import Scene
+            from ...models.story_flow import StoryFlow
+
+            # Parse sequences — accept comma-separated, space-separated, or JSON list
+            if isinstance(sequences, str):
+                seq_list = [s.strip().rstrip(",") for s in sequences.replace(",", " ").split() if s.strip()]
+            elif isinstance(sequences, list):
+                seq_list = sequences
+            else:
+                return "Error: sequences must be a comma-separated string or list of numbers"
+
+            seq_ints = []
+            for s in seq_list:
+                try:
+                    seq_ints.append(int(float(str(s).strip())))
+                except (ValueError, TypeError):
+                    continue
+            if not seq_ints:
+                return "Error: no valid sequence numbers provided"
+            seq_ints = seq_ints[:8]  # Cap at 8
+
+            # Budget per scene scales inversely with count
+            chars_per_scene = max(800, 5000 // len(seq_ints))
+            parts = []
+
+            for seq in seq_ints:
+                scene = db.query(Scene).filter(
+                    Scene.story_id == story_id,
+                    Scene.sequence_number == seq,
+                    Scene.is_deleted == False,
+                    *([Scene.branch_id == branch_id] if branch_id else [Scene.branch_id.is_(None)]),
+                ).first()
+                if not scene:
+                    parts.append(f"[Scene {seq}]: not found")
+                    continue
+
+                flow = db.query(StoryFlow).filter(
+                    StoryFlow.scene_id == scene.id,
+                    StoryFlow.is_active == True,
+                ).first()
+                if not flow or not flow.scene_variant:
+                    parts.append(f"[Scene {seq}]: no active variant")
+                    continue
+
+                content = flow.scene_variant.content or ""
+                if len(content) > chars_per_scene:
+                    content = content[:chars_per_scene] + "..."
+
+                chapter_id = scene.chapter_id or "?"
+                parts.append(f"[Scene {seq} (ch {chapter_id})]:\n{content}")
+
+            return "\n\n".join(parts)
+        except Exception as e:
+            logger.warning(f"[recall_tools] read_scenes error: {e}")
+            return f"Error: {e}"
+
+    # --- Tool 5: get_nearby_scenes ---
     async def get_nearby_scenes(sequence: int, radius: int = 2) -> str:
         """Get short previews of scenes around a known-relevant scene."""
         try:
@@ -248,11 +314,19 @@ def create_recall_tools(
         ),
         Tool(
             name="read_scene",
-            description="Read the full content of a scene. Use to verify a candidate scene actually contains what you're looking for.",
+            description="Read the full content of ONE scene. Use read_scenes (plural) to verify multiple candidates at once.",
             parameters=[
                 ToolParameter("sequence", "int", "Scene sequence number", required=True),
             ],
             func=read_scene,
+        ),
+        Tool(
+            name="read_scenes",
+            description="Read multiple scenes at once (batch). Much faster than calling read_scene repeatedly. Returns shorter previews per scene.",
+            parameters=[
+                ToolParameter("sequences", "string", "Comma-separated scene sequence numbers (e.g. '138, 201, 288')", required=True),
+            ],
+            func=read_scenes,
         ),
         Tool(
             name="get_nearby_scenes",

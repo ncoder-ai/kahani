@@ -973,6 +973,7 @@ Chapter Conclusion:"""
             "chapter_summary_cache_friendly": ("summary_generation", "chapter_summary_cache_friendly"),
             "scene_summary_for_embedding": ("scene_summary_for_embedding", ""),
             "agent_recall": ("agent_recall", ""),
+            "agent_recall_validate": ("agent_recall_validate", ""),
             "semantic_decompose": ("semantic_decompose", "")
         }
         

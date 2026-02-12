@@ -3507,7 +3507,7 @@ agent_recall:
 
     FORMAT — you MUST use this exact format every turn:
 
-    Thought: <your reasoning about what to search for or what you learned>
+    Thought: <your reasoning about what to search for or what you found>
     Action: <tool_name>
     Action Input: <JSON object with parameters>
 
@@ -3520,21 +3520,23 @@ agent_recall:
     1. First, identify what past events/details the intent REFERENCES (objects, injuries, locations, conversations, etc.)
     2. Start with search_events — it is the most precise tool for finding specific actions or events
     3. If search_events misses, try search_scenes for broader semantic matching
-    4. Use read_scene to VERIFY that a candidate scene actually contains what you need — do not trust search scores alone
-    5. Use get_nearby_scenes when an event likely spans multiple consecutive scenes
+    4. Use read_scenes (plural, batch) to verify multiple candidates at once — ALWAYS prefer this over calling read_scene one at a time
+    5. IMPORTANT: When you find a key scene, use get_nearby_scenes to find the full narrative arc — events span multiple consecutive scenes. Return the CLUSTER (e.g. scenes 200, 201, 202), not isolated scenes from different chapters.
     6. Use list_chapter_scenes only when you know the chapter but not the specific scene
 
     RULES:
-    - Use at most 6 tool calls total. Be efficient.
-    - Verify your top 1-2 candidates with read_scene before finishing.
+    - When verifying scenes, focus on WHAT HAPPENED: who did what to whom, where, when. Do not write about character psychology, morality, or emotional interpretation.
+    - REJECT fantasy/camera/memory scenes: If a scene shows someone IMAGINING, DAYDREAMING, WATCHING ON A SCREEN, or REMEMBERING a past event — that is NOT the real event. Find the scene where the event ACTUALLY HAPPENED with the characters physically present.
+    - Prefer CONTIGUOUS scene groups over scattered individual scenes. Events are narrative arcs, not isolated moments.
+    - Use read_scenes to verify 2-4 candidates in ONE call instead of reading them one by one.
+    - Use at most 5 tool calls total.
     - Do NOT invent or hallucinate scene content. Only report what tools return.
     - Return 1-8 relevant scenes. Quality over quantity — fewer verified scenes beat many unverified ones.
     - If you find nothing relevant after 3 searches, stop and return an empty result.
-    - When in doubt, INCLUDE the scene. The story engine will use the context — better to have slightly too much than miss something important.
 
     FINAL ANSWER FORMAT — must be valid JSON:
     {{
-      "relevant_scenes": [34, 35, 52],
+      "relevant_scenes": [200, 201, 202],
       "summary": "Brief description of what these scenes contain and why they match"
     }}
 
@@ -3550,6 +3552,19 @@ agent_recall:
     The next scene will involve: {user_intent}
 
     Find past scenes that contain events, details, or context REFERENCED by this upcoming action.
+
+agent_recall_validate:
+  user: |
+    QUERY: {user_intent}
+
+    I found these scenes. For each, does it contain events DIRECTLY RELEVANT to the query?
+    Relevant means: the scene shows the actual event referenced, OR shows a detail/object/injury the query refers to.
+    NOT relevant: fantasy/daydream scenes, camera feeds, unrelated events, scenes about different characters or different actions.
+
+    {scene_list}
+
+    Reply with JSON — scene number to true (relevant) or false (not relevant):
+    Example: {{"198": true, "35": false, "201": true}}
 
 # =============================================================================
 # SEMANTIC DECOMPOSITION

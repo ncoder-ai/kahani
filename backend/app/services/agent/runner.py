@@ -15,7 +15,7 @@ from .trace_logger import AgentTraceLogger
 logger = logging.getLogger(__name__)
 
 # Maximum chars per tool observation to prevent context overflow
-OBSERVATION_MAX_CHARS = 2000
+OBSERVATION_MAX_CHARS = 6000
 
 
 class AgentRunner:
@@ -30,6 +30,7 @@ class AgentRunner:
         timeout: float = 45.0,
         agent_name: str = "agent",
         trace_logger: Optional[AgentTraceLogger] = None,
+        allow_thinking: bool = False,
     ):
         self.extraction_service = extraction_service
         self.tools = {t.name: t for t in tools}
@@ -38,6 +39,7 @@ class AgentRunner:
         self.timeout = timeout
         self.agent_name = agent_name
         self.trace_logger = trace_logger
+        self.allow_thinking = allow_thinking
 
     def _build_system_prompt(self, base_prompt: str, tools: List[Tool]) -> str:
         """Append tool descriptions to the system prompt."""
@@ -78,7 +80,9 @@ class AgentRunner:
             try:
                 remaining = self.timeout - elapsed
                 response_text = await asyncio.wait_for(
-                    self.extraction_service.generate_with_messages(messages),
+                    self.extraction_service.generate_with_messages(
+                        messages, allow_thinking=self.allow_thinking
+                    ),
                     timeout=remaining,
                 )
             except asyncio.TimeoutError:
