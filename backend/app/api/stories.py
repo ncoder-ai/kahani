@@ -96,6 +96,7 @@ class StoryCreate(BaseModel):
     story_mode: Optional[str] = "dynamic"  # dynamic or structured
     content_rating: Optional[str] = None  # "sfw" or "nsfw" - defaults to user's allow_nsfw setting
     plot_check_mode: Optional[str] = None  # "1" (strict), "3", or "all" - defaults to user's default_plot_check_mode
+    world_id: Optional[int] = None  # Assign to existing world, or auto-create
 
 class StoryUpdate(BaseModel):
     title: Optional[str] = None
@@ -204,10 +205,27 @@ async def create_story(
     else:
         plot_check_mode = "1"  # Default to strict
 
+    # Resolve or auto-create world
+    from ..models import World
+    if story_data.world_id:
+        world = db.query(World).filter(
+            World.id == story_data.world_id,
+            World.creator_id == current_user.id
+        ).first()
+        if not world:
+            raise HTTPException(status_code=404, detail="World not found")
+        world_id = world.id
+    else:
+        world = World(name=f"{story_data.title} Universe", creator_id=current_user.id)
+        db.add(world)
+        db.flush()
+        world_id = world.id
+
     story = Story(
         title=story_data.title,
         description=story_data.description,
         owner_id=current_user.id,
+        world_id=world_id,
         genre=story_data.genre,
         tone=story_data.tone,
         world_setting=story_data.world_setting,

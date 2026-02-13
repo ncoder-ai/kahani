@@ -29,6 +29,7 @@ class Story(Base):
     
     # Ownership and access
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    world_id = Column(Integer, ForeignKey("worlds.id"), nullable=True)
     privacy_level = Column(Enum(PrivacyLevel), default=PrivacyLevel.PRIVATE)
     status = Column(Enum(StoryStatus), default=StoryStatus.DRAFT)
     story_mode = Column(Enum(StoryMode), default=StoryMode.DYNAMIC)  # New field
@@ -59,6 +60,7 @@ class Story(Base):
     
     # Relationships
     owner = relationship("User", back_populates="stories")
+    world = relationship("World", back_populates="stories")
     scenes = relationship("Scene", back_populates="story", cascade="all, delete-orphan", order_by="Scene.sequence_number")
     chapters = relationship("Chapter", back_populates="story", cascade="all, delete-orphan", order_by="Chapter.chapter_number")
     story_characters = relationship("StoryCharacter", back_populates="story", cascade="all, delete-orphan")

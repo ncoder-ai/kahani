@@ -199,6 +199,7 @@ class BranchCloneRegistry:
                 'tts_provider_configs',
                 'brainstorm_sessions',
                 'chapter_brainstorm_sessions',
+                'worlds',
                 'alembic_version',
             }
 
