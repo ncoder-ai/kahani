@@ -5,7 +5,9 @@ Single context manager that supports both linear and semantic (hybrid) context s
 The strategy is determined by user settings - no need for separate classes.
 """
 
+import json
 import logging
+import re
 from collections import Counter
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
@@ -1869,6 +1871,112 @@ Appearance: {char.get('appearance', '')}
         # Merge contexts
         return {**base_context, **scene_context}
 
+    _VALID_INTENTS = {"direct", "recall", "react"}
+    _VALID_TEMPORALS = {"earliest", "latest", "any"}
+
+    async def _classify_intent(self, user_intent: str) -> Optional[dict]:
+        """
+        Classify user intent via extraction LLM before semantic search.
+
+        Returns dict with {intent, temporal, queries, keywords} or None if
+        classification is unavailable (extraction LLM down, not configured, etc.).
+        On failure, caller should fall back to running semantic search as usual.
+        """
+        ext_settings = self.user_settings.get('extraction_model_settings', {})
+        if not ext_settings.get('enabled', False):
+            return None
+
+        try:
+            from .llm.extraction_service import ExtractionLLMService
+            from .llm.prompts import prompt_manager
+
+            ext_defaults = settings._yaml_config.get('extraction_model', {})
+            url = ext_settings.get('url', ext_defaults.get('url'))
+            model = ext_settings.get('model_name', ext_defaults.get('model_name'))
+            if not url or not model:
+                return None
+
+            api_key = ext_settings.get('api_key', ext_defaults.get('api_key', ''))
+            temperature = ext_settings.get('temperature', ext_defaults.get('temperature', 0.3))
+            max_tokens = ext_settings.get('max_tokens', ext_defaults.get('max_tokens', 2000))
+            top_p = ext_settings.get('top_p', ext_defaults.get('top_p', 1.0))
+            repetition_penalty = ext_settings.get('repetition_penalty', ext_defaults.get('repetition_penalty', 1.0))
+            min_p = ext_settings.get('min_p', ext_defaults.get('min_p', 0.0))
+            thinking_disable_method = ext_settings.get('thinking_disable_method', ext_defaults.get('thinking_disable_method', 'none'))
+            thinking_disable_custom = ext_settings.get('thinking_disable_custom', ext_defaults.get('thinking_disable_custom', ''))
+            llm_settings = self.user_settings.get('llm_settings', {})
+            timeout_total = llm_settings.get('timeout_total', 240)
+
+            extraction_service = ExtractionLLMService(
+                url=url, model=model, api_key=api_key,
+                temperature=temperature, max_tokens=max_tokens,
+                timeout_total=timeout_total, top_p=top_p,
+                repetition_penalty=repetition_penalty, min_p=min_p,
+                thinking_disable_method=thinking_disable_method,
+                thinking_disable_custom=thinking_disable_custom,
+            )
+
+            decompose_task = prompt_manager.get_prompt("semantic_decompose", "user", user_intent=user_intent)
+            if not decompose_task:
+                return None
+
+            allow_thinking = ext_settings.get('thinking_enabled_memory', True)
+            messages = [{"role": "user", "content": decompose_task}]
+            response = await extraction_service.generate_with_messages(
+                messages=messages, max_tokens=300, allow_thinking=allow_thinking
+            )
+
+            if not response or not response.strip():
+                return None
+
+            return self._parse_decomposition_response(response)
+        except Exception as e:
+            logger.warning(f"[INTENT CLASSIFY] Failed ({e}), falling back to semantic search")
+            return None
+
+    def _parse_decomposition_response(self, response: str) -> Optional[dict]:
+        """Parse intent-aware JSON from decomposition LLM. Returns dict or None."""
+        def _extract(result: dict) -> Optional[dict]:
+            queries = result.get("queries")
+            if not isinstance(queries, list) or not all(isinstance(s, str) for s in queries):
+                return None
+            intent = (result.get("intent") or "").lower().strip()
+            intent = intent if intent in self._VALID_INTENTS else None
+            temporal = (result.get("temporal") or "").lower().strip()
+            temporal = temporal if temporal in self._VALID_TEMPORALS else None
+            parsed = [s.strip() for s in queries[:6] if s.strip()]
+            kw_raw = result.get("keywords", [])
+            keywords = [k.strip().lower() for k in kw_raw if isinstance(k, str) and k.strip()] if isinstance(kw_raw, list) else []
+            if not parsed:
+                return None
+            return {"intent": intent, "temporal": temporal, "queries": parsed, "keywords": keywords}
+
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                lines = cleaned.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                cleaned = "\n".join(lines).strip()
+
+            result = json.loads(cleaned)
+            if isinstance(result, dict) and "queries" in result:
+                return _extract(result)
+            if isinstance(result, list) and len(result) == 1 and isinstance(result[0], dict):
+                return _extract(result[0])
+            if isinstance(result, list) and all(isinstance(s, str) for s in result):
+                parsed = [s.strip() for s in result[:6] if s.strip()]
+                return {"intent": None, "temporal": None, "queries": parsed, "keywords": []} if parsed else None
+
+            obj_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+            if obj_match:
+                result = json.loads(obj_match.group())
+                if isinstance(result, dict) and "queries" in result:
+                    return _extract(result)
+        except (json.JSONDecodeError, Exception) as e:
+            logger.debug(f"[INTENT CLASSIFY] JSON parse failed: {e}, response: {response[:200]}")
+
+        return None
+
     async def _build_hybrid_scene_context(
         self,
         story_id: int,
@@ -1967,16 +2075,30 @@ Appearance: {char.get('appearance', '')}
         if use_entity_states_snapshot and exclude_scene_id:
             context_snapshot = await self._load_entity_states_snapshot(db, exclude_scene_id)
 
-        # Get semantically relevant scenes first (top N from user settings)
-        # Pass complete exclusion list so we don't duplicate scenes already in Recent Scenes
-        # If limit_semantic_to_chapter is True, only search within current chapter (for context size calculation)
-        semantic_content, single_query_results = await self._get_semantic_scenes(
-            story_id, recent_scenes, semantic_tokens, db,
-            exclude_all_recent_sequences=all_recent_scene_sequences,
-            limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None,
-            branch_id=branch_id,
-            user_intent=user_intent
-        )
+        # --- Intent classification: skip semantic search for direct intents ---
+        intent_result = None
+        skip_semantic = False
+        if user_intent and user_intent.strip() and self.enable_semantic:
+            intent_result = await self._classify_intent(user_intent)
+            if intent_result:
+                intent_type = intent_result.get("intent")
+                logger.info(f"[INTENT CLASSIFY] Result: {intent_type or 'direct (default)'}, "
+                           f"queries={intent_result.get('queries', [])}"
+                           + (f", keywords={intent_result.get('keywords')}" if intent_result.get('keywords') else ""))
+                if intent_type == "direct" or (not intent_type and not intent_result.get("queries")):
+                    skip_semantic = True
+                    logger.info(f"[INTENT CLASSIFY] Direct intent — skipping semantic search")
+
+        # Get semantically relevant scenes (skip for direct intents)
+        semantic_content, single_query_results = "", []
+        if not skip_semantic:
+            semantic_content, single_query_results = await self._get_semantic_scenes(
+                story_id, recent_scenes, semantic_tokens, db,
+                exclude_all_recent_sequences=all_recent_scene_sequences,
+                limit_to_chapter_id=chapter_id if limit_semantic_to_chapter else None,
+                branch_id=branch_id,
+                user_intent=user_intent
+            )
         semantic_used_tokens = self.count_tokens(semantic_content) if semantic_content else 0
 
         # Store search state for potential multi-query improvement in service.py
@@ -1993,6 +2115,7 @@ Appearance: {char.get('appearance', '')}
             "dominant_chapter_id": dominant_chapter_id,
             "token_budget": semantic_tokens,
             "single_query_results": single_query_results,
+            "intent_result": intent_result,  # cached for service.py to reuse
         }
 
         # Get character-specific context

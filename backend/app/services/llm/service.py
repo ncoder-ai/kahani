@@ -3897,104 +3897,109 @@ Chapter Conclusion:"""
                 logger.info(f"[SEMANTIC DECOMPOSE] Skipped: ctx_mgr={bool(ctx_mgr)}, search_state={bool(search_state)}")
                 return False
 
-            logger.info(f"[SEMANTIC DECOMPOSE] Attempting query decomposition for: '{user_intent[:100]}...'")
+            # --- Reuse cached intent from context_manager if available ---
+            cached_intent = search_state.get("intent_result") if search_state else None
+            if cached_intent:
+                intent_type = cached_intent.get("intent")
+                temporal_type = cached_intent.get("temporal")
+                sub_queries = cached_intent.get("queries", [])
+                keywords = cached_intent.get("keywords", [])
+                logger.info(f"[SEMANTIC DECOMPOSE] Reusing cached intent from context_manager: {intent_type or 'direct'}")
 
-            # Build minimal context — character names with gender, no location/setting/chapter
-            # info that would contaminate sub-queries with current-scene details.
-            # Gender is critical for pronoun resolution ("her breasts" → Radhika, not Nishant).
-            characters = context.get("characters", [])
-            if isinstance(characters, dict) and "active_characters" in characters:
-                char_list = characters.get("active_characters", []) + characters.get("inactive_characters", [])
+                # Direct intent — semantic search was already skipped, nothing to improve
+                if intent_type == "direct" or (not intent_type and not sub_queries):
+                    logger.info("[SEMANTIC DECOMPOSE] Direct intent — no semantic improvement needed")
+                    return False
             else:
-                char_list = characters if isinstance(characters, list) else []
+                # No cached intent — run classification here (fallback path)
+                logger.info(f"[SEMANTIC DECOMPOSE] Attempting query decomposition for: '{user_intent[:100]}...'")
 
-            def _infer_gender(char_data: dict) -> str:
-                """Get gender from explicit field, or infer from appearance/description."""
-                # Prefer explicit gender field (from Character model)
-                explicit = (char_data.get("gender") or "").strip().lower()
-                if explicit:
-                    return explicit
-                # Infer from appearance
-                appearance = (char_data.get("appearance") or "").lower()
-                if any(kw in appearance for kw in ["bust ", "bra ", "36d", "34c", "32b", "hourglass"]):
-                    return "female"
-                # Infer from description/background pronouns
-                for field in ["description", "background"]:
-                    text = (char_data.get(field) or "").lower()
-                    if " she " in text or " her " in text or "wife" in text or "woman" in text or "mother" in text:
+                # Build minimal context — character names with gender for pronoun resolution
+                characters = context.get("characters", [])
+                if isinstance(characters, dict) and "active_characters" in characters:
+                    char_list = characters.get("active_characters", []) + characters.get("inactive_characters", [])
+                else:
+                    char_list = characters if isinstance(characters, list) else []
+
+                def _infer_gender(char_data: dict) -> str:
+                    """Get gender from explicit field, or infer from appearance/description."""
+                    explicit = (char_data.get("gender") or "").strip().lower()
+                    if explicit:
+                        return explicit
+                    appearance = (char_data.get("appearance") or "").lower()
+                    if any(kw in appearance for kw in ["bust ", "bra ", "36d", "34c", "32b", "hourglass"]):
                         return "female"
-                    if " he " in text or " his " in text or "husband" in text or " man " in text or "father" in text:
-                        return "male"
-                return ""
+                    for field in ["description", "background"]:
+                        text = (char_data.get(field) or "").lower()
+                        if " she " in text or " her " in text or "wife" in text or "woman" in text or "mother" in text:
+                            return "female"
+                        if " he " in text or " his " in text or "husband" in text or " man " in text or "father" in text:
+                            return "male"
+                    return ""
 
-            char_labels = []
-            for c in char_list:
-                name = c.get("name", "")
-                if not name:
-                    continue
-                parts = [name]
-                gender = _infer_gender(c)
-                if gender:
-                    parts.append(gender)
-                role = c.get("role", "")
-                if role:
-                    parts.append(role)
-                char_labels.append(f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else name)
-            char_context = f"Characters in this story: {', '.join(char_labels)}\n\n" if char_labels else ""
+                char_labels = []
+                for c in char_list:
+                    name = c.get("name", "")
+                    if not name:
+                        continue
+                    parts = [name]
+                    gender = _infer_gender(c)
+                    if gender:
+                        parts.append(gender)
+                    role = c.get("role", "")
+                    if role:
+                        parts.append(role)
+                    char_labels.append(f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else name)
+                char_context = f"Characters in this story: {', '.join(char_labels)}\n\n" if char_labels else ""
 
-            decompose_task = prompt_manager.get_prompt("semantic_decompose", "user", user_intent=user_intent)
-            if not decompose_task:
-                logger.warning("[SEMANTIC DECOMPOSE] No prompt found for semantic_decompose, using fallback")
-                decompose_task = f"Classify intent (direct/recall/react) and generate sub-queries.\nReturn JSON: {{\"intent\": \"...\", \"temporal\": \"...\", \"queries\": [...], \"keywords\": [...]}}\n\nText to decompose:\n{user_intent}"
-            if extraction_service:
-                # Use extraction LLM (fast, ~1.7s)
-                # Decomposition is a memory/recall task — use thinking_enabled_memory toggle
-                _allow_thinking_decompose = ext_settings.get('thinking_enabled_memory', True)
-                decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
-                logger.info(f"[SEMANTIC DECOMPOSE] Using extraction LLM (allow_thinking={_allow_thinking_decompose})")
-                response = await extraction_service.generate_with_messages(
-                    messages=decompose_messages,
-                    max_tokens=300,
-                    allow_thinking=_allow_thinking_decompose
-                )
-            else:
-                # Fall back to main LLM with cache-friendly prefix
-                import copy
-                decompose_messages = copy.deepcopy(messages)
-                decompose_messages.append({"role": "user", "content": char_context + decompose_task})
-                decompose_settings = copy.deepcopy(user_settings)
-                decompose_settings.setdefault('llm_settings', {})['temperature'] = 0.3
-                decompose_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                logger.info("[SEMANTIC DECOMPOSE] Using main LLM with cache-friendly prefix")
-                # Debug save for cache-friendliness verification
-                from ...config import settings as app_settings
-                if app_settings.prompt_debug:
-                    try:
-                        debug_path = self._get_prompt_debug_path("prompt_sent_decompose.json")
-                        with open(debug_path, "w", encoding="utf-8") as f:
-                            json.dump({"messages": decompose_messages}, f, indent=2, ensure_ascii=False)
-                        logger.info(f"[PROMPT DEBUG] Saved decompose prompt to {debug_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to write decompose prompt debug file: {e}")
-                response = await self._generate_with_messages(
-                    messages=decompose_messages,
-                    user_id=user_id,
-                    user_settings=decompose_settings,
-                    max_tokens=300,
-                    skip_nsfw_filter=True
-                )
+                decompose_task = prompt_manager.get_prompt("semantic_decompose", "user", user_intent=user_intent)
+                if not decompose_task:
+                    logger.warning("[SEMANTIC DECOMPOSE] No prompt found for semantic_decompose, using fallback")
+                    decompose_task = f"Classify intent (direct/recall/react) and generate sub-queries.\nReturn JSON: {{\"intent\": \"...\", \"temporal\": \"...\", \"queries\": [...], \"keywords\": [...]}}\n\nText to decompose:\n{user_intent}"
+                if extraction_service:
+                    _allow_thinking_decompose = ext_settings.get('thinking_enabled_memory', True)
+                    decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
+                    logger.info(f"[SEMANTIC DECOMPOSE] Using extraction LLM (allow_thinking={_allow_thinking_decompose})")
+                    response = await extraction_service.generate_with_messages(
+                        messages=decompose_messages,
+                        max_tokens=300,
+                        allow_thinking=_allow_thinking_decompose
+                    )
+                else:
+                    import copy
+                    decompose_messages = copy.deepcopy(messages)
+                    decompose_messages.append({"role": "user", "content": char_context + decompose_task})
+                    decompose_settings = copy.deepcopy(user_settings)
+                    decompose_settings.setdefault('llm_settings', {})['temperature'] = 0.3
+                    decompose_settings['llm_settings']['reasoning_effort'] = 'disabled'
+                    logger.info("[SEMANTIC DECOMPOSE] Using main LLM with cache-friendly prefix")
+                    from ...config import settings as app_settings
+                    if app_settings.prompt_debug:
+                        try:
+                            debug_path = self._get_prompt_debug_path("prompt_sent_decompose.json")
+                            with open(debug_path, "w", encoding="utf-8") as f:
+                                json.dump({"messages": decompose_messages}, f, indent=2, ensure_ascii=False)
+                            logger.info(f"[PROMPT DEBUG] Saved decompose prompt to {debug_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to write decompose prompt debug file: {e}")
+                    response = await self._generate_with_messages(
+                        messages=decompose_messages,
+                        user_id=user_id,
+                        user_settings=decompose_settings,
+                        max_tokens=300,
+                        skip_nsfw_filter=True
+                    )
 
-            if not response or not response.strip():
-                logger.info("[SEMANTIC DECOMPOSE] Empty response from extraction LLM")
-                return False
+                if not response or not response.strip():
+                    logger.info("[SEMANTIC DECOMPOSE] Empty response from extraction LLM")
+                    return False
 
-            # Parse intent + sub-queries from response
-            parsed = self._parse_decomposition_response(response)
-            if not parsed:
-                logger.info(f"[SEMANTIC DECOMPOSE] No sub-queries parsed, skipping")
-                return False
+                parsed = self._parse_decomposition_response(response)
+                if not parsed:
+                    logger.info(f"[SEMANTIC DECOMPOSE] No sub-queries parsed, skipping")
+                    return False
 
-            intent_type, temporal_type, sub_queries, keywords = parsed
+                intent_type, temporal_type, sub_queries, keywords = parsed
 
             # Fallback: if recall intent but LLM didn't return keywords,
             # extract action words from sub-queries as basic keywords.
