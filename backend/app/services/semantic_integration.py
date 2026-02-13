@@ -127,7 +127,7 @@ async def process_scene_embeddings(
             # 1. Create scene embedding
             try:
                 logger.info(f"Creating scene embedding for scene {scene_id}")
-                embedding_id = await semantic_memory.add_scene_embedding(
+                embedding_id, embedding_vector = await semantic_memory.add_scene_embedding(
                     scene_id=scene_id,
                     variant_id=variant_id,
                     story_id=story_id,
@@ -135,29 +135,30 @@ async def process_scene_embeddings(
                     metadata={
                         'sequence': sequence_number,
                         'chapter_id': chapter_id or 0,
-                        'branch_id': branch_id or 0,  # Branch ID for branch-specific filtering
-                        'characters': []  # Could be enhanced later
+                        'branch_id': branch_id or 0,
+                        'characters': []
                     }
                 )
-                
+
                 # Store embedding reference in database
                 from ..models import SceneEmbedding
                 import hashlib
-                
+
                 # Generate content hash for change detection
                 content_hash = hashlib.sha256(scene_content.encode('utf-8')).hexdigest()
-                
+
                 # Check if embedding already exists (upsert pattern)
                 existing_embedding = db.query(SceneEmbedding).filter(
                     SceneEmbedding.embedding_id == embedding_id
                 ).first()
-                
+
                 if existing_embedding:
                     # Update existing record
                     existing_embedding.content_hash = content_hash
                     existing_embedding.sequence_order = sequence_number
                     existing_embedding.chapter_id = chapter_id
                     existing_embedding.content_length = len(scene_content)
+                    existing_embedding.embedding = embedding_vector
                     existing_embedding.updated_at = None  # Will trigger onupdate
                     logger.info(f"Updated existing scene embedding: {embedding_id}")
                 else:
@@ -168,6 +169,7 @@ async def process_scene_embeddings(
                         scene_id=scene_id,
                         variant_id=variant_id,
                         embedding_id=embedding_id,
+                        embedding=embedding_vector,
                         content_hash=content_hash,
                         sequence_order=sequence_number,
                         chapter_id=chapter_id,
@@ -813,7 +815,7 @@ async def batch_process_scene_extractions(
         # === STEP 1: Generate scene summary + contextual embedding ===
         # This runs FIRST (before other extractions) to:
         #   a) Warm the LLM cache for subsequent extraction calls
-        #   b) Create enriched embeddings in ChromaDB immediately
+        #   b) Create enriched embeddings immediately
         contextual_embedding_done = False
         if len(scenes_data) == 1 and scene_generation_context is not None:
             scene_id_embed, seq_embed, chapter_id_embed, scene_content_embed = scenes_data[0]
@@ -837,7 +839,7 @@ async def batch_process_scene_extractions(
             except Exception as e:
                 logger.warning(f"[EXTRACTION] Scene summary generation failed: {e}")
 
-            # Step 1b: Embed summary-only in ChromaDB
+            # Step 1b: Embed summary-only in pgvector
             # Pure summary without chapter/character prefix — prefix dilutes
             # bi-encoder signal by ~0.25 similarity points
             if settings.enable_semantic_memory:
@@ -849,7 +851,7 @@ async def batch_process_scene_extractions(
                         enriched_content = scene_content_embed[:1000]
 
                     semantic_memory = get_semantic_memory_service()
-                    embedding_id = await semantic_memory.add_scene_embedding(
+                    embedding_id, embedding_vector = await semantic_memory.add_scene_embedding(
                         scene_id=scene_id_embed,
                         variant_id=variant_id_embed,
                         story_id=story_id,
@@ -877,6 +879,7 @@ async def batch_process_scene_extractions(
                         existing_embedding.sequence_order = seq_embed
                         existing_embedding.chapter_id = chapter_id
                         existing_embedding.content_length = len(enriched_content)
+                        existing_embedding.embedding = embedding_vector
                         existing_embedding.updated_at = None
                     else:
                         scene_embedding = SceneEmbedding(
@@ -885,6 +888,7 @@ async def batch_process_scene_extractions(
                             scene_id=scene_id_embed,
                             variant_id=variant_id_embed,
                             embedding_id=embedding_id,
+                            embedding=embedding_vector,
                             content_hash=content_hash,
                             sequence_order=seq_embed,
                             chapter_id=chapter_id,
@@ -1092,27 +1096,26 @@ async def batch_process_scene_extractions(
 async def cleanup_scene_embeddings(scene_id: int, db: Session):
     """
     Clean up all semantic data for a deleted scene
-    
+
     Args:
         scene_id: Scene ID to clean up
         db: Database session
     """
     try:
         logger.info(f"[CLEANUP] Starting cleanup for scene {scene_id}")
-        
+
         # Get semantic services
         char_service = get_character_memory_service()
         plot_service = get_plot_thread_service()
-        semantic_memory = get_semantic_memory_service()
-        
-        # Delete character moments (async to avoid blocking event loop)
+
+        # Delete character moments
         await char_service.delete_character_moments(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted character moments for scene {scene_id}")
-        
-        # Delete plot events (async to avoid blocking event loop)
+
+        # Delete plot events
         await plot_service.delete_plot_events(scene_id, db)
         logger.debug(f"[CLEANUP] Deleted plot events for scene {scene_id}")
-        
+
         # Delete scene events
         scene_events_deleted = db.query(SceneEvent).filter(
             SceneEvent.scene_id == scene_id
@@ -1125,39 +1128,17 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
             NPCMention.scene_id == scene_id
         ).delete()
         logger.debug(f"[CLEANUP] Deleted {npc_mentions_deleted} NPC mentions for scene {scene_id}")
-        
-        # Delete scene embeddings from database
+
+        # Delete scene embeddings from database (vectors are on the rows, deleted with them)
         from ..models import SceneEmbedding
-        scene_embeddings = db.query(SceneEmbedding).filter(
-            SceneEmbedding.scene_id == scene_id
-        ).all()
-        
-        # Delete from vector database (ChromaDB)
-        embeddings_deleted = 0
-        for embedding in scene_embeddings:
-            try:
-                # Get variant ID from embedding
-                parts = embedding.embedding_id.split('_')
-                if len(parts) >= 3:
-                    variant_id = int(parts[-1].replace('v', ''))
-                    await semantic_memory.delete_scene_embedding(scene_id, variant_id)
-                    embeddings_deleted += 1
-                    logger.debug(f"[CLEANUP] Deleted scene embedding {embedding.embedding_id} from ChromaDB")
-            except Exception as e:
-                logger.warning(f"[CLEANUP] Failed to delete vector embedding {embedding.embedding_id}: {e}")
-        
-        logger.debug(f"[CLEANUP] Deleted {embeddings_deleted} scene embeddings from ChromaDB for scene {scene_id}")
-        
-        # Delete database records
         scene_embeddings_deleted = db.query(SceneEmbedding).filter(
             SceneEmbedding.scene_id == scene_id
         ).delete()
-        
+
         db.commit()
         logger.info(f"[CLEANUP] Completed cleanup for scene {scene_id}: "
-                   f"character moments, plot events, {scene_embeddings_deleted} scene embeddings (DB), "
-                   f"and {embeddings_deleted} scene embeddings (ChromaDB) removed")
-        
+                   f"character moments, plot events, {scene_embeddings_deleted} scene embeddings removed")
+
     except Exception as e:
         logger.error(f"Failed to cleanup scene embeddings: {e}")
         db.rollback()

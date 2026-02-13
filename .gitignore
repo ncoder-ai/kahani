@@ -331,3 +331,6 @@ backend/data/chromadb_backup*/
 
 # Env backups
 *.env.backup*
+
+# Database dumps
+*.dump

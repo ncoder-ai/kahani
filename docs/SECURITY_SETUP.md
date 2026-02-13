@@ -237,7 +237,6 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 
 # Semantic Memory
 ENABLE_SEMANTIC_MEMORY=true
-SEMANTIC_DB_PATH=./data/chromadb
 ```
 
 ### Security-Related Variables

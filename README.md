@@ -123,7 +123,7 @@ See [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) for details.
 
 ## Tech Stack
 
-**Backend:** FastAPI, SQLAlchemy, Alembic, LiteLLM, ChromaDB, faster-whisper
+**Backend:** FastAPI, SQLAlchemy, Alembic, LiteLLM, pgvector, faster-whisper
 
 **Frontend:** Next.js 16, React 19, Tailwind CSS, Zustand
 

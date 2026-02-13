@@ -821,7 +821,7 @@ working_memory_cache_friendly:
 # Relationship Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
 # Scene Summary for Embedding (cache-friendly)
-# Used to generate a 2-3 sentence factual summary before ChromaDB embedding
+# Used to generate a 2-3 sentence factual summary before pgvector embedding
 # Uses same context structure as scene generation for cache hits
 scene_summary_for_embedding:
   user: |

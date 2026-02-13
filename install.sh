@@ -180,7 +180,7 @@ setup_database() {
     source .venv/bin/activate
     
     # Create required directories with proper permissions
-    mkdir -p backend/data backend/backups backend/logs exports backend/data/audio backend/data/chromadb
+    mkdir -p backend/data backend/backups backend/logs exports backend/data/audio
     chmod -R 755 backend/data backend/backups backend/logs exports
     
     # Debug: Check directory permissions
@@ -299,8 +299,6 @@ create_env_files() {
     # Get absolute path for database
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     ABSOLUTE_DB_PATH="${SCRIPT_DIR}/backend/data/kahani.db"
-    ABSOLUTE_CHROMA_PATH="${SCRIPT_DIR}/backend/data/chromadb"
-    
     # Find the best available Python version
     local python_cmd=""
     for version in 3.13 3.12 3.11; do
@@ -309,26 +307,23 @@ create_env_files() {
             break
         fi
     done
-    
+
     # Generate secure secrets
     SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
     JWT_SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
-    
+
     # Update secrets and paths in .env file
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
         sed -i '' "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
         sed -i '' "s|DATABASE_URL=.*|DATABASE_URL=sqlite:///${ABSOLUTE_DB_PATH}|g" .env
-        sed -i '' "s|SEMANTIC_DB_PATH=.*|SEMANTIC_DB_PATH=${ABSOLUTE_CHROMA_PATH}|g" .env
     else
         sed -i "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
         sed -i "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
         sed -i "s|DATABASE_URL=.*|DATABASE_URL=sqlite:///${ABSOLUTE_DB_PATH}|g" .env
-        sed -i "s|SEMANTIC_DB_PATH=.*|SEMANTIC_DB_PATH=${ABSOLUTE_CHROMA_PATH}|g" .env
     fi
-    
+
     log_info "✓ Database URL: sqlite:///${ABSOLUTE_DB_PATH}"
-    log_info "✓ ChromaDB Path: ${ABSOLUTE_CHROMA_PATH}"
     
     log_success "Environment configuration created"
 }

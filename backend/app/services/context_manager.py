@@ -3305,7 +3305,7 @@ Appearance: {char.get('appearance', '')}
             # Request more results per query for post-filtering
             search_top_k = self.semantic_top_k * 5
 
-            # Batch search — single batch encode + single ChromaDB call
+            # Batch search — single batch encode + single pgvector call
             batch_results = await self.semantic_memory.search_similar_scenes_batch(
                 query_texts=all_queries,
                 story_id=story_id,

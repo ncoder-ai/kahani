@@ -105,12 +105,12 @@ Scene generation and variant regeneration share the same prefix for cache hits.
 
 This is the core innovation for maintaining story coherency across hundreds of scenes. The system uses a multi-layered retrieval pipeline to find relevant past scenes from anywhere in the story's history.
 
-#### Three ChromaDB Collections (`semantic_memory.py`)
-- **`story_scenes`**: Scene-level embeddings for semantic search
-- **`character_moments`**: Character development milestones (action, dialogue, relationship)
+#### Three pgvector Tables (`semantic_memory.py`)
+- **`scene_embeddings`**: Scene-level embeddings for semantic search
+- **`character_memories`**: Character development milestones (action, dialogue, relationship)
 - **`plot_events`**: Key plot events and story threads
 
-Embedding model: `sentence-transformers/all-mpnet-base-v2` (768d), lazy-loaded on first use. All blocking ChromaDB/model ops wrapped in `asyncio.to_thread()`.
+Vectors stored as `Vector(768)` columns directly on the SQL tables with HNSW indexes for cosine similarity search. Embedding model: `sentence-transformers/all-mpnet-base-v2` (768d), lazy-loaded on first use. All blocking model ops wrapped in `asyncio.to_thread()`.
 
 #### Contextual Retrieval (`semantic_integration.py`)
 Before embedding a scene, a structured prefix is prepended to improve retrieval quality:
@@ -120,12 +120,12 @@ Characters: Alice, Bob.
 [LLM-generated summary of what happened in this scene]
 [Full scene content]
 ```
-This enriched document is what gets embedded in ChromaDB, so searches match on chapter context, location, characters, AND content — not just raw prose.
+This enriched document is what gets embedded via pgvector, so searches match on chapter context, location, characters, AND content — not just raw prose.
 
 #### Single-Query Search Path (`_get_semantic_scenes()` in `context_manager.py`)
 Used when no extraction LLM is available, or as the initial search:
 1. **Query construction**: User intent (highest priority) + last 2-3 scene contents (truncated to 200 chars each to avoid drowning intent signal)
-2. **Bi-encoder retrieval**: ChromaDB cosine similarity search (10x oversample for post-filtering)
+2. **Bi-encoder retrieval**: pgvector cosine similarity search (10x oversample for post-filtering)
 3. **Keyword boosting with IDF**: Extracts significant words/phrases from user intent → counts doc frequency across candidate scenes → applies IDF-weighted boost (common words get negligible boost, rare terms like "sundress" get full boost). Capped at 0.80 total.
 4. **Chapter affinity boost**: Same-chapter scenes get +0.15 similarity boost
 5. **Age filtering**: Scenes >50 positions old require similarity >0.6
@@ -145,7 +145,7 @@ The extraction LLM splits user intent into focused sub-queries. Example:
 
 **Step 2 — Batch Bi-Encoder Search** (`semantic_memory.py`):
 - Single `model.encode()` call for all sub-queries (one GPU pass)
-- Single ChromaDB multi-query call
+- Single pgvector batch query
 - Returns per-query result lists
 
 **Step 3 — Reciprocal Rank Fusion (RRF)** (`_reciprocal_rank_fusion()`):
@@ -178,7 +178,7 @@ In `service.py`, after building the initial prompt with single-query semantic sc
 
 ### Context Manager (`context_manager.py`)
 - **Token budget**: `max_tokens * 0.85` effective limit, allocated between base context, recent scenes, and semantic results
-- **Two strategies**: `linear` (recency only) or `hybrid` (recency + ChromaDB semantic search)
+- **Two strategies**: `linear` (recency only) or `hybrid` (recency + pgvector semantic search)
 - **Scene batching**: Groups scenes aligned to extraction intervals for cache optimization
 - Passes `_semantic_search_state` and `_context_manager_ref` in the context dict so `service.py` can trigger multi-query search without re-querying parameters
 

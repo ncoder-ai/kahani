@@ -29,7 +29,7 @@ litellm==1.40.0
 # torch and torchaudio are installed separately in install.sh
 
 # Semantic memory and embeddings
-chromadb==0.4.22
+pgvector==0.3.6
 sentence-transformers==2.3.0
 tiktoken==0.5.2
 numpy==1.26.4

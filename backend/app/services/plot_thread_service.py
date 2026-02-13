@@ -185,7 +185,7 @@ class PlotThreadService:
                         continue
                     
                     # Create embedding
-                    embedding_id = await self.semantic_memory.add_plot_event(
+                    embedding_id, embedding_vector = await self.semantic_memory.add_plot_event(
                         event_id=event_id,
                         story_id=story_id,
                         scene_id=scene_id,
@@ -198,16 +198,16 @@ class PlotThreadService:
                             'timestamp': datetime.utcnow().isoformat()
                         }
                     )
-                    
+
                     # Double-check embedding_id doesn't exist (race condition protection)
                     final_check = db.query(PlotEvent).filter(
                         PlotEvent.embedding_id == embedding_id
                     ).first()
-                    
+
                     if final_check:
                         logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
                         continue
-                    
+
                     # Create database record
                     plot_event = PlotEvent(
                         story_id=story_id,
@@ -216,6 +216,7 @@ class PlotThreadService:
                         event_type=EventType(event_type),
                         description=description,
                         embedding_id=embedding_id,
+                        embedding=embedding_vector,
                         thread_id=thread_id,
                         is_resolved=False,
                         sequence_order=sequence_number,
@@ -526,7 +527,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     continue
                 
                 # Create embedding
-                embedding_id = await self.semantic_memory.add_plot_event(
+                embedding_id, embedding_vector = await self.semantic_memory.add_plot_event(
                     event_id=event_id,
                     story_id=story_id,
                     scene_id=scene_id,
@@ -539,16 +540,16 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                         'timestamp': datetime.utcnow().isoformat()
                     }
                 )
-                
+
                 # Double-check embedding_id doesn't exist (race condition protection)
                 final_check = db.query(PlotEvent).filter(
                     PlotEvent.embedding_id == embedding_id
                 ).first()
-                
+
                 if final_check:
                     logger.debug(f"Plot event with embedding_id {embedding_id} was created concurrently, skipping")
                     continue
-                
+
                 # Create database record
                 plot_event = PlotEvent(
                     story_id=story_id,
@@ -557,6 +558,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                     event_type=EventType(event_type),
                     description=description,
                     embedding_id=embedding_id,
+                    embedding=embedding_vector,
                     thread_id=thread_id,
                     is_resolved=False,
                     sequence_order=sequence_number,
@@ -994,7 +996,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
 
             # Create embedding
             semantic_memory = get_semantic_memory_service()
-            embedding_id = await semantic_memory.add_plot_event(
+            embedding_id, embedding_vector = await semantic_memory.add_plot_event(
                 event_id=event_id,
                 story_id=story_id,
                 scene_id=scene_id,
@@ -1025,6 +1027,7 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
                 event_type=EventType(event_type),
                 description=description,
                 embedding_id=embedding_id,
+                embedding=embedding_vector,
                 thread_id=thread_id,
                 is_resolved=False,
                 sequence_order=sequence_order or 0,
@@ -1229,38 +1232,17 @@ If no events found, return {{"events": []}}. Return ONLY the JSON, no other text
             branch_id: Optional branch ID for filtering
         """
         try:
-            query = db.query(PlotEvent).filter(
-                PlotEvent.scene_id == scene_id
-            )
-            if branch_id is not None:
-                query = query.filter(PlotEvent.branch_id == branch_id)
-            events = query.all()
-
-            # Delete from vector database (ChromaDB)
-            if self.semantic_memory:
-                for event in events:
-                    try:
-                        # Delete embedding from ChromaDB using embedding_id
-                        # Wrap in asyncio.to_thread to avoid blocking the event loop
-                        await asyncio.to_thread(
-                            self.semantic_memory.plot_events_collection.delete,
-                            ids=[event.embedding_id]
-                        )
-                        logger.debug(f"Deleted plot event embedding {event.embedding_id} from ChromaDB")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete embedding {event.embedding_id}: {e}")
-
-            # Delete from database
+            # Delete from database (embedding vectors are on the row, deleted with it)
             del_query = db.query(PlotEvent).filter(
                 PlotEvent.scene_id == scene_id
             )
             if branch_id is not None:
                 del_query = del_query.filter(PlotEvent.branch_id == branch_id)
-            del_query.delete()
-            
+            deleted = del_query.delete()
+
             db.commit()
-            logger.info(f"Deleted {len(events)} plot events for scene {scene_id}")
-            
+            logger.info(f"Deleted {deleted} plot events for scene {scene_id}")
+
         except Exception as e:
             logger.error(f"Failed to delete plot events: {e}")
             db.rollback()

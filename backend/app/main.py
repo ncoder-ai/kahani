@@ -1,9 +1,5 @@
-# Disable ChromaDB telemetry globally before any imports
-import os
-os.environ["ANONYMIZED_TELEMETRY"] = "FALSE"
-os.environ["CHROMA_TELEMETRY_DISABLED"] = "TRUE"
-
 # Import LiteLLM logging configuration FIRST to suppress debug output
+import os
 from .utils.litellm_logging import configure_litellm_logging, suppress_httpcore_logging
 
 # Set logging level to ERROR immediately to suppress debug messages
@@ -15,12 +11,6 @@ logging.getLogger('litellm').setLevel(logging.ERROR)
 logging.getLogger('multipart').setLevel(logging.ERROR)
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
-logging.getLogger('chromadb').setLevel(logging.ERROR)
-logging.getLogger('chromadb.auth').setLevel(logging.ERROR)
-logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)  # Changed to CRITICAL to suppress errors
-logging.getLogger('chromadb.telemetry.product.posthog').setLevel(logging.CRITICAL)  # Suppress PostHog telemetry errors
-logging.getLogger('chromadb.config').setLevel(logging.ERROR)
-logging.getLogger('chromadb.segment').setLevel(logging.ERROR)
 logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
 logging.getLogger('transformers').setLevel(logging.ERROR)
 
@@ -150,7 +140,6 @@ async def startup_event():
         try:
             from .services.semantic_memory import initialize_semantic_memory_service
             initialize_semantic_memory_service(
-                persist_directory=settings.semantic_db_path,
                 embedding_model=settings.semantic_embedding_model,
                 enable_reranking=settings.semantic_enable_reranking,
                 reranker_model=settings.semantic_reranker_model,

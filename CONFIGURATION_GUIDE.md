@@ -62,7 +62,7 @@ context_strategy:
 ```yaml
 semantic_memory:
   enabled: true
-  db_path: "./data/chromadb"
+  # Vectors stored in PostgreSQL via pgvector (no external vector DB needed)
   embedding_model: "sentence-transformers/all-mpnet-base-v2"
   search_top_k: 5
 ```

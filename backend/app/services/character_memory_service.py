@@ -183,7 +183,7 @@ class CharacterMemoryService:
                             continue
                         
                         # Create embedding
-                        embedding_id = await self.semantic_memory.add_character_moment(
+                        embedding_id, embedding_vector = await self.semantic_memory.add_character_moment(
                             character_id=character.id,
                             character_name=character.name,
                             scene_id=scene_id,
@@ -195,16 +195,16 @@ class CharacterMemoryService:
                                 'timestamp': datetime.utcnow().isoformat()
                             }
                         )
-                        
+
                         # Check if memory with this embedding_id already exists
                         existing_memory = db.query(CharacterMemory).filter(
                             CharacterMemory.embedding_id == embedding_id
                         ).first()
-                        
+
                         if existing_memory:
                             logger.debug(f"Character moment with embedding_id {embedding_id} already exists, skipping")
                             continue
-                        
+
                         # Create database record with IntegrityError handling
                         try:
                             memory = CharacterMemory(
@@ -214,6 +214,7 @@ class CharacterMemoryService:
                                 moment_type=MomentType(moment_type),
                                 content=content,
                                 embedding_id=embedding_id,
+                                embedding=embedding_vector,
                                 sequence_order=sequence_number,
                                 chapter_id=chapter_id,
                                 extracted_automatically=True,
@@ -327,7 +328,7 @@ class CharacterMemoryService:
                     continue
                 
                 # Create embedding
-                embedding_id = await self.semantic_memory.add_character_moment(
+                embedding_id, embedding_vector = await self.semantic_memory.add_character_moment(
                     character_id=character.id,
                     character_name=character.name,
                     scene_id=scene_id,
@@ -339,16 +340,16 @@ class CharacterMemoryService:
                         'timestamp': datetime.utcnow().isoformat()
                     }
                 )
-                
+
                 # Check if memory with this embedding_id already exists
                 existing_memory = db.query(CharacterMemory).filter(
                     CharacterMemory.embedding_id == embedding_id
                 ).first()
-                
+
                 if existing_memory:
                     logger.info(f"Memory with embedding_id {embedding_id} already exists, skipping")
                     continue
-                
+
                 # Create database record
                 char_memory = CharacterMemory(
                     character_id=character.id,
@@ -357,6 +358,7 @@ class CharacterMemoryService:
                     moment_type=MomentType(moment_type),
                     content=content,
                     embedding_id=embedding_id,
+                    embedding=embedding_vector,
                     sequence_order=sequence_number,
                     chapter_id=chapter_id,
                     extracted_automatically=True,
@@ -435,7 +437,7 @@ class CharacterMemoryService:
                 chapter_id = scene.chapter_id if scene else None
 
                 # Create embedding
-                embedding_id = await self.semantic_memory.add_character_moment(
+                embedding_id, embedding_vector = await self.semantic_memory.add_character_moment(
                     character_id=character.id,
                     character_name=character.name,
                     scene_id=scene_id,
@@ -465,6 +467,7 @@ class CharacterMemoryService:
                     moment_type=MomentType(moment_type),
                     content=content,
                     embedding_id=embedding_id,
+                    embedding=embedding_vector,
                     sequence_order=sequence_number,
                     chapter_id=chapter_id,
                     extracted_automatically=True,
@@ -941,38 +944,20 @@ If no moments found, return {{"moments": []}}. Return ONLY the JSON, no other te
     async def delete_character_moments(self, scene_id: int, db: Session):
         """
         Delete all character moments for a scene
-        
+
         Args:
             scene_id: Scene ID
             db: Database session
         """
         try:
-            moments = db.query(CharacterMemory).filter(
-                CharacterMemory.scene_id == scene_id
-            ).all()
-            
-            # Delete from vector database (ChromaDB)
-            if self.semantic_memory:
-                for moment in moments:
-                    try:
-                        # Delete embedding from ChromaDB using embedding_id
-                        # Wrap in asyncio.to_thread to avoid blocking the event loop
-                        await asyncio.to_thread(
-                            self.semantic_memory.character_moments_collection.delete,
-                            ids=[moment.embedding_id]
-                        )
-                        logger.debug(f"Deleted character moment embedding {moment.embedding_id} from ChromaDB")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete embedding {moment.embedding_id}: {e}")
-            
-            # Delete from database
-            db.query(CharacterMemory).filter(
+            # Delete from database (embedding vectors are on the row, deleted with it)
+            deleted = db.query(CharacterMemory).filter(
                 CharacterMemory.scene_id == scene_id
             ).delete()
-            
+
             db.commit()
-            logger.info(f"Deleted character moments for scene {scene_id}")
-            
+            logger.info(f"Deleted {deleted} character moments for scene {scene_id}")
+
         except Exception as e:
             logger.error(f"Failed to delete character moments: {e}")
             db.rollback()

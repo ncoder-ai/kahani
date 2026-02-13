@@ -8,6 +8,7 @@ that supplements the vector database.
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 from ..database import Base
 from .branch_aware import branch_clone_config, embedding_id_handler
 import enum
@@ -64,26 +65,27 @@ class CharacterMemory(Base):
     # Moment details
     moment_type = Column(SQLEnum(MomentType), nullable=False, index=True)
     content = Column(Text, nullable=False)  # The actual moment text
-    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Reference to ChromaDB
-    
+    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Unique identifier
+    embedding = Column(Vector(768), nullable=True)  # pgvector embedding
+
     # Context
     sequence_order = Column(Integer, nullable=False, index=True)  # Scene sequence number
     chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
-    
+
     # Metadata
     extracted_automatically = Column(Boolean, default=True)  # True if extracted by LLM, False if manual
     confidence_score = Column(Integer, default=0)  # 0-100, for auto-extracted moments
-    
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Relationships
     character = relationship("Character")
     scene = relationship("Scene")
     story = relationship("Story")
     branch = relationship("StoryBranch", back_populates="character_memories")
     chapter = relationship("Chapter")
-    
+
     def __repr__(self):
         return f"<CharacterMemory(id={self.id}, character_id={self.character_id}, branch_id={self.branch_id}, moment_type={self.moment_type})>"
 
@@ -123,8 +125,9 @@ class PlotEvent(Base):
     # Event details
     event_type = Column(SQLEnum(EventType), nullable=False, index=True)
     description = Column(Text, nullable=False)  # Human-readable event description
-    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Reference to ChromaDB
-    
+    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Unique identifier
+    embedding = Column(Vector(768), nullable=True)  # pgvector embedding
+
     # Thread tracking
     thread_id = Column(String(100), nullable=True, index=True)  # Groups related events
     is_resolved = Column(Boolean, default=False, index=True)  # Whether the thread is resolved
@@ -188,7 +191,8 @@ class SceneEmbedding(Base):
     variant_id = Column(Integer, ForeignKey("scene_variants.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Embedding details
-    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Reference to ChromaDB
+    embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Unique identifier
+    embedding = Column(Vector(768), nullable=True)  # pgvector embedding
     content_hash = Column(String(64), nullable=True)  # SHA256 hash of content for change detection
     
     # Context

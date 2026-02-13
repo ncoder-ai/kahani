@@ -95,7 +95,6 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     # Semantic Memory
     semantic = yaml_config.get('semantic_memory', {})
     flattened['enable_semantic_memory'] = semantic.get('enabled')
-    flattened['semantic_db_path'] = semantic.get('db_path')
     flattened['semantic_embedding_model'] = semantic.get('embedding_model')
     flattened['semantic_search_top_k'] = semantic.get('search_top_k')
     flattened['semantic_context_weight'] = semantic.get('context_weight')
@@ -232,7 +231,6 @@ class Settings(BaseSettings):
     
     # Semantic Memory Configuration
     enable_semantic_memory: bool
-    semantic_db_path: str
     semantic_embedding_model: str
     semantic_search_top_k: int
     semantic_context_weight: float

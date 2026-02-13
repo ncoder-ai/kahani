@@ -3849,7 +3849,7 @@ Chapter Conclusion:"""
         Try to improve semantic search results via query decomposition + RRF.
 
         Splits multi-event user_intent into focused sub-queries using the extraction LLM,
-        then re-searches ChromaDB with each sub-query and merges via Reciprocal Rank Fusion.
+        then re-searches pgvector with each sub-query and merges via Reciprocal Rank Fusion.
 
         Uses the SAME cache-friendly message prefix for the decomposition call,
         so ExLlamaV3's radix cache gets ~95% hit on the shared prefix tokens.
