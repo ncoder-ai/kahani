@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Check, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, X, Save } from 'lucide-react';
 import { WorldsApi } from '@/lib/api/worlds';
 
 const worldsApi = new WorldsApi();
@@ -40,11 +40,32 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
   const [editingDesc, setEditingDesc] = useState(false);
   const [editDesc, setEditDesc] = useState(world.description || '');
 
+  // Timeline ordering
+  const [timelineEdits, setTimelineEdits] = useState<Record<number, string>>({});
+  const [savingOrder, setSavingOrder] = useState(false);
+
+  const loadStories = useCallback(async () => {
+    try {
+      const data = await worldsApi.getWorldStories(world.id);
+      setStories(data);
+      const edits: Record<number, string> = {};
+      data.forEach((s) => {
+        edits[s.id] = s.timeline_order != null ? String(s.timeline_order) : '';
+      });
+      setTimelineEdits(edits);
+    } catch (err) {
+      console.error('Failed to load stories:', err);
+    }
+  }, [world.id]);
+
+  // Always load stories (needed by both Stories tab and snapshot dropdown in Characters tab)
+  useEffect(() => { loadStories(); }, [loadStories]);
+
   const loadTabData = useCallback(async (tab: Tab) => {
     setLoadingTab(true);
     try {
       if (tab === 'stories') {
-        setStories(await worldsApi.getWorldStories(world.id));
+        await loadStories();
       } else if (tab === 'characters') {
         setCharacters(await worldsApi.getWorldCharacters(world.id));
       } else {
@@ -55,7 +76,7 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
     } finally {
       setLoadingTab(false);
     }
-  }, [world.id]);
+  }, [world.id, loadStories]);
 
   useEffect(() => { loadTabData(activeTab); }, [activeTab, loadTabData]);
 
@@ -86,6 +107,32 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
       setEditingDesc(false);
     } catch (err) {
       console.error('Failed to update world description:', err);
+    }
+  };
+
+  const hasTimelineChanges = stories.some((s) => {
+    const current = s.timeline_order != null ? String(s.timeline_order) : '';
+    return timelineEdits[s.id] !== current;
+  });
+
+  const saveTimelineOrder = async () => {
+    setSavingOrder(true);
+    try {
+      const storyOrders = stories
+        .filter((s) => timelineEdits[s.id] !== '')
+        .map((s) => ({
+          story_id: s.id,
+          timeline_order: parseInt(timelineEdits[s.id], 10),
+        }))
+        .filter((o) => !isNaN(o.timeline_order));
+
+      await worldsApi.reorderWorldStories(world.id, storyOrders);
+      await loadTabData('stories');
+    } catch (err) {
+      console.error('Failed to save timeline order:', err);
+      alert('Failed to save timeline order.');
+    } finally {
+      setSavingOrder(false);
     }
   };
 
@@ -183,30 +230,60 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
               {stories.length === 0 ? (
                 <div className="py-12 text-center text-white/50">No stories in this world yet.</div>
               ) : (
-                <div className="space-y-3">
-                  {stories.map((story) => (
-                    <div
-                      key={story.id}
-                      onClick={() => router.push(`/story/${story.id}`)}
-                      className="bg-white/5 border border-white/10 rounded-lg p-4 cursor-pointer hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-between"
-                    >
-                      <div>
-                        <h4 className="text-white font-medium">{story.title}</h4>
-                        <div className="flex items-center gap-3 mt-1">
-                          {story.genre && <span className="text-white/50 text-xs">{story.genre}</span>}
-                          <span className={`text-xs ${story.status === 'active' ? 'text-green-400' : 'text-gray-400'}`}>
-                            {story.status}
-                          </span>
-                          <span className="text-white/30 text-xs">{story.content_rating}</span>
+                <>
+                  {/* Timeline order header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-white/40 text-xs">
+                      Set timeline order to define chronological position (lower = earlier in timeline).
+                    </p>
+                    {hasTimelineChanges && (
+                      <button
+                        onClick={saveTimelineOrder}
+                        disabled={savingOrder}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white text-sm rounded-lg transition-colors"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {savingOrder ? 'Saving...' : 'Save Order'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    {stories.map((story) => (
+                      <div
+                        key={story.id}
+                        className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-between"
+                      >
+                        <div
+                          className="flex-1 cursor-pointer"
+                          onClick={() => router.push(`/story/${story.id}`)}
+                        >
+                          <h4 className="text-white font-medium">{story.title}</h4>
+                          <div className="flex items-center gap-3 mt-1">
+                            {story.genre && <span className="text-white/50 text-xs">{story.genre}</span>}
+                            <span className={`text-xs ${story.status === 'active' ? 'text-green-400' : 'text-gray-400'}`}>
+                              {story.status}
+                            </span>
+                            <span className="text-white/30 text-xs">{story.content_rating}</span>
+                          </div>
+                          {story.description && (
+                            <p className="text-white/50 text-sm mt-1 line-clamp-1">{story.description}</p>
+                          )}
                         </div>
-                        {story.description && (
-                          <p className="text-white/50 text-sm mt-1 line-clamp-1">{story.description}</p>
-                        )}
+                        <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                          <label className="text-white/30 text-xs">Order:</label>
+                          <input
+                            type="number"
+                            value={timelineEdits[story.id] ?? ''}
+                            onChange={(e) => setTimelineEdits((prev) => ({ ...prev, [story.id]: e.target.value }))}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-white text-center focus:outline-none focus:border-indigo-400"
+                            placeholder="-"
+                          />
+                        </div>
                       </div>
-                      <span className="text-white/30 text-sm">&rarr;</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -244,6 +321,7 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
                               worldId={world.id}
                               characterId={char.character_id}
                               characterName={char.character_name}
+                              stories={stories}
                             />
                           </div>
                         )}

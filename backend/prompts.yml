@@ -3662,7 +3662,7 @@ chronicle_extraction:
     3. Use the character's EXACT name as it appears in the character list
     4. For locations, extract events that change the PLACE itself (damage, discovery, transformation) — not routine visits
     5. Be GENEROUS — extract anything that might be lasting. The validation step will filter noise.
-    6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below
+    6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below. If an existing entry covers the SAME development (even with different wording), do NOT extract a new version. Only extract if the NEW scenes show a FURTHER change beyond what's already recorded.
     7. Description should be 1-2 sentences, specific and concrete
 
     ENTRY TYPES (use exactly these values):
@@ -3703,16 +3703,55 @@ chronicle_validation:
     SCENES:
     {scenes_content}
 
+    {existing_chronicle_section}
+
     CANDIDATE ENTRIES:
     {candidate_entries}
 
     VALIDATION CRITERIA — reject if ANY apply:
     1. HALLUCINATION: The event described did NOT actually happen in the scenes
     2. NOISE: This is fleeting (a passing emotion, a routine action, atmosphere) — not a lasting change
-    3. REDUNDANCY: This is already covered by an existing entry (marked below)
+    3. REDUNDANCY: This says the same thing as an EXISTING CHRONICLE entry above, even if worded differently. Only keep if it describes a FURTHER development beyond what's already recorded.
     4. VAGUE: The description is too generic to be useful (e.g., "things changed between them")
 
     For each entry, return keep: true or keep: false with a brief reason.
 
     Return ONLY valid JSON:
     {{"validated": [{{"character_name": "...", "entry_type": "...", "description": "...", "keep": true, "reason": "Event clearly occurred in scene and represents lasting change"}}, {{"character_name": "...", "entry_type": "...", "description": "...", "keep": false, "reason": "Passing emotion, not a lasting personality change"}}]}}
+
+# ==========================================
+# CHARACTER SNAPSHOT GENERATION
+# ==========================================
+character_snapshot_generation:
+  user: |
+    Synthesize the character development entries below into a single factual paragraph describing who {character_name} is NOW. The entries may span multiple stories in the same universe.
+
+    ORIGINAL BACKGROUND:
+    {original_background}
+
+    CHRONICLE ENTRIES (grouped by story):
+    {chronicle_entries}
+
+    RULES:
+    1. Third person, present tense, factual — no literary flourishes or emotional narration
+    2. State concrete facts: what they know, what they did, who they're close to, what changed
+    3. DO NOT pad with vague phrases like "complex individual", "deeply affected", "journey of discovery"
+    4. If the chronicle contradicts the original background, the chronicle takes precedence
+    5. Don't mention story titles — synthesize as one coherent description
+    6. Under 200 words. Every sentence must contain a specific fact.
+
+    EXAMPLE INPUT:
+    Original background: Kira is a village healer who trained under Master Voss.
+    Entries:
+    - [knowledge gained] Discovered Voss was poisoning the village well
+    - [physical change] Left arm burned by Voss's fire spell
+    - [relationship change] Turned against Voss, fought and defeated him
+    - [goal change] Left the village rather than reveal Voss's betrayal
+    - [skill gained] Can now cast basic fire wards after studying Voss's spell
+
+    EXAMPLE OUTPUT:
+    Kira is a village healer who trained under Master Voss until she discovered he was poisoning the village well. She confronted and defeated him but sustained a burn scar on her left arm from his fire spell. She left the village without telling anyone the truth about Voss. She can now cast basic fire wards, a skill she picked up from studying the spell that injured her. She no longer trusts authority figures and avoids returning home.
+
+    NOT THIS (too vague/flowery): "Kira is a deeply complex healer whose transformative journey through betrayal and loss has forged her into a resilient survivor, forever changed by the profound revelation of her mentor's dark secrets."
+
+    Now write the snapshot for {character_name}. ONLY the paragraph, no headers.

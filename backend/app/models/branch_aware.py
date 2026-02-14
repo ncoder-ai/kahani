@@ -200,6 +200,7 @@ class BranchCloneRegistry:
                 'brainstorm_sessions',
                 'chapter_brainstorm_sessions',
                 'worlds',
+                'character_snapshots',  # Generated on-demand, not cloned
                 'alembic_version',
             }
 

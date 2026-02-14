@@ -5,7 +5,7 @@
 import { BaseApiClient } from './base';
 import type {
   World, WorldStory, WorldCharacter, WorldLocation,
-  ChronicleEntry, LorebookEntry,
+  ChronicleEntry, LorebookEntry, CharacterSnapshotData,
 } from './types';
 
 export class WorldsApi extends BaseApiClient {
@@ -118,5 +118,61 @@ export class WorldsApi extends BaseApiClient {
     return this.request<{ message: string }>(`/api/lorebook/${entryId}`, {
       method: 'DELETE',
     });
+  }
+
+  // --- Character Snapshots ---
+
+  async getCharacterSnapshot(worldId: number, characterId: number, branchId?: number): Promise<CharacterSnapshotData> {
+    const params = new URLSearchParams();
+    if (branchId !== undefined) params.set('branch_id', String(branchId));
+    const qs = params.toString();
+    return this.request<CharacterSnapshotData>(
+      `/api/worlds/${worldId}/characters/${characterId}/snapshot${qs ? `?${qs}` : ''}`
+    );
+  }
+
+  async generateCharacterSnapshot(
+    worldId: number,
+    characterId: number,
+    upToStoryId: number,
+    branchId?: number,
+  ): Promise<CharacterSnapshotData> {
+    return this.request<CharacterSnapshotData>(
+      `/api/worlds/${worldId}/characters/${characterId}/snapshot`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ up_to_story_id: upToStoryId, branch_id: branchId }),
+      }
+    );
+  }
+
+  async updateCharacterSnapshot(
+    worldId: number,
+    characterId: number,
+    snapshotText: string,
+    branchId?: number,
+  ): Promise<CharacterSnapshotData> {
+    return this.request<CharacterSnapshotData>(
+      `/api/worlds/${worldId}/characters/${characterId}/snapshot`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ snapshot_text: snapshotText, branch_id: branchId }),
+      }
+    );
+  }
+
+  // --- Timeline ordering ---
+
+  async reorderWorldStories(
+    worldId: number,
+    storyOrders: { story_id: number; timeline_order: number }[],
+  ): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/worlds/${worldId}/stories/reorder`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ story_orders: storyOrders }),
+      }
+    );
   }
 }

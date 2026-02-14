@@ -377,6 +377,8 @@ export interface WorldStory {
   genre?: string;
   status: string;
   content_rating: string;
+  timeline_order?: number;
+  branches?: { id: number; name: string; is_main: boolean }[];
   created_at: string;
   updated_at: string;
 }
@@ -413,6 +415,18 @@ export interface LorebookEntry {
   story_id: number;
   branch_id?: number;
   created_at: string;
+}
+
+export interface CharacterSnapshotData {
+  snapshot_text: string | null;
+  chronicle_entry_count: number;
+  current_entry_count: number;
+  is_stale: boolean;
+  timeline_order?: number;
+  up_to_story_id?: number;
+  branch_id?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ========== Interaction Types ==========

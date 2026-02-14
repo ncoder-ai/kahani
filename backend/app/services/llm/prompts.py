@@ -978,6 +978,7 @@ Chapter Conclusion:"""
             # Chronicle extraction prompts
             "chronicle_extraction": ("chronicle_extraction", ""),
             "chronicle_validation": ("chronicle_validation", ""),
+            "character_snapshot_generation": ("character_snapshot_generation", ""),
         }
         
         if template_key not in yaml_mapping:

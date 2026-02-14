@@ -3749,6 +3749,7 @@ Chapter Conclusion:"""
         user_settings: Dict[str, Any],
         db: Optional[Session] = None,
         max_tokens: int = 2000,
+        existing_chronicle_section: str = "",
     ) -> str:
         """
         Validate candidate chronicle/lorebook entries against scene content.
@@ -3768,6 +3769,7 @@ Chapter Conclusion:"""
             "chronicle_validation", "user",
             scenes_content=scenes_content,
             candidate_entries=candidate_entries_json,
+            existing_chronicle_section=existing_chronicle_section,
         )
         messages.append({"role": "user", "content": final_message})
 

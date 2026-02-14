@@ -344,14 +344,21 @@ class ContextManager:
             character = db.query(Character).filter(Character.id == sc.character_id).first()
             if not character:
                 continue
-            
+
+            # Use snapshot as background if available, else fall back to static background
+            background = self._get_snapshot_background(
+                db, character.id, story.world_id,
+                getattr(story, 'timeline_order', None),
+                branch_id=branch_id,
+            ) or character.background or ""
+
             char_data = {
                 "name": character.name,
                 "gender": character.gender or "",
                 "role": sc.role or "",
                 "description": character.description or "",
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
-                "background": character.background or "",
+                "background": background,
                 "goals": character.goals or "",
                 "fears": character.fears or "",
                 "appearance": character.appearance or "",
@@ -743,6 +750,38 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Error building contradiction context: {e}")
+            return None
+
+    def _get_snapshot_background(self, db: Session, character_id: int, world_id: Optional[int], story_timeline_order: Optional[int], branch_id: Optional[int] = None) -> Optional[str]:
+        """
+        Get character snapshot text to use as background, if a valid snapshot exists.
+
+        A snapshot is valid when its timeline_order <= the current story's timeline_order,
+        meaning it covers events up to or before the current story's position.
+        Prefers branch-specific snapshot over NULL branch snapshot.
+        """
+        if not world_id:
+            return None
+        try:
+            from ..models import CharacterSnapshot
+            from sqlalchemy import or_
+            query = db.query(CharacterSnapshot).filter(
+                CharacterSnapshot.world_id == world_id,
+                CharacterSnapshot.character_id == character_id,
+                or_(CharacterSnapshot.branch_id == branch_id, CharacterSnapshot.branch_id.is_(None)),
+            ).order_by(CharacterSnapshot.branch_id.desc().nullslast())
+            snapshot = query.first()
+            if not snapshot:
+                return None
+            # If neither has a timeline order, use the snapshot
+            if snapshot.timeline_order is None or story_timeline_order is None:
+                return snapshot.snapshot_text
+            # Snapshot must cover at or before the current story's timeline position
+            if snapshot.timeline_order <= story_timeline_order:
+                return snapshot.snapshot_text
+            return None
+        except Exception as e:
+            logger.warning(f"[CONTEXT] Failed to get snapshot for character {character_id}: {e}")
             return None
 
     def _build_chronicle_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[str]:
@@ -2436,13 +2475,20 @@ Appearance: {char.get('appearance', '')}
             # Determine effective voice style (story-specific override or character default)
             effective_voice_style = sc.voice_style_override if sc.voice_style_override else character.voice_style
 
+            # Use snapshot as background if available, else fall back to static background
+            background = self._get_snapshot_background(
+                db, character.id, story.world_id,
+                getattr(story, 'timeline_order', None),
+                branch_id=branch_id,
+            ) or character.background or ""
+
             char_data = {
                 "name": character.name,
                 "gender": character.gender or "",
                 "role": sc.role or "",
                 "description": character.description or "",
                 "personality": ", ".join(character.personality_traits) if character.personality_traits else "",
-                "background": character.background or "",
+                "background": background,
                 "goals": character.goals or "",
                 "fears": character.fears or "",
                 "appearance": character.appearance or "",

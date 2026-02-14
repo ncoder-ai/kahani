@@ -35,7 +35,7 @@ from .working_memory import WorkingMemory
 from .contradiction import Contradiction
 from .relationship import CharacterRelationship, RelationshipSummary
 from .world import World
-from .chronicle import CharacterChronicle, LocationLorebook, ChronicleEntryType
+from .chronicle import CharacterChronicle, LocationLorebook, ChronicleEntryType, CharacterSnapshot
 
 __all__ = [
     "Base",
@@ -67,4 +67,5 @@ __all__ = [
     "CharacterChronicle",
     "LocationLorebook",
     "ChronicleEntryType",
+    "CharacterSnapshot",
 ]

@@ -20,8 +20,9 @@ from sqlalchemy import and_, desc
 
 from ..models import (
     Story, Scene, SceneVariant, StoryFlow, Chapter,
-    Character, StoryCharacter,
+    Character, StoryCharacter, StoryBranch,
     CharacterChronicle, LocationLorebook, ChronicleEntryType,
+    CharacterSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -233,6 +234,7 @@ async def extract_chronicle_and_lorebook(
             user_id=user_id,
             user_settings=user_settings,
             db=db,
+            existing_chronicle_section=existing_section,
         )
 
         validation_data = extract_json_robust(validation_response)
@@ -339,7 +341,7 @@ async def extract_chronicle_and_lorebook(
             )
             if is_dup:
                 programmatic_rejections.append({
-                    **entry, "rejection": "Duplicate (embedding similarity > 0.85)"
+                    **entry, "rejection": "Duplicate (embedding similarity > 0.78)"
                 })
                 continue
 
@@ -396,7 +398,7 @@ async def extract_chronicle_and_lorebook(
             )
             if is_dup:
                 programmatic_rejections.append({
-                    **entry, "rejection": "Duplicate (embedding similarity > 0.85)"
+                    **entry, "rejection": "Duplicate (embedding similarity > 0.78)"
                 })
                 continue
 
@@ -497,7 +499,7 @@ async def _check_chronicle_duplicate(
     db: Session, semantic_memory, world_id: int, char_id: int,
     story_id: int, branch_id: Optional[int],
     char_name: str, entry_type: str, description: str,
-    threshold: float = 0.85,
+    threshold: float = 0.78,
 ) -> bool:
     """Check if a similar chronicle entry already exists via embedding similarity."""
     try:
@@ -531,7 +533,7 @@ async def _check_lorebook_duplicate(
     db: Session, semantic_memory, world_id: int, location_name: str,
     story_id: int, branch_id: Optional[int],
     event_description: str,
-    threshold: float = 0.85,
+    threshold: float = 0.78,
 ) -> bool:
     """Check if a similar lorebook entry already exists via embedding similarity."""
     try:
@@ -558,3 +560,191 @@ async def _check_lorebook_duplicate(
     except Exception as e:
         logger.warning(f"[CHRONICLE] Lorebook dedup check failed: {e}")
     return False
+
+
+async def generate_character_snapshot(
+    world_id: int,
+    character_id: int,
+    up_to_story_id: int,
+    user_id: int,
+    user_settings: dict,
+    db: Session,
+    branch_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Generate a character snapshot by synthesizing chronicle entries across stories.
+
+    When branch_id is provided, entries from that branch's story use only that branch
+    (or NULL branch_id). Entries from other stories use their main branch (or NULL).
+
+    Returns dict with snapshot data: snapshot_text, chronicle_entry_count, timeline_order, etc.
+    """
+    from sqlalchemy import or_, and_
+
+    # Get the target story and its timeline_order
+    up_to_story = db.query(Story).filter(Story.id == up_to_story_id).first()
+    if not up_to_story:
+        raise ValueError(f"Story {up_to_story_id} not found")
+    if up_to_story.world_id != world_id:
+        raise ValueError(f"Story {up_to_story_id} is not in world {world_id}")
+
+    timeline_cutoff = up_to_story.timeline_order
+
+    # Get the character
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise ValueError(f"Character {character_id} not found")
+
+    # Get all stories in the world at or before the timeline cutoff
+    stories_query = db.query(Story).filter(Story.world_id == world_id)
+    if timeline_cutoff is not None:
+        # Include stories with timeline_order <= cutoff, OR null timeline_order (unordered)
+        stories_query = stories_query.filter(
+            or_(
+                Story.timeline_order <= timeline_cutoff,
+                Story.timeline_order.is_(None),
+            )
+        )
+    eligible_stories = stories_query.order_by(
+        Story.timeline_order.asc().nullslast()
+    ).all()
+    eligible_story_ids = [s.id for s in eligible_stories]
+
+    if not eligible_story_ids:
+        raise ValueError("No eligible stories found")
+
+    # Query chronicle entries for this character in eligible stories
+    entries_query = db.query(CharacterChronicle).filter(
+        CharacterChronicle.world_id == world_id,
+        CharacterChronicle.character_id == character_id,
+        CharacterChronicle.story_id.in_(eligible_story_ids),
+    )
+
+    # Branch-aware filtering
+    if branch_id:
+        branch = db.query(StoryBranch).filter(StoryBranch.id == branch_id).first()
+        branch_story_id = branch.story_id if branch else None
+
+        # Get main branch IDs for all OTHER eligible stories
+        main_branch_ids = []
+        for story in eligible_stories:
+            if story.id != branch_story_id:
+                main = db.query(StoryBranch).filter(
+                    StoryBranch.story_id == story.id, StoryBranch.is_main == True
+                ).first()
+                if main:
+                    main_branch_ids.append(main.id)
+
+        # For target story: specific branch or NULL; for others: main branch or NULL
+        branch_filter_parts = [
+            and_(
+                CharacterChronicle.story_id == branch_story_id,
+                or_(CharacterChronicle.branch_id == branch_id, CharacterChronicle.branch_id.is_(None)),
+            )
+        ]
+        if main_branch_ids:
+            branch_filter_parts.append(
+                and_(
+                    CharacterChronicle.story_id != branch_story_id,
+                    or_(CharacterChronicle.branch_id.in_(main_branch_ids), CharacterChronicle.branch_id.is_(None)),
+                )
+            )
+        entries_query = entries_query.filter(or_(*branch_filter_parts))
+
+    entries = entries_query.order_by(CharacterChronicle.sequence_order.asc()).all()
+
+    if not entries:
+        raise ValueError(f"No chronicle entries found for character {character.name} in eligible stories")
+
+    # Group entries by story, maintaining story timeline order
+    story_id_to_title = {s.id: s.title for s in eligible_stories}
+    story_id_to_order = {s.id: (s.timeline_order if s.timeline_order is not None else 999999) for s in eligible_stories}
+
+    entries_by_story: Dict[int, List] = {}
+    for entry in entries:
+        entries_by_story.setdefault(entry.story_id, []).append(entry)
+
+    # Format entries grouped by story in timeline order
+    sorted_story_ids = sorted(entries_by_story.keys(), key=lambda sid: story_id_to_order.get(sid, 999999))
+
+    chronicle_text_parts = []
+    for story_id in sorted_story_ids:
+        story_title = story_id_to_title.get(story_id, f"Story #{story_id}")
+        story_entries = entries_by_story[story_id]
+        entry_lines = [f"- [{e.entry_type.value.replace('_', ' ')}] {e.description}" for e in story_entries]
+        chronicle_text_parts.append(f"Story: {story_title}\n" + "\n".join(entry_lines))
+
+    chronicle_entries_text = "\n\n".join(chronicle_text_parts)
+
+    # Build the LLM prompt
+    from .llm.prompts import prompt_manager
+
+    user_prompt = prompt_manager.get_prompt(
+        "character_snapshot_generation",
+        "user",
+        character_name=character.name,
+        original_background=character.background or "No background provided.",
+        chronicle_entries=chronicle_entries_text,
+    )
+
+    messages = [{"role": "user", "content": user_prompt}]
+
+    # Call LLM via generate_for_task with main LLM + extraction settings
+    from .llm.service import UnifiedLLMService
+    llm_service = UnifiedLLMService()
+
+    snapshot_text = await llm_service.generate_for_task(
+        messages=messages,
+        user_id=user_id,
+        user_settings=user_settings,
+        max_tokens=512,
+        task_type="extraction",
+        force_main_llm=True,
+    )
+
+    # Clean up the response (strip any stray quotes/whitespace)
+    snapshot_text = snapshot_text.strip().strip('"').strip()
+
+    # Upsert into CharacterSnapshot
+    snapshot_query = db.query(CharacterSnapshot).filter(
+        CharacterSnapshot.world_id == world_id,
+        CharacterSnapshot.character_id == character_id,
+    )
+    if branch_id:
+        snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id == branch_id)
+    else:
+        snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id.is_(None))
+    existing = snapshot_query.first()
+
+    entry_count = len(entries)
+
+    if existing:
+        existing.snapshot_text = snapshot_text
+        existing.chronicle_entry_count = entry_count
+        existing.timeline_order = timeline_cutoff
+        existing.up_to_story_id = up_to_story_id
+        snapshot = existing
+    else:
+        snapshot = CharacterSnapshot(
+            world_id=world_id,
+            character_id=character_id,
+            branch_id=branch_id,
+            snapshot_text=snapshot_text,
+            chronicle_entry_count=entry_count,
+            timeline_order=timeline_cutoff,
+            up_to_story_id=up_to_story_id,
+        )
+        db.add(snapshot)
+
+    db.commit()
+    db.refresh(snapshot)
+
+    return {
+        "snapshot_text": snapshot.snapshot_text,
+        "chronicle_entry_count": snapshot.chronicle_entry_count,
+        "timeline_order": snapshot.timeline_order,
+        "up_to_story_id": snapshot.up_to_story_id,
+        "branch_id": snapshot.branch_id,
+        "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+        "updated_at": snapshot.updated_at.isoformat() if snapshot.updated_at else None,
+    }

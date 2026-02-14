@@ -127,6 +127,10 @@ class Story(Base):
     # "1" = next event only (strict), "3" = next 3 events, "all" = all remaining
     plot_check_mode = Column(String(10), nullable=True)
 
+    # Timeline order within a world (author-defined chronological position)
+    # Null means unordered (treated as last). Used for character snapshot scoping.
+    timeline_order = Column(Integer, nullable=True)
+
     # Extraction Quality Metrics - track how well entity extraction is working
     # success_rate: ratio of extractions with meaningful data (2+ non-empty fields per character)
     # empty_rate: ratio of extractions that returned empty or no character data

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -99,3 +99,31 @@ class LocationLorebook(Base):
 
     def __repr__(self):
         return f"<LocationLorebook(id={self.id}, location='{self.location_name}')>"
+
+
+class CharacterSnapshot(Base):
+    __tablename__ = "character_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    world_id = Column(Integer, ForeignKey("worlds.id"), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("story_branches.id"), nullable=True, index=True)
+    snapshot_text = Column(Text, nullable=False)
+    chronicle_entry_count = Column(Integer, nullable=False, default=0)
+    timeline_order = Column(Integer, nullable=True)
+    up_to_story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('world_id', 'character_id', 'branch_id', name='idx_snapshot_world_character_branch'),
+    )
+
+    # Relationships
+    world = relationship("World")
+    character = relationship("Character")
+    branch = relationship("StoryBranch")
+    up_to_story = relationship("Story")
+
+    def __repr__(self):
+        return f"<CharacterSnapshot(id={self.id}, character_id={self.character_id}, world_id={self.world_id})>"

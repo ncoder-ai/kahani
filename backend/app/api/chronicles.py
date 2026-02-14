@@ -9,7 +9,8 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models import (
-    World, User, Character, CharacterChronicle, LocationLorebook, ChronicleEntryType,
+    World, Story, User, Character,
+    CharacterChronicle, LocationLorebook, ChronicleEntryType, CharacterSnapshot,
 )
 from ..dependencies import get_current_user
 import logging
@@ -30,6 +31,16 @@ class ChronicleUpdate(BaseModel):
 class LorebookUpdate(BaseModel):
     location_name: Optional[str] = None
     event_description: Optional[str] = None
+
+
+class SnapshotGenerate(BaseModel):
+    up_to_story_id: int
+    branch_id: Optional[int] = None
+
+
+class SnapshotUpdate(BaseModel):
+    snapshot_text: str
+    branch_id: Optional[int] = None
 
 
 # --- Helper ---
@@ -288,3 +299,145 @@ async def delete_lorebook_entry(
     db.delete(entry)
     db.commit()
     return {"message": "Lorebook entry deleted"}
+
+
+# === Character Snapshot endpoints ===
+
+@router.get("/worlds/{world_id}/characters/{character_id}/snapshot")
+async def get_character_snapshot(
+    world_id: int,
+    character_id: int,
+    branch_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get current snapshot for a character in a world (or null). Optionally filter by branch."""
+    _verify_world_ownership(db, world_id, current_user.id)
+
+    from sqlalchemy import or_
+
+    snapshot_query = db.query(CharacterSnapshot).filter(
+        CharacterSnapshot.world_id == world_id,
+        CharacterSnapshot.character_id == character_id,
+    )
+    if branch_id is not None:
+        # Prefer branch-specific, fall back to NULL
+        snapshot_query = snapshot_query.filter(
+            or_(CharacterSnapshot.branch_id == branch_id, CharacterSnapshot.branch_id.is_(None))
+        ).order_by(CharacterSnapshot.branch_id.desc().nullslast())
+    else:
+        snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id.is_(None))
+    snapshot = snapshot_query.first()
+
+    if not snapshot:
+        return {
+            "snapshot_text": None,
+            "chronicle_entry_count": 0,
+            "current_entry_count": 0,
+            "is_stale": False,
+            "timeline_order": None,
+            "up_to_story_id": None,
+            "branch_id": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    # Count current entries up to the snapshot's timeline point
+    stories_query = db.query(Story.id).filter(Story.world_id == world_id)
+    if snapshot.timeline_order is not None:
+        stories_query = stories_query.filter(
+            or_(
+                Story.timeline_order <= snapshot.timeline_order,
+                Story.timeline_order.is_(None),
+            )
+        )
+    eligible_story_ids = [r[0] for r in stories_query.all()]
+
+    current_count = db.query(func.count(CharacterChronicle.id)).filter(
+        CharacterChronicle.world_id == world_id,
+        CharacterChronicle.character_id == character_id,
+        CharacterChronicle.story_id.in_(eligible_story_ids) if eligible_story_ids else False,
+    ).scalar() or 0
+
+    return {
+        "snapshot_text": snapshot.snapshot_text,
+        "chronicle_entry_count": snapshot.chronicle_entry_count,
+        "current_entry_count": current_count,
+        "is_stale": current_count > snapshot.chronicle_entry_count,
+        "timeline_order": snapshot.timeline_order,
+        "up_to_story_id": snapshot.up_to_story_id,
+        "branch_id": snapshot.branch_id,
+        "created_at": snapshot.created_at,
+        "updated_at": snapshot.updated_at,
+    }
+
+
+@router.post("/worlds/{world_id}/characters/{character_id}/snapshot")
+async def generate_snapshot(
+    world_id: int,
+    character_id: int,
+    data: SnapshotGenerate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate/regenerate a character snapshot via LLM."""
+    _verify_world_ownership(db, world_id, current_user.id)
+
+    from .story_helpers import get_or_create_user_settings
+    user_settings = get_or_create_user_settings(current_user.id, db, current_user)
+
+    from ..services.chronicle_extraction_service import generate_character_snapshot
+    try:
+        result = await generate_character_snapshot(
+            world_id=world_id,
+            character_id=character_id,
+            up_to_story_id=data.up_to_story_id,
+            user_id=current_user.id,
+            user_settings=user_settings,
+            db=db,
+            branch_id=data.branch_id,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[SNAPSHOT] Generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Snapshot generation failed")
+
+
+@router.put("/worlds/{world_id}/characters/{character_id}/snapshot")
+async def update_snapshot(
+    world_id: int,
+    character_id: int,
+    data: SnapshotUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually edit snapshot text."""
+    _verify_world_ownership(db, world_id, current_user.id)
+
+    snapshot_query = db.query(CharacterSnapshot).filter(
+        CharacterSnapshot.world_id == world_id,
+        CharacterSnapshot.character_id == character_id,
+    )
+    if data.branch_id is not None:
+        snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id == data.branch_id)
+    else:
+        snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id.is_(None))
+    snapshot = snapshot_query.first()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot exists for this character")
+
+    snapshot.snapshot_text = data.snapshot_text
+    db.commit()
+    db.refresh(snapshot)
+
+    return {
+        "snapshot_text": snapshot.snapshot_text,
+        "chronicle_entry_count": snapshot.chronicle_entry_count,
+        "timeline_order": snapshot.timeline_order,
+        "up_to_story_id": snapshot.up_to_story_id,
+        "branch_id": snapshot.branch_id,
+        "updated_at": snapshot.updated_at,
+    }
