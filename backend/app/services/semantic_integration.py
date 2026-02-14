@@ -1129,6 +1129,16 @@ async def cleanup_scene_embeddings(scene_id: int, db: Session):
         ).delete()
         logger.debug(f"[CLEANUP] Deleted {npc_mentions_deleted} NPC mentions for scene {scene_id}")
 
+        # Delete chronicle and lorebook entries
+        from ..models import CharacterChronicle, LocationLorebook
+        chronicles_deleted = db.query(CharacterChronicle).filter(
+            CharacterChronicle.scene_id == scene_id
+        ).delete()
+        lorebook_deleted = db.query(LocationLorebook).filter(
+            LocationLorebook.scene_id == scene_id
+        ).delete()
+        logger.info(f"[CLEANUP] Deleted {chronicles_deleted} chronicle + {lorebook_deleted} lorebook entries for scene {scene_id}")
+
         # Delete scene embeddings from database (vectors are on the rows, deleted with them)
         from ..models import SceneEmbedding
         scene_embeddings_deleted = db.query(SceneEmbedding).filter(

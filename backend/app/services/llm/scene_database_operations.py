@@ -626,6 +626,9 @@ class SceneDatabaseOperations:
                     if chapter.last_plot_extraction_scene_count and chapter.last_plot_extraction_scene_count > max_remaining_seq:
                         chapter.last_plot_extraction_scene_count = max_remaining_seq
                         logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_extraction_count_updated_to={max_remaining_seq}")
+                    if chapter.last_chronicle_scene_count and chapter.last_chronicle_scene_count > max_remaining_seq:
+                        chapter.last_chronicle_scene_count = max_remaining_seq
+                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chronicle_count_updated_to={max_remaining_seq}")
                     # Restore plot_progress from batches instead of resetting to None
                     # This preserves events from earlier batches that are still valid
                     from ..chapter_progress_service import ChapterProgressService
@@ -636,6 +639,7 @@ class SceneDatabaseOperations:
                     chapter.last_extraction_scene_count = 0
                     chapter.last_summary_scene_count = 0
                     chapter.last_plot_extraction_scene_count = 0
+                    chapter.last_chronicle_scene_count = 0
                     # No remaining scenes, so restore from batches (will set to None if no batches)
                     from ..chapter_progress_service import ChapterProgressService
                     progress_service = ChapterProgressService(db)
