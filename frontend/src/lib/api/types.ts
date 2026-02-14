@@ -360,6 +360,61 @@ export interface WritingPreset {
   updated_at: string;
 }
 
+// ========== World & Chronicle Types ==========
+export interface World {
+  id: number;
+  name: string;
+  description?: string;
+  story_count: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface WorldStory {
+  id: number;
+  title: string;
+  description?: string;
+  genre?: string;
+  status: string;
+  content_rating: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorldCharacter {
+  character_id: number;
+  character_name: string;
+  entry_count: number;
+}
+
+export interface WorldLocation {
+  location_name: string;
+  entry_count: number;
+}
+
+export interface ChronicleEntry {
+  id: number;
+  entry_type: string;
+  description: string;
+  is_defining: boolean;
+  sequence_order: number;
+  scene_id?: number;
+  story_id: number;
+  branch_id?: number;
+  created_at: string;
+}
+
+export interface LorebookEntry {
+  id: number;
+  location_name: string;
+  event_description: string;
+  sequence_order: number;
+  scene_id?: number;
+  story_id: number;
+  branch_id?: number;
+  created_at: string;
+}
+
 // ========== Interaction Types ==========
 export interface Interaction {
   id: number;

@@ -24,6 +24,7 @@ import { BranchesApi } from './branches';
 import { AdminApi } from './admin';
 import { WritingPresetsApi } from './writing-presets';
 import { ImageGenerationApi } from './imageGeneration';
+import { WorldsApi } from './worlds';
 import LegacyApiClient from '../api';
 
 // Create singleton instances of domain clients
@@ -34,6 +35,7 @@ const branchesApiInstance = new BranchesApi();
 const adminApiInstance = new AdminApi();
 const writingPresetsApiInstance = new WritingPresetsApi();
 const imageGenerationApiInstance = new ImageGenerationApi();
+const worldsApiInstance = new WorldsApi();
 
 // Re-export everything from the legacy api.ts for backward compatibility
 export * from '../api';
@@ -46,6 +48,7 @@ export { BranchesApi } from './branches';
 export { AdminApi } from './admin';
 export { WritingPresetsApi } from './writing-presets';
 export { ImageGenerationApi } from './imageGeneration';
+export { WorldsApi } from './worlds';
 
 // Export types from imageGeneration
 export type {
@@ -72,6 +75,7 @@ export const branchesApi = branchesApiInstance;
 export const adminApi = adminApiInstance;
 export const writingPresetsApi = writingPresetsApiInstance;
 export const imageGenerationApi = imageGenerationApiInstance;
+export const worldsApi = worldsApiInstance;
 
 // Export legacy client
 export const apiClient = LegacyApiClient;

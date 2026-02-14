@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models import (
-    World, User, CharacterChronicle, LocationLorebook, ChronicleEntryType,
+    World, User, Character, CharacterChronicle, LocationLorebook, ChronicleEntryType,
 )
 from ..dependencies import get_current_user
 import logging
@@ -42,6 +42,39 @@ def _verify_world_ownership(db: Session, world_id: int, user_id: int) -> World:
     if not world:
         raise HTTPException(status_code=404, detail="World not found")
     return world
+
+
+# === World character discovery ===
+
+@router.get("/worlds/{world_id}/characters")
+async def list_world_characters(
+    world_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all characters that have chronicle entries in a world."""
+    _verify_world_ownership(db, world_id, current_user.id)
+
+    results = db.query(
+        CharacterChronicle.character_id,
+        Character.name.label("character_name"),
+        func.count(CharacterChronicle.id).label("entry_count"),
+    ).join(
+        Character, CharacterChronicle.character_id == Character.id
+    ).filter(
+        CharacterChronicle.world_id == world_id,
+    ).group_by(
+        CharacterChronicle.character_id, Character.name
+    ).order_by(Character.name).all()
+
+    return [
+        {
+            "character_id": r.character_id,
+            "character_name": r.character_name,
+            "entry_count": r.entry_count,
+        }
+        for r in results
+    ]
 
 
 # === Chronicle endpoints ===

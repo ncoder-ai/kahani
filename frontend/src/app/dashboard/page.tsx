@@ -352,6 +352,12 @@ function DashboardContent() {
             >
               👥 Manage Characters
             </button>
+            <button
+              onClick={() => router.push('/worlds')}
+              className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
+            >
+              Worlds
+            </button>
             {user?.is_admin && (
               <button
                 onClick={() => router.push('/admin')}
