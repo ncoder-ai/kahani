@@ -40,6 +40,7 @@ from .story_tasks import (
     get_scene_generation_lock,
     run_extractions_in_background,
     run_plot_extraction_in_background,
+    run_chronicle_extraction_in_background,
     update_working_memory_in_background,
     run_inline_entity_extraction_background,
     run_chapter_summary_background,
@@ -1372,6 +1373,48 @@ async def generate_scene_streaming_endpoint(
                     logger.error(f"[PLOT_EXTRACTION] Failed to check plot extraction: {e}")
                     import traceback
                     logger.error(f"[PLOT_EXTRACTION] Traceback: {traceback.format_exc()}")
+
+            # === CHRONICLE EXTRACTION (world lorebook + character chronicle) ===
+            if active_chapter and story.world_id:
+                try:
+                    chronicle_threshold = user_settings.get('context_settings', {}).get(
+                        'chronicle_extraction_threshold', 5
+                    ) if user_settings else 5
+
+                    # Query scenes in this chapter for threshold check
+                    ch_scenes_for_chronicle = db.query(Scene).join(StoryFlow).filter(
+                        StoryFlow.story_id == story_id,
+                        StoryFlow.is_active == True,
+                        Scene.chapter_id == active_chapter.id,
+                        Scene.is_deleted == False,
+                    ).order_by(Scene.sequence_number).all()
+                    chronicle_scene_seqs = [s.sequence_number for s in ch_scenes_for_chronicle]
+
+                    last_chronicle_seq = active_chapter.last_chronicle_scene_count or 0
+                    scenes_since_chronicle = len([s for s in chronicle_scene_seqs if s > last_chronicle_seq])
+
+                    if scenes_since_chronicle >= chronicle_threshold:
+                        max_seq_chapter = max(chronicle_scene_seqs) if chronicle_scene_seqs else 0
+                        logger.warning(f"[CHRONICLE] ✓ SCHEDULED: Threshold reached ({scenes_since_chronicle}/{chronicle_threshold})")
+                        background_tasks.add_task(
+                            run_chronicle_extraction_in_background,
+                            story_id=story_id,
+                            chapter_id=active_chapter.id,
+                            from_sequence=last_chronicle_seq,
+                            to_sequence=max_seq_chapter,
+                            user_id=current_user.id,
+                            user_settings=user_settings or {},
+                            scene_generation_context=context,
+                        )
+                        yield f"data: {json.dumps({'type': 'chronicle_status', 'status': 'scheduled'})}\n\n"
+                    else:
+                        logger.info(f"[CHRONICLE] Skipped ({scenes_since_chronicle}/{chronicle_threshold})")
+                        yield f"data: {json.dumps({'type': 'chronicle_status', 'status': 'skipped'})}\n\n"
+
+                except Exception as e:
+                    logger.error(f"[CHRONICLE] Failed to check chronicle extraction: {e}")
+                    import traceback
+                    logger.error(f"[CHRONICLE] Traceback: {traceback.format_exc()}")
 
             # === WORKING MEMORY UPDATE (runs every scene for continuity) ===
             # Check if enabled before scheduling

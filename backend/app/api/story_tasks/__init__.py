@@ -31,6 +31,7 @@ from .background_tasks import (
     rollback_plot_progress_in_background,
     rollback_working_memory_and_relationships_in_background,
     run_scene_event_extraction_background,
+    run_chronicle_extraction_in_background,
 )
 
 __all__ = [
@@ -61,4 +62,5 @@ __all__ = [
     'rollback_plot_progress_in_background',
     'rollback_working_memory_and_relationships_in_background',
     'run_scene_event_extraction_background',
+    'run_chronicle_extraction_in_background',
 ]

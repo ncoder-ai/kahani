@@ -3640,3 +3640,79 @@ semantic_decompose:
 
     Text to decompose:
     {user_intent}
+
+# =============================================================================
+# CHRONICLE EXTRACTION — Extracts lasting character changes and location events
+# =============================================================================
+
+chronicle_extraction:
+  user: |
+    TASK: Extract lasting character developments and significant location events from the following scenes.
+
+    SCENES:
+    {scenes_content}
+
+    CHARACTERS IN STORY: {character_names}
+
+    {existing_chronicle_section}
+
+    EXTRACTION RULES:
+    1. Extract LASTING changes only — personality shifts, secrets learned, trauma, skills gained, relationship changes, physical changes, goal changes, knowledge gained
+    2. Each entry must reference a specific event in the scenes — no speculation
+    3. Use the character's EXACT name as it appears in the character list
+    4. For locations, extract events that change the PLACE itself (damage, discovery, transformation) — not routine visits
+    5. Be GENEROUS — extract anything that might be lasting. The validation step will filter noise.
+    6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below
+    7. Description should be 1-2 sentences, specific and concrete
+
+    ENTRY TYPES (use exactly these values):
+    - personality_shift: Character's attitude, behavior, or worldview changed
+    - knowledge_gained: Character learned something significant
+    - secret: Character discovered or now holds a secret
+    - relationship_change: Bond between characters fundamentally shifted
+    - trauma: Character experienced something traumatic
+    - physical_change: Character's appearance or physical state changed
+    - skill_gained: Character learned a new ability or skill
+    - goal_change: Character's motivation or goal shifted
+    - other: Significant development that doesn't fit above categories
+
+    EXAMPLE:
+    Scenes: Kira discovers that her mentor Voss has been secretly poisoning the village well. She confronts him on the temple steps. During the fight, Voss burns her left arm with a fire spell. She defeats him but decides to leave the village rather than explain what happened.
+    Characters: Kira, Voss
+
+    Output:
+    {{"character_chronicle": [
+      {{"character_name": "Kira", "entry_type": "knowledge_gained", "description": "Discovered that her mentor Voss was secretly poisoning the village well."}},
+      {{"character_name": "Kira", "entry_type": "physical_change", "description": "Left arm burned by Voss's fire spell during their confrontation on the temple steps."}},
+      {{"character_name": "Kira", "entry_type": "goal_change", "description": "Decided to leave the village rather than reveal Voss's betrayal to the villagers."}},
+      {{"character_name": "Kira", "entry_type": "relationship_change", "description": "Turned against her mentor Voss after discovering his poisoning scheme and fighting him."}},
+      {{"character_name": "Voss", "entry_type": "secret", "description": "His secret of poisoning the village well was discovered by Kira."}}
+    ], "location_lorebook": [
+      {{"location_name": "Temple Steps", "event_description": "Site of the fight between Kira and Voss where fire magic scorched the stone steps."}}
+    ]}}
+
+    NOT extracted (too fleeting): "Kira felt angry" (emotion, not lasting), "Voss stood on the steps" (routine action), "The sun was setting" (atmosphere).
+
+    Return ONLY valid JSON in this format:
+    {{"character_chronicle": [{{"character_name": "...", "entry_type": "...", "description": "..."}}], "location_lorebook": [{{"location_name": "...", "event_description": "..."}}]}}
+
+chronicle_validation:
+  user: |
+    TASK: Validate the following candidate chronicle/lorebook entries against the actual scene content. For each entry, decide whether to KEEP or REJECT.
+
+    SCENES:
+    {scenes_content}
+
+    CANDIDATE ENTRIES:
+    {candidate_entries}
+
+    VALIDATION CRITERIA — reject if ANY apply:
+    1. HALLUCINATION: The event described did NOT actually happen in the scenes
+    2. NOISE: This is fleeting (a passing emotion, a routine action, atmosphere) — not a lasting change
+    3. REDUNDANCY: This is already covered by an existing entry (marked below)
+    4. VAGUE: The description is too generic to be useful (e.g., "things changed between them")
+
+    For each entry, return keep: true or keep: false with a brief reason.
+
+    Return ONLY valid JSON:
+    {{"validated": [{{"character_name": "...", "entry_type": "...", "description": "...", "keep": true, "reason": "Event clearly occurred in scene and represents lasting change"}}, {{"character_name": "...", "entry_type": "...", "description": "...", "keep": false, "reason": "Passing emotion, not a lasting personality change"}}]}}

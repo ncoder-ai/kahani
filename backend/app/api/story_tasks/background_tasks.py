@@ -2202,3 +2202,100 @@ async def run_scene_event_extraction_background(
 
     finally:
         extraction_db.close()
+
+
+async def run_chronicle_extraction_in_background(
+    story_id: int,
+    chapter_id: int,
+    from_sequence: int,
+    to_sequence: int,
+    user_id: int,
+    user_settings: dict,
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+):
+    """Run chronicle/lorebook extraction in background after scene generation.
+    Uses main LLM for interpretive quality, extraction LLM for validation."""
+    try:
+        # Delay to ensure database commits from main session are visible
+        await asyncio.sleep(0.3)
+
+        # Health check main LLM
+        try:
+            from ...services.llm.service import UnifiedLLMService
+            main_llm = UnifiedLLMService()
+            client = main_llm.get_user_client(user_id, user_settings)
+            is_healthy, health_msg = await client.check_health(timeout=3.0)
+            if not is_healthy:
+                logger.warning(f"[CHRONICLE] LLM unavailable: {health_msg}, skipping")
+                return
+        except Exception as health_err:
+            logger.warning(f"[CHRONICLE] Health check failed (proceeding anyway): {health_err}")
+
+        extraction_db = SessionLocal()
+        try:
+            # Reload chapter to get fresh data
+            extraction_chapter = extraction_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            if not extraction_chapter:
+                logger.error(f"[CHRONICLE] Chapter {chapter_id} not found")
+                return
+
+            # Compute actual sequence range from scenes in the chapter
+            scenes_query = extraction_db.query(Scene).join(StoryFlow).filter(
+                StoryFlow.story_id == story_id,
+                StoryFlow.is_active == True,
+                Scene.chapter_id == chapter_id,
+                Scene.is_deleted == False,
+            )
+            if extraction_chapter.branch_id:
+                scenes_query = scenes_query.filter(
+                    Scene.branch_id == extraction_chapter.branch_id,
+                    StoryFlow.branch_id == extraction_chapter.branch_id,
+                )
+            scenes_in_chapter = scenes_query.order_by(Scene.sequence_number).all()
+
+            if not scenes_in_chapter:
+                logger.warning(f"[CHRONICLE] No scenes in chapter {chapter_id}")
+                return
+
+            scene_seqs = [s.sequence_number for s in scenes_in_chapter]
+            max_seq = max(scene_seqs)
+
+            actual_from = from_sequence if from_sequence > 0 else (extraction_chapter.last_chronicle_scene_count or 0)
+            actual_to = to_sequence if to_sequence > 0 else max_seq
+
+            if actual_from >= actual_to:
+                logger.warning(f"[CHRONICLE] No scenes to process: from={actual_from} >= to={actual_to}")
+                return
+
+            logger.warning(f"[CHRONICLE] Background extraction: chapter {chapter_id}, "
+                           f"scenes {actual_from+1}-{actual_to}")
+
+            from ...services.chronicle_extraction_service import extract_chronicle_and_lorebook
+            result = await extract_chronicle_and_lorebook(
+                story_id=story_id,
+                chapter_id=chapter_id,
+                from_sequence=actual_from,
+                to_sequence=actual_to,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=extraction_db,
+                branch_id=extraction_chapter.branch_id,
+                scene_generation_context=scene_generation_context,
+            )
+
+            # Always advance tracking counter (even if 0 entries, to avoid reprocessing)
+            extraction_chapter.last_chronicle_scene_count = actual_to
+            extraction_db.commit()
+
+            logger.warning(f"[CHRONICLE] Background complete: {result}")
+
+        except Exception as e:
+            logger.error(f"[CHRONICLE] Background extraction failed: {e}")
+            import traceback
+            logger.error(f"[CHRONICLE] Traceback: {traceback.format_exc()}")
+            extraction_db.rollback()
+        finally:
+            extraction_db.close()
+
+    except Exception as e:
+        logger.error(f"[CHRONICLE] Failed to start background extraction: {e}")

@@ -974,7 +974,10 @@ Chapter Conclusion:"""
             "scene_summary_for_embedding": ("scene_summary_for_embedding", ""),
             "agent_recall": ("agent_recall", ""),
             "agent_recall_validate": ("agent_recall_validate", ""),
-            "semantic_decompose": ("semantic_decompose", "")
+            "semantic_decompose": ("semantic_decompose", ""),
+            # Chronicle extraction prompts
+            "chronicle_extraction": ("chronicle_extraction", ""),
+            "chronicle_validation": ("chronicle_validation", ""),
         }
         
         if template_key not in yaml_mapping:

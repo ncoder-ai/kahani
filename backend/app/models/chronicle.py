@@ -42,7 +42,10 @@ class CharacterChronicle(Base):
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="SET NULL"), nullable=True)
     sequence_order = Column(Integer, nullable=False)
 
-    entry_type = Column(SQLEnum(ChronicleEntryType), nullable=False)
+    entry_type = Column(
+        SQLEnum(ChronicleEntryType, values_callable=lambda e: [x.value for x in e]),
+        nullable=False,
+    )
     description = Column(Text, nullable=False)
     is_defining = Column(Boolean, default=False)
 

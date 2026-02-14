@@ -3680,6 +3680,109 @@ Chapter Conclusion:"""
             logger.error(f"[PLOT_EVENTS_FALLBACK] Cache-friendly extraction failed: {e}")
             return []
 
+    async def extract_chronicle_cache_friendly(
+        self,
+        scenes_content: str,
+        character_names: str,
+        existing_state_section: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 3000,
+    ) -> str:
+        """
+        Extract character chronicle entries and location lorebook events
+        using cache-friendly multi-message structure with the main LLM.
+
+        Returns:
+            Raw JSON string with character_chronicle and location_lorebook arrays.
+        """
+        messages = await self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db,
+        )
+
+        final_message = prompt_manager.get_prompt(
+            "chronicle_extraction", "user",
+            scenes_content=scenes_content,
+            character_names=character_names,
+            existing_chronicle_section=existing_state_section,
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[CHRONICLE] Cache-friendly extraction: {len(messages)} messages")
+
+        # Debug log
+        from ...config import settings
+        if settings.prompt_debug:
+            try:
+                prompt_file_path = self._get_prompt_debug_path("prompt_chronicle_extraction.json")
+                debug_data = {
+                    "extraction_type": "chronicle",
+                    "messages": messages,
+                    "generation_parameters": {"max_tokens": max_tokens, "temperature": 0.3},
+                }
+                with open(prompt_file_path, "w", encoding="utf-8") as f:
+                    json.dump(debug_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.warning(f"Failed to write chronicle extraction prompt debug file: {e}")
+
+        try:
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+                force_main_llm=True,
+            )
+        except Exception as e:
+            logger.error(f"[CHRONICLE] Extraction failed: {e}")
+            raise
+
+    async def validate_chronicle_cache_friendly(
+        self,
+        scenes_content: str,
+        candidate_entries_json: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 2000,
+    ) -> str:
+        """
+        Validate candidate chronicle/lorebook entries against scene content.
+        Uses extraction LLM (cheaper) since this is a simpler yes/no task.
+
+        Returns:
+            Raw JSON string with validated entries and keep/reject verdicts.
+        """
+        messages = await self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db,
+        )
+
+        final_message = prompt_manager.get_prompt(
+            "chronicle_validation", "user",
+            scenes_content=scenes_content,
+            candidate_entries=candidate_entries_json,
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[CHRONICLE_VALIDATION] Cache-friendly validation: {len(messages)} messages")
+
+        try:
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+                force_main_llm=False,
+            )
+        except Exception as e:
+            logger.error(f"[CHRONICLE_VALIDATION] Validation failed: {e}")
+            raise
+
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         
