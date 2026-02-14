@@ -542,6 +542,14 @@ class ContextManager:
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Failed to build contradiction context: {e}")
 
+        # Add chronicle context (character developments + location history)
+        try:
+            chronicle_context = self._build_chronicle_context(db, story_id, branch_id)
+            if chronicle_context:
+                base_context["chronicle_context"] = chronicle_context
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Failed to build chronicle context: {e}")
+
         # Entity states removed from prompt — no longer building entity_states_text
 
         # Merge contexts
@@ -735,6 +743,125 @@ Appearance: {char.get('appearance', '')}
 
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Error building contradiction context: {e}")
+            return None
+
+    def _build_chronicle_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[str]:
+        """
+        Build chronicle context from accumulated character developments and location events.
+
+        Queries CharacterChronicle and LocationLorebook entries for the story's world,
+        groups by character/location name, and formats as compact text for prompt injection.
+
+        Returns formatted text or None if no entries exist.
+        """
+        try:
+            from ..models import CharacterChronicle, LocationLorebook, Character
+
+            # Get story to check world_id
+            story = db.query(Story).filter(Story.id == story_id).first()
+            if not story or not story.world_id:
+                return None
+
+            world_id = story.world_id
+
+            # Query character chronicle entries
+            char_query = db.query(CharacterChronicle, Character.name).join(
+                Character, CharacterChronicle.character_id == Character.id
+            ).filter(
+                CharacterChronicle.world_id == world_id,
+                CharacterChronicle.story_id == story_id,
+            )
+            if branch_id:
+                char_query = char_query.filter(
+                    or_(CharacterChronicle.branch_id == branch_id, CharacterChronicle.branch_id.is_(None))
+                )
+            char_entries = char_query.order_by(CharacterChronicle.sequence_order.asc()).all()
+
+            # Query location lorebook entries
+            loc_query = db.query(LocationLorebook).filter(
+                LocationLorebook.world_id == world_id,
+                LocationLorebook.story_id == story_id,
+            )
+            if branch_id:
+                loc_query = loc_query.filter(
+                    or_(LocationLorebook.branch_id == branch_id, LocationLorebook.branch_id.is_(None))
+                )
+            loc_entries = loc_query.order_by(LocationLorebook.sequence_order.asc()).all()
+
+            if not char_entries and not loc_entries:
+                return None
+
+            # Group character entries by name
+            # is_defining first, then newest first (reverse of query order)
+            char_groups = {}
+            for chronicle, char_name in char_entries:
+                if char_name not in char_groups:
+                    char_groups[char_name] = []
+                char_groups[char_name].append(chronicle)
+
+            # Group location entries by name
+            loc_groups = {}
+            for entry in loc_entries:
+                if entry.location_name not in loc_groups:
+                    loc_groups[entry.location_name] = []
+                loc_groups[entry.location_name].append(entry)
+
+            # Format output
+            MAX_CHARS = 6000
+            parts = []
+            total_chars = 0
+
+            if char_groups:
+                parts.append("Characters:")
+                total_chars += 12
+
+                for name, entries in char_groups.items():
+                    # Sort: is_defining first, then newest first
+                    entries.sort(key=lambda e: (not e.is_defining, -e.sequence_order))
+
+                    char_lines = [f"\n{name}:"]
+                    for entry in entries:
+                        line = f"- [{entry.entry_type.value.replace('_', ' ')}] {entry.description}"
+                        line_len = len(line) + 1  # +1 for newline
+                        if total_chars + line_len > MAX_CHARS:
+                            # Skip non-defining entries when over budget
+                            if not entry.is_defining:
+                                continue
+                        char_lines.append(line)
+                        total_chars += line_len
+
+                    if len(char_lines) > 1:  # Has entries beyond the header
+                        parts.append("\n".join(char_lines))
+
+            if loc_groups and total_chars < MAX_CHARS:
+                parts.append("\nLocations:")
+                total_chars += 12
+
+                for name, entries in loc_groups.items():
+                    # Newest first for locations
+                    entries.sort(key=lambda e: -e.sequence_order)
+
+                    loc_lines = [f"\n{name}:"]
+                    for entry in entries:
+                        line = f"- {entry.event_description}"
+                        line_len = len(line) + 1
+                        if total_chars + line_len > MAX_CHARS:
+                            continue
+                        loc_lines.append(line)
+                        total_chars += line_len
+
+                    if len(loc_lines) > 1:
+                        parts.append("\n".join(loc_lines))
+
+            result = "\n".join(parts).strip()
+            if not result:
+                return None
+
+            logger.info(f"[CONTEXT BUILD] Chronicle context: {len(char_entries)} character + {len(loc_entries)} location entries ({total_chars} chars)")
+            return result
+
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Error building chronicle context: {e}")
             return None
 
     async def _build_scene_context(self, scenes: List[Scene], available_tokens: int, db: Session = None) -> Dict[str, Any]:
@@ -1239,6 +1366,8 @@ Appearance: {char.get('appearance', '')}
             "story_focus": full_context.get("story_focus"),
             # Contradiction context (unresolved continuity warnings)
             "contradiction_context": full_context.get("contradiction_context"),
+            # Chronicle context (character developments + location history)
+            "chronicle_context": full_context.get("chronicle_context"),
             # Entity states (character states, locations, objects) - passed separately for independent message positioning
             "entity_states_text": full_context.get("entity_states_text"),
             # Semantic scenes - passed separately for dedicated message positioning (LAST before task)
@@ -1867,6 +1996,14 @@ Appearance: {char.get('appearance', '')}
                 base_context["contradiction_context"] = contradiction_context
         except Exception as e:
             logger.warning(f"[HYBRID CONTEXT BUILD] Failed to build contradiction context: {e}")
+
+        # Add chronicle context (character developments + location history)
+        try:
+            chronicle_context = self._build_chronicle_context(db, story_id, branch_id)
+            if chronicle_context:
+                base_context["chronicle_context"] = chronicle_context
+        except Exception as e:
+            logger.warning(f"[HYBRID CONTEXT BUILD] Failed to build chronicle context: {e}")
 
         # Merge contexts
         return {**base_context, **scene_context}

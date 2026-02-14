@@ -4486,6 +4486,7 @@ Chapter Conclusion:"""
         #   A. Completed scene batches (stable per batch, cached)
         #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
         #   F. CONTINUITY WARNINGS (stable between consecutive scenes)
+        #   F2. CHARACTER DEVELOPMENT LOG (stable, changes only on extraction)
         #   *. CURRENT CHAPTER (location, time, scenario, progress - updates ~every 10 scenes)
         #   ──── DYNAMIC SECTIONS (change every scene, placed at end) ────
         #   G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE)
@@ -4567,6 +4568,17 @@ Chapter Conclusion:"""
                     "Naturally address or acknowledge them in your writing "
                     "(e.g., mention travel between locations, explain emotional shifts):\n\n"
                     + "\n".join(contradiction_context)
+            })
+
+        # --- F2. CHARACTER DEVELOPMENT LOG (stable, changes only on extraction) ---
+        chronicle_context = context.get("chronicle_context")
+        if chronicle_context:
+            messages.append({
+                "role": "user",
+                "content": "=== CHARACTER DEVELOPMENT LOG ===\n"
+                    "Significant character developments and location events accumulated over the story. "
+                    "Use this to maintain consistent characterization and acknowledge past events naturally.\n\n"
+                    + chronicle_context
             })
 
         # --- *. CURRENT CHAPTER (updates ~every 10 scenes when auto_summary refreshes) ---
