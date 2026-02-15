@@ -786,15 +786,17 @@ Appearance: {char.get('appearance', '')}
 
     def _build_chronicle_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[str]:
         """
-        Build chronicle context from accumulated character developments and location events.
+        Build chronicle context from character snapshots (preferred) or individual entries (fallback),
+        plus location lorebook events.
 
-        Queries CharacterChronicle and LocationLorebook entries for the story's world,
-        groups by character/location name, and formats as compact text for prompt injection.
+        If a CharacterSnapshot exists for a character, uses the snapshot paragraph.
+        Otherwise falls back to individual chronicle entries for that character.
+        Location lorebook entries are always individual bullets (no snapshot equivalent).
 
         Returns formatted text or None if no entries exist.
         """
         try:
-            from ..models import CharacterChronicle, LocationLorebook, Character
+            from ..models import CharacterChronicle, LocationLorebook, Character, CharacterSnapshot
 
             # Get story to check world_id
             story = db.query(Story).filter(Story.id == story_id).first()
@@ -803,7 +805,22 @@ Appearance: {char.get('appearance', '')}
 
             world_id = story.world_id
 
-            # Query character chronicle entries
+            # Query character snapshots for this world/story/branch
+            snapshot_query = db.query(CharacterSnapshot, Character.name).join(
+                Character, CharacterSnapshot.character_id == Character.id
+            ).filter(
+                CharacterSnapshot.world_id == world_id,
+            )
+            if branch_id:
+                snapshot_query = snapshot_query.filter(
+                    or_(CharacterSnapshot.branch_id == branch_id, CharacterSnapshot.branch_id.is_(None))
+                )
+            else:
+                snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id.is_(None))
+            snapshots = snapshot_query.all()
+            snapshot_by_char_id = {snap.character_id: (snap, char_name) for snap, char_name in snapshots}
+
+            # Query character chronicle entries (for fallback characters without snapshots)
             char_query = db.query(CharacterChronicle, Character.name).join(
                 Character, CharacterChronicle.character_id == Character.id
             ).filter(
@@ -827,16 +844,15 @@ Appearance: {char.get('appearance', '')}
                 )
             loc_entries = loc_query.order_by(LocationLorebook.sequence_order.asc()).all()
 
-            if not char_entries and not loc_entries:
+            if not char_entries and not loc_entries and not snapshots:
                 return None
 
-            # Group character entries by name
-            # is_defining first, then newest first (reverse of query order)
-            char_groups = {}
+            # Group character entries by character_id and name (for fallback)
+            char_groups = {}  # char_id -> (name, [entries])
             for chronicle, char_name in char_entries:
-                if char_name not in char_groups:
-                    char_groups[char_name] = []
-                char_groups[char_name].append(chronicle)
+                if chronicle.character_id not in char_groups:
+                    char_groups[chronicle.character_id] = (char_name, [])
+                char_groups[chronicle.character_id][1].append(chronicle)
 
             # Group location entries by name
             loc_groups = {}
@@ -845,39 +861,55 @@ Appearance: {char.get('appearance', '')}
                     loc_groups[entry.location_name] = []
                 loc_groups[entry.location_name].append(entry)
 
-            # Format output
+            # Format output — snapshots for characters that have them, entries for others
             MAX_CHARS = 6000
             parts = []
             total_chars = 0
+            snapshot_count = 0
+            fallback_count = 0
 
-            if char_groups:
+            # Collect all character IDs that have either snapshots or entries
+            all_char_ids = set(snapshot_by_char_id.keys()) | set(char_groups.keys())
+
+            if all_char_ids:
                 parts.append("Characters:")
                 total_chars += 12
 
-                for name, entries in char_groups.items():
-                    # Sort: is_defining first, then newest first
-                    entries.sort(key=lambda e: (not e.is_defining, -e.sequence_order))
+                for char_id in all_char_ids:
+                    if char_id in snapshot_by_char_id:
+                        # Use snapshot paragraph
+                        snap, char_name = snapshot_by_char_id[char_id]
+                        snap_text = f"\n{char_name}:\n{snap.snapshot_text}"
+                        snap_len = len(snap_text)
+                        if total_chars + snap_len > MAX_CHARS:
+                            continue
+                        parts.append(snap_text)
+                        total_chars += snap_len
+                        snapshot_count += 1
+                    elif char_id in char_groups:
+                        # Fallback: individual entries
+                        name, entries = char_groups[char_id]
+                        entries.sort(key=lambda e: (not e.is_defining, -e.sequence_order))
 
-                    char_lines = [f"\n{name}:"]
-                    for entry in entries:
-                        line = f"- [{entry.entry_type.value.replace('_', ' ')}] {entry.description}"
-                        line_len = len(line) + 1  # +1 for newline
-                        if total_chars + line_len > MAX_CHARS:
-                            # Skip non-defining entries when over budget
-                            if not entry.is_defining:
-                                continue
-                        char_lines.append(line)
-                        total_chars += line_len
+                        char_lines = [f"\n{name}:"]
+                        for entry in entries:
+                            line = f"- [{entry.entry_type.value.replace('_', ' ')}] {entry.description}"
+                            line_len = len(line) + 1
+                            if total_chars + line_len > MAX_CHARS:
+                                if not entry.is_defining:
+                                    continue
+                            char_lines.append(line)
+                            total_chars += line_len
 
-                    if len(char_lines) > 1:  # Has entries beyond the header
-                        parts.append("\n".join(char_lines))
+                        if len(char_lines) > 1:
+                            parts.append("\n".join(char_lines))
+                            fallback_count += 1
 
             if loc_groups and total_chars < MAX_CHARS:
                 parts.append("\nLocations:")
                 total_chars += 12
 
                 for name, entries in loc_groups.items():
-                    # Newest first for locations
                     entries.sort(key=lambda e: -e.sequence_order)
 
                     loc_lines = [f"\n{name}:"]
@@ -896,7 +928,7 @@ Appearance: {char.get('appearance', '')}
             if not result:
                 return None
 
-            logger.info(f"[CONTEXT BUILD] Chronicle context: {len(char_entries)} character + {len(loc_entries)} location entries ({total_chars} chars)")
+            logger.info(f"[CONTEXT BUILD] Chronicle context: {snapshot_count} snapshots, {fallback_count} fallback characters, {len(loc_entries)} location entries ({total_chars} chars)")
             return result
 
         except Exception as e:

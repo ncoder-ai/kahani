@@ -2289,6 +2289,24 @@ async def run_chronicle_extraction_in_background(
 
             logger.warning(f"[CHRONICLE] Background complete: {result}")
 
+            # Generate character snapshots if enough new entries accumulated
+            if result.get("chronicle_entries", 0) > 0:
+                try:
+                    from ...services.chronicle_extraction_service import maybe_generate_snapshots
+                    snapshot_result = await maybe_generate_snapshots(
+                        story_id=story_id,
+                        user_id=user_id,
+                        user_settings=user_settings,
+                        db=extraction_db,
+                        branch_id=extraction_chapter.branch_id,
+                        scene_generation_context=scene_generation_context,
+                    )
+                    logger.warning(f"[SNAPSHOT] Background complete: {snapshot_result}")
+                except Exception as snap_err:
+                    logger.error(f"[SNAPSHOT] Background generation failed: {snap_err}")
+                    import traceback
+                    logger.error(f"[SNAPSHOT] Traceback: {traceback.format_exc()}")
+
         except Exception as e:
             logger.error(f"[CHRONICLE] Background extraction failed: {e}")
             import traceback

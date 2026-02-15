@@ -23,6 +23,7 @@ def upgrade():
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('world_id', sa.Integer(), sa.ForeignKey('worlds.id'), nullable=False),
         sa.Column('character_id', sa.Integer(), sa.ForeignKey('characters.id'), nullable=False),
+        sa.Column('branch_id', sa.Integer(), sa.ForeignKey('story_branches.id'), nullable=True),
         sa.Column('snapshot_text', sa.Text(), nullable=False),
         sa.Column('chronicle_entry_count', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('timeline_order', sa.Integer(), nullable=True),
@@ -33,7 +34,8 @@ def upgrade():
     op.create_index('ix_character_snapshots_id', 'character_snapshots', ['id'])
     op.create_index('ix_character_snapshots_world_id', 'character_snapshots', ['world_id'])
     op.create_index('ix_character_snapshots_character_id', 'character_snapshots', ['character_id'])
-    op.create_index('idx_snapshot_world_character', 'character_snapshots', ['world_id', 'character_id'], unique=True)
+    op.create_index('ix_character_snapshots_branch_id', 'character_snapshots', ['branch_id'])
+    op.create_unique_constraint('idx_snapshot_world_character_branch', 'character_snapshots', ['world_id', 'character_id', 'branch_id'])
 
 
 def downgrade():

@@ -3665,6 +3665,18 @@ chronicle_extraction:
     6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below. If an existing entry covers the SAME development (even with different wording), do NOT extract a new version. Only extract if the NEW scenes show a FURTHER change beyond what's already recorded.
     7. Description should be 1-2 sentences, specific and concrete
 
+    LANGUAGE RULES — write like a case file, not a novel:
+    - State WHO did WHAT to WHOM and WHERE. Every sentence must contain a concrete action or fact.
+    - Use blunt, plain language: "kissed Voss in the kitchen", NOT "experienced heightened awareness of Voss's proximity"
+    - NO interpretive padding: "suggesting", "indicating", "showing", "demonstrating" — just state what happened
+    - NO vague qualifiers: "increasingly", "heightened", "growing", "deepening", "evolving"
+    - NO psychological narration: "conflicted emotions", "inner turmoil", "capacity for surrender"
+    - NO trailing interpretations: NEVER end with "showing X", "demonstrating Y", "indicating Z". Just state the action and stop.
+    - physical_change means PERMANENT changes (scars, tattoos, weight loss) — NOT momentary body reactions
+    - "Allowed X to touch Y" or "Did not resist when X did Y" are NOT lasting changes — they are single-scene actions. Only extract if the CHARACTER fundamentally changed (new belief, new goal, new knowledge, new relationship dynamic).
+    - Dressing up, applying makeup, or choosing an outfit for a specific occasion is NOT a lasting change. Only extract appearance changes if they reflect a permanent shift (e.g., "started wearing armor daily after the ambush").
+    - If you can't name the specific action, it's probably too vague to extract
+
     ENTRY TYPES (use exactly these values):
     - personality_shift: Character's attitude, behavior, or worldview changed
     - knowledge_gained: Character learned something significant
@@ -3674,7 +3686,7 @@ chronicle_extraction:
     - physical_change: Character's appearance or physical state changed
     - skill_gained: Character learned a new ability or skill
     - goal_change: Character's motivation or goal shifted
-    - other: Significant development that doesn't fit above categories
+    - other: ONLY for significant developments that truly don't fit above. Do NOT use "other" as a catch-all for minor actions or fleeting moments.
 
     EXAMPLE:
     Scenes: Kira discovers that her mentor Voss has been secretly poisoning the village well. She confronts him on the temple steps. During the fight, Voss burns her left arm with a fire spell. She defeats him but decides to leave the village rather than explain what happened.
@@ -3693,6 +3705,13 @@ chronicle_extraction:
 
     NOT extracted (too fleeting): "Kira felt angry" (emotion, not lasting), "Voss stood on the steps" (routine action), "The sun was setting" (atmosphere).
 
+    NOT extracted (too vague/flowery):
+    - "Became increasingly aware of Voss's presence and proximity" → vague, no concrete event. Better: "Noticed Voss following her to the well three nights in a row"
+    - "Showed growing acceptance of her new reality" → interpretive padding, says nothing specific
+    - "Experienced heightened emotional sensitivity during confrontation" → psychological narration, not a fact
+    - "Began responding with conflicted emotions to Voss's behavior" → what behavior? what response? Name the action
+    - "Demonstrated capacity for resilience in the face of adversity" → meaningless filler
+
     Return ONLY valid JSON in this format:
     {{"character_chronicle": [{{"character_name": "...", "entry_type": "...", "description": "..."}}], "location_lorebook": [{{"location_name": "...", "event_description": "..."}}]}}
 
@@ -3710,14 +3729,29 @@ chronicle_validation:
 
     VALIDATION CRITERIA — reject if ANY apply:
     1. HALLUCINATION: The event described did NOT actually happen in the scenes
-    2. NOISE: This is fleeting (a passing emotion, a routine action, atmosphere) — not a lasting change
+    2. NOISE: This is fleeting — a single-scene physical action ("allowed X to touch Y", "did not resist"), a passing emotion, routine action, or atmosphere. A lasting change means the character's beliefs, knowledge, goals, or relationships fundamentally shifted.
     3. REDUNDANCY: This says the same thing as an EXISTING CHRONICLE entry above, even if worded differently. Only keep if it describes a FURTHER development beyond what's already recorded.
-    4. VAGUE: The description is too generic to be useful (e.g., "things changed between them")
+    4. REPETITIVE PATTERN: If existing entries already describe this behavioral pattern multiple times (e.g., 3+ entries about "derived arousal from watching"), another instance adds nothing. Only keep if it shows genuine ESCALATION or a qualitatively NEW dimension beyond what's recorded.
+    5. VAGUE/FLOWERY: The description uses vague qualifiers ("increasingly", "heightened", "growing awareness"), interpretive padding ("suggesting", "indicating", "demonstrating"), or psychological narration instead of naming a concrete action. Reject unless you can identify the specific event it refers to.
+    6. MISCLASSIFIED TYPE: "Learned to eat from hand" is NOT skill_gained (that's a relationship dynamic). "Wore a specific outfit" is NOT physical_change (that's temporary). Only keep if the entry_type genuinely matches.
+
+    EXAMPLES — reject these:
+    - "Became increasingly aware of Voss's proximity" → REJECT (VAGUE/FLOWERY: "increasingly aware" is not a concrete event)
+    - "Started responding physically to Voss's touches, becoming increasingly receptive" → REJECT (VAGUE/FLOWERY: "increasingly receptive" is interpretive, name the specific action)
+    - "Showed growing acceptance of her feelings" → REJECT (VAGUE/FLOWERY: "growing acceptance" says nothing — what did she actually DO?)
+    - "Applied makeup and chose specific clothing for the meeting" → REJECT (NOISE: dressing for an occasion is not a lasting character change)
+    - "Allowed Voss to place his hand on her shoulder" → REJECT (NOISE: single-scene physical action, not a lasting shift)
+    - EXISTING: "Turned against Voss after discovering his poisoning scheme" + CANDIDATE: "Relationship with Voss fundamentally shifted after learning the truth" → REJECT (REDUNDANCY: same development, different words)
+
+    EXAMPLES — keep these:
+    - "Discovered Voss was poisoning the village well" → KEEP (concrete fact, specific event)
+    - "Left arm burned by Voss's fire spell on the temple steps" → KEEP (specific physical change with details)
+    - "Decided to flee the village rather than expose Voss" → KEEP (concrete goal change)
 
     For each entry, return keep: true or keep: false with a brief reason.
 
     Return ONLY valid JSON:
-    {{"validated": [{{"character_name": "...", "entry_type": "...", "description": "...", "keep": true, "reason": "Event clearly occurred in scene and represents lasting change"}}, {{"character_name": "...", "entry_type": "...", "description": "...", "keep": false, "reason": "Passing emotion, not a lasting personality change"}}]}}
+    {{"validated": [{{"character_name": "...", "entry_type": "...", "description": "...", "keep": true, "reason": "Concrete event: discovered specific secret"}}, {{"character_name": "...", "entry_type": "...", "description": "...", "keep": false, "reason": "VAGUE: 'increasingly aware' — no concrete action named"}}]}}
 
 # ==========================================
 # CHARACTER SNAPSHOT GENERATION
@@ -3739,6 +3773,8 @@ character_snapshot_generation:
     4. If the chronicle contradicts the original background, the chronicle takes precedence
     5. Don't mention story titles — synthesize as one coherent description
     6. Under 200 words. Every sentence must contain a specific fact.
+    7. Include physical appearance details (height, build, distinctive features) from the original background
+    8. Include current relationship dynamics with other characters mentioned in the entries
 
     EXAMPLE INPUT:
     Original background: Kira is a village healer who trained under Master Voss.

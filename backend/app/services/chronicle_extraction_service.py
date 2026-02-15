@@ -344,6 +344,16 @@ async def extract_chronicle_and_lorebook(
                     **entry, "rejection": "Duplicate (embedding similarity > 0.78)"
                 })
                 continue
+        else:
+            # Fallback: text-based dedup when semantic memory unavailable
+            is_dup = _check_chronicle_duplicate_text(
+                db, world_id, char_id, story_id, branch_id, description
+            )
+            if is_dup:
+                programmatic_rejections.append({
+                    **entry, "rejection": "Duplicate (text similarity)"
+                })
+                continue
 
         # Store entry
         chronicle_entry = CharacterChronicle(
@@ -401,6 +411,15 @@ async def extract_chronicle_and_lorebook(
                     **entry, "rejection": "Duplicate (embedding similarity > 0.78)"
                 })
                 continue
+        else:
+            is_dup = _check_lorebook_duplicate_text(
+                db, world_id, location_name, story_id, branch_id, event_desc
+            )
+            if is_dup:
+                programmatic_rejections.append({
+                    **entry, "rejection": "Duplicate (text similarity)"
+                })
+                continue
 
         lorebook_entry = LocationLorebook(
             world_id=world_id,
@@ -456,7 +475,7 @@ def _build_existing_state_section(
     """Build compact existing chronicle/lorebook section for delta extraction."""
     parts = []
 
-    # Chronicle entries — most recent 20 per character
+    # Chronicle entries — most recent 40 per character (more context helps validator catch redundancy)
     for char_name_lower, char_id in char_id_map.items():
         query = db.query(CharacterChronicle).filter(
             CharacterChronicle.world_id == world_id,
@@ -466,7 +485,7 @@ def _build_existing_state_section(
         if branch_id:
             query = query.filter(CharacterChronicle.branch_id == branch_id)
 
-        entries = query.order_by(desc(CharacterChronicle.sequence_order)).limit(20).all()
+        entries = query.order_by(desc(CharacterChronicle.sequence_order)).limit(40).all()
         if entries:
             for e in entries:
                 parts.append(f"- {e.character.name if e.character else char_name_lower} | "
@@ -493,6 +512,69 @@ def _build_existing_state_section(
     if parts:
         return "EXISTING CHRONICLE & LOREBOOK (do NOT re-extract these):\n" + "\n".join(parts)
     return "No existing chronicle or lorebook entries yet."
+
+
+def _word_set(text: str) -> set:
+    """Extract normalized word set for Jaccard similarity."""
+    return set(text.lower().split())
+
+
+def _jaccard_similarity(a: str, b: str) -> float:
+    """Word-level Jaccard similarity between two strings."""
+    words_a = _word_set(a)
+    words_b = _word_set(b)
+    if not words_a or not words_b:
+        return 0.0
+    intersection = words_a & words_b
+    union = words_a | words_b
+    return len(intersection) / len(union)
+
+
+def _check_chronicle_duplicate_text(
+    db: Session, world_id: int, char_id: int,
+    story_id: int, branch_id: Optional[int],
+    description: str, threshold: float = 0.65,
+) -> bool:
+    """Text-based dedup fallback when semantic memory unavailable."""
+    from sqlalchemy import or_
+    query = db.query(CharacterChronicle).filter(
+        CharacterChronicle.world_id == world_id,
+        CharacterChronicle.character_id == char_id,
+        CharacterChronicle.story_id == story_id,
+    )
+    if branch_id:
+        query = query.filter(
+            or_(CharacterChronicle.branch_id == branch_id, CharacterChronicle.branch_id.is_(None))
+        )
+    existing = query.all()
+    for e in existing:
+        sim = _jaccard_similarity(description, e.description)
+        if sim > threshold:
+            return True
+    return False
+
+
+def _check_lorebook_duplicate_text(
+    db: Session, world_id: int, location_name: str,
+    story_id: int, branch_id: Optional[int],
+    event_description: str, threshold: float = 0.65,
+) -> bool:
+    """Text-based dedup fallback for lorebook when semantic memory unavailable."""
+    from sqlalchemy import or_
+    query = db.query(LocationLorebook).filter(
+        LocationLorebook.world_id == world_id,
+        LocationLorebook.story_id == story_id,
+    )
+    if branch_id:
+        query = query.filter(
+            or_(LocationLorebook.branch_id == branch_id, LocationLorebook.branch_id.is_(None))
+        )
+    existing = query.all()
+    for e in existing:
+        sim = _jaccard_similarity(event_description, e.event_description)
+        if sim > threshold:
+            return True
+    return False
 
 
 async def _check_chronicle_duplicate(
@@ -748,3 +830,160 @@ async def generate_character_snapshot(
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
         "updated_at": snapshot.updated_at.isoformat() if snapshot.updated_at else None,
     }
+
+
+async def maybe_generate_snapshots(
+    story_id: int,
+    user_id: int,
+    user_settings: dict,
+    db: Session,
+    branch_id: Optional[int] = None,
+    scene_generation_context: Optional[Dict[str, Any]] = None,
+    snapshot_threshold: int = 15,
+) -> Dict[str, Any]:
+    """
+    Generate snapshots for characters with enough new chronicle entries since last snapshot.
+
+    Checks each character's current entry count vs their snapshot's chronicle_entry_count.
+    If the difference >= snapshot_threshold, regenerates the snapshot using the cache-friendly
+    LLM method.
+
+    Returns dict with counts: snapshots_generated, snapshots_skipped.
+    """
+    result = {"snapshots_generated": 0, "snapshots_skipped": 0}
+
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story or not story.world_id:
+        return result
+
+    world_id = story.world_id
+
+    if not scene_generation_context:
+        logger.warning("[SNAPSHOT] No scene_generation_context, skipping")
+        return result
+
+    # Get all characters with chronicle entries in this story/branch
+    from sqlalchemy import func as sqlfunc
+    entry_counts_query = db.query(
+        CharacterChronicle.character_id,
+        sqlfunc.count(CharacterChronicle.id).label("entry_count"),
+    ).filter(
+        CharacterChronicle.world_id == world_id,
+        CharacterChronicle.story_id == story_id,
+    )
+    if branch_id:
+        from sqlalchemy import or_
+        entry_counts_query = entry_counts_query.filter(
+            or_(CharacterChronicle.branch_id == branch_id, CharacterChronicle.branch_id.is_(None))
+        )
+    entry_counts = entry_counts_query.group_by(CharacterChronicle.character_id).all()
+
+    if not entry_counts:
+        return result
+
+    from .llm.service import UnifiedLLMService
+    llm_service = UnifiedLLMService()
+
+    for char_id, current_count in entry_counts:
+        # Check existing snapshot count
+        snapshot_query = db.query(CharacterSnapshot).filter(
+            CharacterSnapshot.world_id == world_id,
+            CharacterSnapshot.character_id == char_id,
+        )
+        if branch_id:
+            snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id == branch_id)
+        else:
+            snapshot_query = snapshot_query.filter(CharacterSnapshot.branch_id.is_(None))
+        existing_snapshot = snapshot_query.first()
+
+        last_count = existing_snapshot.chronicle_entry_count if existing_snapshot else 0
+        if current_count - last_count < snapshot_threshold:
+            result["snapshots_skipped"] += 1
+            continue
+
+        # Get character details
+        character = db.query(Character).filter(Character.id == char_id).first()
+        if not character:
+            continue
+
+        # Build original_background by merging Character model fields
+        bg_parts = []
+        if character.appearance:
+            bg_parts.append(f"Appearance: {character.appearance}")
+        if character.personality_traits:
+            traits = character.personality_traits
+            if isinstance(traits, list):
+                traits = ", ".join(traits)
+            bg_parts.append(f"Personality: {traits}")
+        if character.background:
+            bg_parts.append(f"Background: {character.background}")
+        if character.goals:
+            bg_parts.append(f"Goals: {character.goals}")
+        if character.fears:
+            bg_parts.append(f"Fears: {character.fears}")
+        original_background = "\n".join(bg_parts) if bg_parts else "No background provided."
+
+        # Format chronicle entries (chronological)
+        from sqlalchemy import or_
+        entries_query = db.query(CharacterChronicle).filter(
+            CharacterChronicle.world_id == world_id,
+            CharacterChronicle.character_id == char_id,
+            CharacterChronicle.story_id == story_id,
+        )
+        if branch_id:
+            entries_query = entries_query.filter(
+                or_(CharacterChronicle.branch_id == branch_id, CharacterChronicle.branch_id.is_(None))
+            )
+        entries = entries_query.order_by(CharacterChronicle.sequence_order.asc()).all()
+
+        entry_lines = [f"- [{e.entry_type.value.replace('_', ' ')}] {e.description}" for e in entries]
+        chronicle_entries_text = "\n".join(entry_lines)
+
+        # Call cache-friendly LLM generation
+        try:
+            snapshot_text = await llm_service.generate_snapshot_cache_friendly(
+                character_name=character.name,
+                original_background=original_background,
+                chronicle_entries=chronicle_entries_text,
+                context=scene_generation_context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            snapshot_text = snapshot_text.strip().strip('"').strip()
+
+            if not snapshot_text or len(snapshot_text) < 30:
+                logger.warning(f"[SNAPSHOT] Generated snapshot too short for {character.name}, skipping")
+                result["snapshots_skipped"] += 1
+                continue
+
+            # Upsert snapshot
+            if existing_snapshot:
+                existing_snapshot.snapshot_text = snapshot_text
+                existing_snapshot.chronicle_entry_count = current_count
+                existing_snapshot.up_to_story_id = story_id
+            else:
+                new_snapshot = CharacterSnapshot(
+                    world_id=world_id,
+                    character_id=char_id,
+                    branch_id=branch_id,
+                    snapshot_text=snapshot_text,
+                    chronicle_entry_count=current_count,
+                    up_to_story_id=story_id,
+                )
+                db.add(new_snapshot)
+
+            db.flush()
+            result["snapshots_generated"] += 1
+            logger.warning(f"[SNAPSHOT] Generated snapshot for {character.name} ({current_count} entries)")
+
+        except Exception as e:
+            logger.error(f"[SNAPSHOT] Failed to generate snapshot for {character.name}: {e}")
+            result["snapshots_skipped"] += 1
+            continue
+
+    if result["snapshots_generated"] > 0:
+        db.commit()
+
+    logger.warning(f"[SNAPSHOT] Complete: {result}")
+    return result

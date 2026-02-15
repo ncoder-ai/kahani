@@ -3785,6 +3785,51 @@ Chapter Conclusion:"""
             logger.error(f"[CHRONICLE_VALIDATION] Validation failed: {e}")
             raise
 
+    async def generate_snapshot_cache_friendly(
+        self,
+        character_name: str,
+        original_background: str,
+        chronicle_entries: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None,
+        max_tokens: int = 500,
+    ) -> str:
+        """
+        Generate a character snapshot paragraph from chronicle entries.
+        Uses main LLM for quality (cache-friendly prefix for ~95% cache hit).
+
+        Returns:
+            Raw snapshot text (paragraph).
+        """
+        messages = await self._build_cache_friendly_message_prefix(
+            context=context,
+            user_id=user_id,
+            user_settings=user_settings,
+            db=db,
+        )
+
+        final_message = prompt_manager.get_prompt(
+            "character_snapshot_generation", "user",
+            character_name=character_name,
+            original_background=original_background,
+            chronicle_entries=chronicle_entries,
+        )
+        messages.append({"role": "user", "content": final_message})
+
+        logger.info(f"[SNAPSHOT] Cache-friendly generation for {character_name}: {len(messages)} messages")
+
+        try:
+            return await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                max_tokens=max_tokens, task_type="extraction",
+                force_main_llm=True,
+            )
+        except Exception as e:
+            logger.error(f"[SNAPSHOT] Generation failed for {character_name}: {e}")
+            raise
+
     async def generate_scenario(self, context: Dict[str, Any], user_id: int, user_settings: Dict[str, Any]) -> str:
         """Generate a creative scenario based on user selections and characters"""
         
