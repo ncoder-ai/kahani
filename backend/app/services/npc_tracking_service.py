@@ -1977,13 +1977,34 @@ Return ONLY the JSON, no other text."""
             sibling_ids = [s.id for s in sibling_stories]
             sibling_titles = {s.id: s.title for s in sibling_stories}
 
+            # Build canonical branch map: each sibling uses current_branch_id
+            branch_conditions = []
+            for s in sibling_stories:
+                canonical = s.current_branch_id
+                if canonical is None:
+                    active = db.query(StoryBranch).filter(
+                        StoryBranch.story_id == s.id,
+                        StoryBranch.is_active == True
+                    ).first()
+                    canonical = active.id if active else None
+                if canonical is not None:
+                    branch_conditions.append(
+                        and_(NPCTracking.story_id == s.id,
+                             or_(NPCTracking.branch_id == canonical, NPCTracking.branch_id.is_(None)))
+                    )
+                else:
+                    branch_conditions.append(
+                        and_(NPCTracking.story_id == s.id, NPCTracking.branch_id.is_(None))
+                    )
+
             # Query threshold-crossing CHARACTER NPCs from sibling stories
             from sqlalchemy import desc
             sibling_npcs = db.query(NPCTracking).filter(
                 NPCTracking.story_id.in_(sibling_ids),
                 NPCTracking.crossed_threshold == True,
                 NPCTracking.converted_to_character == False,
-                or_(NPCTracking.entity_type == "CHARACTER", NPCTracking.entity_type.is_(None))
+                or_(NPCTracking.entity_type == "CHARACTER", NPCTracking.entity_type.is_(None)),
+                or_(*branch_conditions) if branch_conditions else True
             ).order_by(desc(NPCTracking.importance_score)).all()
 
             if not sibling_npcs:

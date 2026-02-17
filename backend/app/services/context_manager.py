@@ -789,6 +789,140 @@ Appearance: {char.get('appearance', '')}
             logger.warning(f"[CONTEXT] Failed to get snapshot for character {character_id}: {e}")
             return None
 
+    def _expand_cross_story_references(
+        self, db: Session, world_id: int, story_id: int, branch_id: Optional[int],
+        char_groups: dict, loc_groups: dict, snapshot_by_char_id: dict
+    ) -> int:
+        """
+        Phase 6a: Scan primary entries for mentions of characters/locations from
+        other stories in the same world. Pulls in referenced entries so the LLM
+        has cross-story context about mentioned entities.
+
+        Uses each other story's current_branch_id as canonical branch (same rule
+        as cross-story scene recall in _resolve_world_search_scope).
+
+        Returns the number of cross-story entries added.
+        """
+        from ..models.chronicle import CharacterChronicle, LocationLorebook
+
+        # Find other stories in this world and their canonical branches
+        other_stories = db.query(Story).filter(
+            Story.world_id == world_id,
+            Story.id != story_id,
+        ).all()
+        if not other_stories:
+            return 0
+
+        # Build branch map: story_id -> canonical branch_id
+        other_branch_map = {}
+        for s in other_stories:
+            canonical = s.current_branch_id
+            if canonical is None:
+                active = db.query(StoryBranch).filter(
+                    StoryBranch.story_id == s.id,
+                    StoryBranch.is_active == True
+                ).first()
+                canonical = active.id if active else None
+            other_branch_map[s.id] = canonical
+
+        other_story_ids = list(other_branch_map.keys())
+
+        # Collect text from all primary entries + snapshots
+        texts = []
+        for snap, name in snapshot_by_char_id.values():
+            texts.append(snap.snapshot_text)
+        for char_id, (name, entries) in char_groups.items():
+            texts.extend(e.description for e in entries)
+        for loc_name, entries in loc_groups.items():
+            texts.extend(e.event_description for e in entries)
+
+        if not texts:
+            return 0
+
+        combined = " ".join(texts).lower()
+        added = 0
+
+        # Build branch filter for cross-story queries: for each story,
+        # accept entries on its canonical branch OR branch-neutral (NULL)
+        branch_conditions = []
+        for sid, bid in other_branch_map.items():
+            if bid is not None:
+                branch_conditions.append(
+                    and_(CharacterChronicle.story_id == sid,
+                         or_(CharacterChronicle.branch_id == bid, CharacterChronicle.branch_id.is_(None)))
+                )
+            else:
+                branch_conditions.append(
+                    and_(CharacterChronicle.story_id == sid, CharacterChronicle.branch_id.is_(None))
+                )
+
+        # --- Cross-story characters ---
+        cross_char_rows = db.query(
+            CharacterChronicle.character_id, Character.name
+        ).join(
+            Character, CharacterChronicle.character_id == Character.id
+        ).filter(
+            CharacterChronicle.world_id == world_id,
+            CharacterChronicle.story_id.in_(other_story_ids),
+        ).distinct().all()
+
+        for char_id, name in cross_char_rows:
+            if char_id in char_groups or char_id in snapshot_by_char_id:
+                continue
+            # Word-boundary match to avoid partial matches (e.g. "Kit" in "kitchen")
+            if not re.search(r'\b' + re.escape(name.lower()) + r'\b', combined):
+                continue
+            entries = db.query(CharacterChronicle).filter(
+                CharacterChronicle.world_id == world_id,
+                CharacterChronicle.character_id == char_id,
+                CharacterChronicle.story_id.in_(other_story_ids),
+                or_(*branch_conditions),
+            ).order_by(CharacterChronicle.sequence_order.asc()).all()
+            if entries:
+                char_groups[char_id] = (name, entries)
+                added += len(entries)
+
+        # --- Cross-story locations ---
+        # Build equivalent branch conditions for LocationLorebook
+        loc_branch_conditions = []
+        for sid, bid in other_branch_map.items():
+            if bid is not None:
+                loc_branch_conditions.append(
+                    and_(LocationLorebook.story_id == sid,
+                         or_(LocationLorebook.branch_id == bid, LocationLorebook.branch_id.is_(None)))
+                )
+            else:
+                loc_branch_conditions.append(
+                    and_(LocationLorebook.story_id == sid, LocationLorebook.branch_id.is_(None))
+                )
+
+        cross_loc_rows = db.query(
+            LocationLorebook.location_name
+        ).filter(
+            LocationLorebook.world_id == world_id,
+            LocationLorebook.story_id.in_(other_story_ids),
+        ).distinct().all()
+
+        for (loc_name,) in cross_loc_rows:
+            if loc_name in loc_groups:
+                continue
+            if not re.search(r'\b' + re.escape(loc_name.lower()) + r'\b', combined):
+                continue
+            entries = db.query(LocationLorebook).filter(
+                LocationLorebook.world_id == world_id,
+                LocationLorebook.location_name == loc_name,
+                LocationLorebook.story_id.in_(other_story_ids),
+                or_(*loc_branch_conditions),
+            ).order_by(LocationLorebook.sequence_order.asc()).all()
+            if entries:
+                loc_groups[loc_name] = entries
+                added += len(entries)
+
+        if added:
+            logger.info(f"[CONTEXT BUILD] Cross-story references: {added} entries added from other stories in world {world_id}")
+
+        return added
+
     def _build_chronicle_context(self, db: Session, story_id: int, branch_id: Optional[int]) -> Optional[str]:
         """
         Build chronicle context from character snapshots (preferred) or individual entries (fallback),
@@ -865,6 +999,12 @@ Appearance: {char.get('appearance', '')}
                 if entry.location_name not in loc_groups:
                     loc_groups[entry.location_name] = []
                 loc_groups[entry.location_name].append(entry)
+
+            # Phase 6a: Pull in cross-story references from other stories in the world
+            self._expand_cross_story_references(
+                db, world_id, story_id, branch_id,
+                char_groups, loc_groups, snapshot_by_char_id
+            )
 
             # Format output — snapshots for characters that have them, entries for others
             MAX_CHARS = 6000
