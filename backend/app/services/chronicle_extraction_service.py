@@ -286,35 +286,8 @@ async def extract_chronicle_and_lorebook(
             result["rejected"] += 1
             rejected_entries.append(verdict)
 
-    # Safety net: if validation returned fewer verdicts than candidates,
-    # accept unmatched candidates (small LLMs often truncate long outputs)
-    total_verdicts = len(validation_verdicts)
-    total_candidates = len(all_candidates)
-    if total_verdicts < total_candidates:
-        # Build set of already-covered candidates by matching description text
-        covered_descriptions = set()
-        for v in validation_verdicts:
-            desc = v.get("description", "") or v.get("event_description", "")
-            if desc:
-                covered_descriptions.add(desc.strip().lower())
-
-        unmatched_count = 0
-        for candidate in all_candidates:
-            desc = candidate.get("description", "") or candidate.get("event_description", "")
-            if desc and desc.strip().lower() not in covered_descriptions:
-                unmatched_count += 1
-                result["validated"] += 1
-                candidate["keep"] = True
-                candidate["reason"] = "Accepted by default — validation LLM did not return a verdict"
-                if candidate.get("type") == "lorebook" or candidate.get("location_name"):
-                    kept_lorebooks.append(candidate)
-                else:
-                    kept_chronicles.append(candidate)
-
-        if unmatched_count > 0:
-            logger.warning(f"[CHRONICLE] {unmatched_count} candidates had no verdict — accepted by default")
-
-    logger.warning(f"[CHRONICLE] Validation: {result['validated']} kept, {result['rejected']} rejected")
+    logger.warning(f"[CHRONICLE] Validation: {result['validated']} kept, {result['rejected']} rejected, "
+                   f"{len(all_candidates) - len(validation_verdicts)} unmatched (dropped)")
 
     # === PASS 3: Programmatic checks + storage ===
     programmatic_rejections = []
@@ -412,6 +385,9 @@ async def extract_chronicle_and_lorebook(
 
         stored_chronicle_count += 1
 
+    # --- Build existing location name map for normalization ---
+    existing_location_names = _get_existing_location_names(db, world_id, story_id, branch_id)
+
     # --- Store lorebook entries ---
     for entry in kept_lorebooks:
         location_name = entry.get("location_name", "").strip()
@@ -428,6 +404,9 @@ async def extract_chronicle_and_lorebook(
                 **entry, "rejection": f"Description too short ({len(event_desc)} chars)"
             })
             continue
+
+        # Normalize location name to match existing entries
+        location_name = _normalize_location_name(location_name, existing_location_names)
 
         # Embedding-based dedup for lorebook
         if semantic_memory:
@@ -541,6 +520,73 @@ def _build_existing_state_section(
     if parts:
         return "EXISTING CHRONICLE & LOREBOOK (do NOT re-extract these):\n" + "\n".join(parts)
     return "No existing chronicle or lorebook entries yet."
+
+
+def _get_existing_location_names(
+    db: Session, world_id: int, story_id: int, branch_id: Optional[int]
+) -> List[str]:
+    """Get all distinct location names already in the lorebook for this story."""
+    from sqlalchemy import distinct, or_
+    query = db.query(distinct(LocationLorebook.location_name)).filter(
+        LocationLorebook.world_id == world_id,
+        LocationLorebook.story_id == story_id,
+    )
+    if branch_id:
+        query = query.filter(
+            or_(LocationLorebook.branch_id == branch_id, LocationLorebook.branch_id.is_(None))
+        )
+    return [row[0] for row in query.all()]
+
+
+def _extract_room_word(name: str) -> Optional[str]:
+    """Extract the core room/place word from a location name.
+
+    'Saran Family Kitchen' -> 'kitchen'
+    'Nishant's Master Bedroom' -> 'master bedroom'
+    'Nishant and Radhika's Master Bedroom' -> 'master bedroom'
+    """
+    lower = name.lower()
+    # Strip possessive prefixes: "X's Y", "X Family Y", "X and Y's Z"
+    for pattern in [
+        "'s ",  # Nishant's Kitchen
+        " family ",  # Saran Family Kitchen
+    ]:
+        idx = lower.find(pattern)
+        if idx >= 0:
+            return lower[idx + len(pattern):].strip()
+    # "X and Y's Z" pattern
+    if " and " in lower and "'s " in lower:
+        idx = lower.rfind("'s ")
+        if idx >= 0:
+            return lower[idx + 3:].strip()
+    return None
+
+
+def _normalize_location_name(new_name: str, existing_names: List[str]) -> str:
+    """If new_name refers to the same room as an existing name, return the existing name.
+
+    Matches by extracting the core room word (e.g., 'kitchen', 'master bedroom')
+    and checking if it matches an existing entry.
+    """
+    if not existing_names:
+        return new_name
+
+    new_room = _extract_room_word(new_name)
+    if not new_room:
+        return new_name
+
+    # Check exact match first
+    if new_name in existing_names:
+        return new_name
+
+    # Find existing name with the same room word
+    for existing in existing_names:
+        existing_room = _extract_room_word(existing)
+        if existing_room and existing_room == new_room:
+            logger.info(f"[CHRONICLE] Normalized location '{new_name}' -> '{existing}' (same room: {new_room})")
+            return existing
+
+    return new_name
 
 
 def _word_set(text: str) -> set:
@@ -661,9 +707,6 @@ async def _check_lorebook_duplicate(
         )
         if branch_id:
             query = query.filter(LocationLorebook.branch_id == branch_id)
-
-        # Also filter by location name for efficiency
-        query = query.filter(LocationLorebook.location_name == location_name)
 
         closest = query.order_by("distance").limit(1).first()
         if closest and (1.0 - closest.distance) > threshold:
