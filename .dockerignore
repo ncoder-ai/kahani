@@ -1,0 +1,109 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README.md
+LICENSE
+docs/
+
+# Development
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+test_*.py
+*_test.py
+tests/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+kahani.log
+backend.log
+
+# Database (will be in volumes)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Backups
+backups/
+*.backup
+*.bak
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Node modules (frontend)
+node_modules/
+.next/
+out/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Audio files (will be in volumes)
+*.wav
+*.mp3
+*.ogg
+audio/
+
+# Docker
+docker-compose.override.yml
+Dockerfile.old
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Large files
+*.tar.gz
+*.zip
+*.rar

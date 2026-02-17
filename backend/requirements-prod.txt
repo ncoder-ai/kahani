@@ -1,0 +1,29 @@
+# Production dependencies only (no test tools)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+alembic==1.12.1
+psycopg2-binary==2.9.9  # PostgreSQL adapter (optional, for PostgreSQL support)
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+python-multipart==0.0.6
+httpx==0.25.2
+python-dotenv==1.0.0
+litellm==1.40.0
+pgvector==0.3.6
+tiktoken==0.5.2
+numpy==1.26.4
+huggingface-hub>=0.34.0,<1.0  # Required for sentence-transformers (0.20.0 was too old)
+# sentence-transformers installed separately in Dockerfile
+
+# TTS Dependencies
+websockets==12.0  # For VibeVoice WebSocket support
+
+# STT Dependencies (PyTorch/torchaudio installed separately in Dockerfile)
+faster-whisper==1.0.3  # Optimized Whisper inference
+webrtcvad==2.0.10  # Voice activity detection (legacy)
+# torch and torchaudio installed separately in Dockerfile before this file
+# silero-vad installed via direct download in service (no pip package)

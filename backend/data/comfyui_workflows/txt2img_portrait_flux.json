@@ -1,0 +1,78 @@
+{
+  "workflow_name": "txt2img_portrait_flux",
+  "model_type": "flux",
+  "description": "Flux portrait generation using text-to-image",
+  "notes": "Flux models use different nodes than SDXL. Requires Flux checkpoint.",
+  "placeholders": {
+    "POSITIVE_PROMPT": {"node_id": "6", "field": "text"},
+    "NEGATIVE_PROMPT": {"node_id": "7", "field": "text"},
+    "SEED": {"node_id": "3", "field": "noise_seed"},
+    "CHECKPOINT": {"node_id": "4", "field": "ckpt_name"},
+    "WIDTH": {"node_id": "5", "field": "width"},
+    "HEIGHT": {"node_id": "5", "field": "height"},
+    "STEPS": {"node_id": "3", "field": "steps"}
+  },
+  "workflow": {
+    "3": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise_seed": 0,
+        "steps": 4,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": ["4", 0],
+        "positive": ["6", 0],
+        "negative": ["7", 0],
+        "latent_image": ["5", 0]
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "flux_schnell.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "batch_size": 1,
+        "height": 1024,
+        "width": 1024
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncodeFlux",
+      "inputs": {
+        "clip": ["4", 1],
+        "t5xxl": ["4", 1],
+        "guidance": 3.5,
+        "text": "portrait of a person, high quality, detailed"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncodeFlux",
+      "inputs": {
+        "clip": ["4", 1],
+        "t5xxl": ["4", 1],
+        "guidance": 3.5,
+        "text": ""
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": ["3", 0],
+        "vae": ["4", 2]
+      }
+    },
+    "9": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "kahani_portrait_flux",
+        "images": ["8", 0]
+      }
+    }
+  }
+}

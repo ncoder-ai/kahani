@@ -1,0 +1,3794 @@
+# Centralized Prompt Configuration for Kahani Story Generator
+# All LLM prompts are managed here for easy modification and maintenance
+#
+# ARCHITECTURE: Scene generation uses composable prompt components
+# - scene_base: Common base instructions for all scene types
+# - Individual scene templates reference the base and add specific user prompts
+# - This reduces duplication and ensures consistency
+
+# =============================================================================
+# PROSE STYLES - User-selectable writing approach
+# These define THE PRIMARY METHOD for how scenes are written and how narrative
+# moves forward. The chosen prose style should dominate the writing approach.
+# =============================================================================
+prose_styles:
+  # Each style has:
+  # - name: Display name
+  # - description: Brief description for UI
+  # - example: Sample prose demonstrating the style
+  # - system_instruction: Detailed instructions for the LLM (injected into system prompt)
+  # - task_reminder: Brief reminder (injected into task/user message)
+  
+  balanced:
+    name: "Balanced"
+    description: "Mix of dialogue, action, internal thought, and description"
+    example: |
+      Sarah pushed open the heavy oak door, its hinges groaning in protest. The library stretched before her, dust motes dancing in shafts of afternoon light.
+
+      "You came," Marcus said from the shadows between the shelves.
+
+      *Of course I came*, she thought, heart pounding. *Did he really think I'd stay away?*
+
+      She stepped forward, her footsteps echoing on the marble floor. "Did you find it?"
+    system_instruction: |
+      PROSE STYLE - BALANCED (YOUR PRIMARY APPROACH):
+      Your prose must weave together multiple narrative techniques in equal measure. This is not a suggestion—it is the fundamental way you construct every paragraph:
+      
+      MANDATORY ELEMENTS TO BLEND IN EVERY SCENE:
+      - DIALOGUE: Include meaningful character exchanges that reveal personality and advance the story
+      - ACTION: Show characters physically doing things—gestures, movements, interactions with environment
+      - INTERNAL THOUGHT: Reveal what characters think and feel, their reactions and motivations
+      - SENSORY DESCRIPTION: Ground the scene with specific sensory details (sight, sound, smell, touch)
+      
+      HOW TO STRUCTURE YOUR PROSE:
+      - Alternate between these elements naturally—never more than 2-3 paragraphs of any single type
+      - Use internal thought to bridge action and dialogue
+      - Let sensory details punctuate emotional moments
+      - Dialogue should arise from and lead back to action or thought
+      
+      This balanced approach IS how you move the scene forward. Every scene beat should demonstrate this blend.
+    task_reminder: "CRITICAL: Use a BALANCED approach—weave together dialogue, action, internal thought, and sensory description in equal measure throughout the scene."
+  
+  dialogue_forward:
+    name: "Dialogue-Forward"
+    description: "Conversations drive the narrative"
+    example: |
+      "You can't be serious," Elena said, setting down her coffee cup with a sharp clink.
+
+      "I've never been more serious in my life."
+
+      "But the risks—"
+
+      "I know the risks." James leaned forward. "I've calculated every single one."
+
+      "And you still want to do this?"
+
+      "I have to. You know I have to."
+
+      Elena was quiet for a long moment. "Then I'm coming with you."
+    system_instruction: |
+      PROSE STYLE - DIALOGUE-FORWARD (YOUR PRIMARY APPROACH):
+      Conversation is your PRIMARY tool for storytelling. This is not a suggestion—dialogue must dominate your prose and be the engine that drives every scene forward.
+      
+      DIALOGUE REQUIREMENTS (MANDATORY):
+      - 60-70% of your scene content should be spoken words between characters
+      - Create extended back-and-forth exchanges, not isolated statements
+      - Use dialogue to reveal character, advance plot, build tension, and show relationships
+      - Let characters interrupt, talk over, and react to each other
+      - Subtext matters—what characters don't say is as important as what they do
+      
+      SUPPORTING ELEMENTS (MINIMAL):
+      - Action beats should be brief—a gesture, a movement—just enough to ground the conversation
+      - Internal thought appears sparingly, usually as brief reactions between dialogue lines
+      - Description is functional, not atmospheric—just enough to set the scene
+      
+      HOW TO MOVE SCENES FORWARD:
+      - Every plot point should be revealed through what characters say to each other
+      - Tension builds through verbal conflict, revelation, and negotiation
+      - Character development happens through how people speak and what they choose to say
+      
+      Dialogue IS your narrative. Treat it as such.
+    task_reminder: "CRITICAL: DIALOGUE-FORWARD style—conversations MUST dominate the scene. 60-70% spoken words. Let character exchanges drive all plot and emotional development."
+  
+  internal_monologue:
+    name: "Internal Monologue"
+    description: "Character thoughts and feelings emphasized"
+    example: |
+      The letter sat unopened on the kitchen table. Maya stared at it, her coffee growing cold in her hands.
+
+      *Three years.* Three years since she'd heard from him, and now this. What could he possibly have to say? An apology? An explanation? *As if any words could undo what he did.*
+
+      Her fingers trembled as she reached for the envelope. Part of her wanted to burn it unread. But another part—the part she hated—needed to know.
+
+      *I'm not ready for this. I'll never be ready for this.*
+    system_instruction: |
+      PROSE STYLE - INTERNAL MONOLOGUE (YOUR PRIMARY APPROACH):
+      The character's inner world is your PRIMARY storytelling medium. This is not a suggestion—internal thought must be the dominant element in your prose.
+      
+      INTERNAL MONOLOGUE REQUIREMENTS (MANDATORY):
+      - 50-60% of your prose should be the POV character's thoughts, feelings, and internal reactions
+      - Use italics for direct thoughts (*I can't believe this is happening*)
+      - Show the character's running commentary on events as they unfold
+      - Reveal fears, desires, memories, and conflicts through internal processing
+      - Let readers inhabit the character's mind completely
+      
+      HOW TO STRUCTURE YOUR PROSE:
+      - External events happen, but we experience them through the character's mental filter
+      - Action is observed and internally commented upon
+      - Dialogue is heard and internally analyzed—what did they mean? What should I say?
+      - Description is subjective—what the character notices and how they interpret it
+      
+      MOVING THE SCENE FORWARD:
+      - Plot advances through the character's realizations, decisions, and emotional shifts
+      - Tension builds through internal conflict and psychological pressure
+      - Other characters are understood through the POV character's perception and judgment
+      
+      We are inside this character's head. That is where the story lives.
+    task_reminder: "CRITICAL: INTERNAL MONOLOGUE style—the character's thoughts and inner reactions MUST dominate (50-60%). Filter all events through their psychological experience."
+  
+  action_driven:
+    name: "Action-Driven"
+    description: "Physical actions and events emphasized"
+    example: |
+      The blade whistled past his ear. He ducked, rolled, came up with his knife in hand. The attacker was already moving—a blur of black against the alley walls.
+
+      Steel met steel. Sparks flew. He parried, thrust, felt resistance. The attacker stumbled back.
+
+      No time to think. He pressed forward. Two quick strikes. A kick to the knee. The attacker went down hard.
+
+      He was running before the body hit the ground.
+    system_instruction: |
+      PROSE STYLE - ACTION-DRIVEN (YOUR PRIMARY APPROACH):
+      Physical action is your PRIMARY storytelling medium. This is not a suggestion—concrete, kinetic prose must dominate every scene.
+      
+      ACTION REQUIREMENTS (MANDATORY):
+      - 60-70% of your prose should describe physical actions, movements, and events
+      - Use short, punchy sentences that create momentum
+      - Show don't tell—characters reveal themselves through what they DO
+      - Keep the camera moving—track physical movement through space
+      - Sensory details should be immediate and visceral, not contemplative
+      
+      SENTENCE STRUCTURE:
+      - Favor subject-verb-object constructions
+      - Vary sentence length for rhythm, but trend short during intensity
+      - Fragments are powerful tools: "A sound behind him. Footsteps. Close."
+      - Minimize adjectives and adverbs—let verbs carry the weight
+      
+      SUPPORTING ELEMENTS (MINIMAL):
+      - Dialogue is brief, functional, often interrupted by action
+      - Internal thought appears as flash reactions, not extended contemplation
+      - Description serves action—what can be used, what's in the way, where's the exit
+      
+      MOVING THE SCENE FORWARD:
+      - Plot advances through physical events and their consequences
+      - Character is revealed through choices made under pressure
+      - Tension is physical—danger, pursuit, confrontation, escape
+      
+      Keep it moving. Keep it visceral. Keep it NOW.
+    task_reminder: "CRITICAL: ACTION-DRIVEN style—physical action MUST dominate (60-70%). Short punchy sentences. Show through movement, not thought. Keep it kinetic."
+  
+  description_driven:
+    name: "Description-Driven"
+    description: "Sensory details and atmosphere emphasized"
+    example: |
+      The garden had grown wild in her absence. Roses climbed the crumbling stone wall in tangled cascades of crimson and cream, their perfume heavy in the humid evening air. Somewhere, a fountain burbled—or was it the creek beyond the hedge?
+
+      The grass beneath her bare feet was cool and damp from the afternoon rain, each blade a tiny brush against her skin. Fireflies were beginning their nightly dance, pinpricks of gold drifting between the overgrown hedges.
+
+      She breathed deep, tasting honeysuckle and approaching rain on her tongue.
+    system_instruction: |
+      PROSE STYLE - DESCRIPTION-DRIVEN (YOUR PRIMARY APPROACH):
+      Sensory immersion is your PRIMARY storytelling medium. This is not a suggestion—rich, evocative description must dominate every scene.
+      
+      DESCRIPTION REQUIREMENTS (MANDATORY):
+      - 50-60% of your prose should be sensory detail and atmospheric description
+      - Engage ALL senses: sight, sound, smell, touch, taste—not just visual
+      - Environment is not backdrop—it is an active presence in the scene
+      - Use specific, concrete details rather than generic descriptions
+      - Let setting reflect and amplify emotional states
+      
+      TECHNIQUES TO EMPLOY:
+      - Layer sensory details: "The coffee was bitter on her tongue, its steam warm against her face, the cup rough ceramic in her palms"
+      - Use environment to create mood before action occurs
+      - Describe how spaces feel, not just how they look
+      - Notice small details that reveal character or foreshadow events
+      
+      SUPPORTING ELEMENTS (SECONDARY):
+      - Action happens within the richly described environment
+      - Dialogue emerges from atmospheric moments
+      - Internal thought connects character to sensory experience
+      
+      MOVING THE SCENE FORWARD:
+      - Atmosphere builds and shifts to create emotional progression
+      - Environment changes reflect narrative development
+      - Sensory details reveal character psychology and story themes
+      
+      Immerse the reader. Make them feel present in this world.
+    task_reminder: "CRITICAL: DESCRIPTION-DRIVEN style—sensory immersion MUST dominate (50-60%). Engage all senses. Environment is active presence, not backdrop."
+  
+  stream_of_consciousness:
+    name: "Stream of Consciousness"
+    description: "Flowing, associative inner experience"
+    example: |
+      The train rattles and she thinks of her mother's kitchen, the way the cups clinked against each other in the cabinet when trucks passed on the highway, which makes her think of highways and long drives and that summer when they drove to the coast and the ocean was nothing like she expected, gray and cold and endless, like her father's eyes when he told them he was leaving—
+
+      No. Not that.
+
+      The train rattles. Outside: trees, houses, a flash of red bicycle, a child waving. She waves back before she can stop herself.
+    system_instruction: |
+      PROSE STYLE - STREAM OF CONSCIOUSNESS (YOUR PRIMARY APPROACH):
+      The raw, unfiltered flow of consciousness is your PRIMARY storytelling medium. This is not a suggestion—you must write as thought actually occurs: associative, fragmented, fluid.
+      
+      STREAM OF CONSCIOUSNESS REQUIREMENTS (MANDATORY):
+      - 60-70% of prose should mimic the actual texture of thought
+      - Ideas flow into each other through association, not logic
+      - Memory, perception, and present moment blend seamlessly
+      - Punctuation serves thought-rhythm, not grammar rules
+      - Fragments, run-ons, and unconventional structures are essential tools
+      
+      TECHNIQUES TO EMPLOY:
+      - Let one thought trigger the next through sensory or emotional connection
+      - Interrupt thoughts mid-stream as new perceptions intrude
+      - Blend tenses when memory and present collide
+      - Use em-dashes, ellipses, and fragments to capture thought's jagged edges
+      - Repeat words or phrases as the mind circles back
+      
+      STRUCTURE:
+      - Paragraphs may be long and flowing or sudden and short
+      - External events are filtered through the distorting lens of consciousness
+      - Time is subjective—moments expand or compress based on psychological weight
+      
+      MOVING THE SCENE FORWARD:
+      - Narrative progresses through psychological movement, not just physical events
+      - Revelations emerge from the associative flow
+      - Tension builds through the pressure of thoughts the character tries to avoid
+      
+      This is how a mind actually works. Write it.
+    task_reminder: "CRITICAL: STREAM OF CONSCIOUSNESS style—write as thought actually flows (60-70%). Associative, fragmented, fluid. Let ideas trigger ideas. Unconventional punctuation allowed."
+  
+  free_indirect:
+    name: "Free Indirect Discourse"
+    description: "Narrator voice blends with character perspective"
+    example: |
+      Thomas watched the woman cross the street. She was beautiful, of course—they always were, the ones who spelled trouble. Red dress, red lips, the kind of walk that made men forget their names.
+
+      He should look away. He really should. A smart man would order another drink and mind his own business. A smart man wouldn't still be staring when she pushed through the bar's front door.
+
+      But then, Thomas had never claimed to be smart.
+
+      She slid onto the stool beside him. "Buy a girl a drink?"
+    system_instruction: |
+      PROSE STYLE - FREE INDIRECT DISCOURSE (YOUR PRIMARY APPROACH):
+      The seamless blend of narrator and character voice is your PRIMARY storytelling medium. This is not a suggestion—you must write in third person while coloring every sentence with the character's perspective, vocabulary, and judgment.
+      
+      FREE INDIRECT DISCOURSE REQUIREMENTS (MANDATORY):
+      - Write in third person, but let the character's voice permeate the narration
+      - The narrator adopts the character's vocabulary, opinions, and speech patterns
+      - Slip between objective description and subjective character perception without signaling
+      - No "he thought" or "she felt"—the thought simply appears as narration
+      - Create ironic distance OR intimate closeness as the scene requires
+      
+      TECHNIQUES TO EMPLOY:
+      - "The coffee was terrible. Just like everything else in this godforsaken town." (Character's judgment as narration)
+      - Rhetorical questions that are clearly the character's: "What was she supposed to do now?"
+      - Character's characteristic phrases appearing in narrative description
+      - Subtle shifts between narrator knowledge and character limitation
+      
+      STRUCTURE:
+      - Third person pronouns (he/she/they) throughout
+      - Present or past tense maintained, but with character's temporal perspective
+      - Dialogue attributed normally, but surrounding narration carries character voice
+      
+      MOVING THE SCENE FORWARD:
+      - Events are narrated but interpreted through character bias
+      - Other characters are described as the POV character perceives them
+      - Tension between what narrator knows and character understands creates depth
+      
+      The narrator speaks, but the character's soul is in every word.
+    task_reminder: "CRITICAL: FREE INDIRECT DISCOURSE style—third person narration MUST be colored by character's voice, vocabulary, and judgments throughout. No thought tags needed."
+  
+  poetic_lyrical:
+    name: "Poetic/Lyrical"
+    description: "Metaphor-rich, evocative language"
+    example: |
+      She was a storm walking, thunder in her footsteps, lightning in her eyes. The hallway stretched before her like a throat waiting to swallow, fluorescent lights humming their insect song.
+
+      He stood at the end of it. A silhouette. A question mark made flesh.
+
+      Time pooled around her ankles, thick as honey, slow as grief. Each step forward was a small drowning. Each breath, a resurrection.
+
+      "You came," he said, and his voice was the first warm thing she'd felt in years.
+    system_instruction: |
+      PROSE STYLE - POETIC/LYRICAL (YOUR PRIMARY APPROACH):
+      Elevated, metaphor-rich language is your PRIMARY storytelling medium. This is not a suggestion—every paragraph must demonstrate literary craft, rhythm, and figurative depth.
+      
+      POETIC/LYRICAL REQUIREMENTS (MANDATORY):
+      - 50-60% of prose should employ figurative language: metaphor, simile, personification
+      - Create rhythm and musicality through sentence structure and word choice
+      - Use imagery that operates on multiple levels—literal and symbolic
+      - Language itself is part of the experience, not just a delivery mechanism
+      - Balance beauty with clarity—never sacrifice meaning for sound
+      
+      TECHNIQUES TO EMPLOY:
+      - Extended metaphors that develop across paragraphs
+      - Personification of abstract concepts and environments
+      - Alliteration, assonance, and consonance for sonic texture
+      - Parallel structures and rhythmic repetition
+      - Unexpected comparisons that illuminate truth
+      
+      STRUCTURE:
+      - Vary sentence length for rhythm—short sentences punch, long sentences flow
+      - Paragraph breaks create breath and emphasis
+      - White space and pacing serve the music of the prose
+      
+      MOVING THE SCENE FORWARD:
+      - Emotional truth is conveyed through metaphor and image
+      - Plot events are rendered in language that elevates their significance
+      - Character is revealed through the specific metaphors they inspire
+      
+      Write prose that sings. Make language an art.
+    task_reminder: "CRITICAL: POETIC/LYRICAL style—employ metaphor, simile, and figurative language throughout (50-60%). Create rhythm and musicality. Language itself is art."
+
+# =============================================================================
+# SCENE GENERATION - Composable Base Components
+# =============================================================================
+scene_base:
+  # Core system instructions shared by all scene generation prompts
+  system: |
+    You are a skilled interactive fiction writer. Create engaging story scenes that:
+    1. Advance the plot using specific story context and established details
+    2. Develop characters through their actions, words, and thoughts
+    3. Maintain strict consistency with established story elements
+    4. Create dramatic tension appropriate to genre and tone
+    5. Use vivid, descriptive language
+
+    {prose_style_instruction}
+
+    SPECIFICITY: Use character names, places, events from context. Reference previous scenes. Build on established relationships. Never invent details about past events — use only what's provided in context.
+  
+  # Standard formatting rules for all scenes
+  formatting: |
+    FORMATTING REQUIREMENTS:
+    - Standard quotation marks for dialogue: "Hello," she said.
+    - Asterisks for thoughts: *I can't believe this*
+    - {pov_perspective}
+    - Clear paragraph breaks
+    - Start directly with narrative
+    - DO NOT use markdown headers (###, ===, ---, ***) in the scene narrative itself
+    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE" in the scene
+
+    SCENE CONTENT: Write pure narrative. End with action, dialogue, or description.
+  
+  # Standard choices generation instructions - SINGLE SOURCE OF TRUTH
+  # All scene types use this via PromptManager composition
+  choices: |
+    CHOICES GENERATION:
+    After completing the scene, add this exact line: ###CHOICES###
+    Then provide exactly {choices_count} choices as a JSON array.
+    
+    Create ORGANIC choices that:
+    1. Are subtle variations in HOW the character proceeds within the current moment
+    2. Maintain the scene's emotional tone and momentum
+    3. Use specific details from the scene (character names, objects, sensations)
+    4. Are concise (1 sentence, max 15 words)
+    5. Match the story's POV: {pov_instruction}
+    
+    AVOID these patterns:
+    - Stark choices like "continues" vs "stops angrily" vs "walks away"
+    - Abrupt emotional reversals or random conflict injection
+    - Generic dramatic pivots that break scene momentum
+    - Positive/negative dichotomies
+    
+    INSTEAD create:
+    - Variations in approach, pacing, or emotional texture
+    - Different ways to engage with the same moment
+    - Small character-revealing decisions within the flow
+    
+    BAD: ["Continues the conversation", "Stops and demands answers", "Walks away frustrated", "Confronts them angrily"]
+    GOOD: ["Marcus leans closer and lowers his voice to share what he overheard", "Elena stirs her coffee slowly while choosing her next words carefully", "James glances toward the rain-streaked window, buying time to think", "Sarah taps the table rhythmically, masking her growing nervousness"]
+    
+    Format: ["Choice 1", "Choice 2", ...]
+    
+    CRITICAL: Complete the choices section. Do not stop mid-response.
+  
+  # POV reminder appended to system prompt - ensures prose matches story POV
+  # Uses {pov_instruction} for the perspective description
+  pov_reminder: |
+    IMPORTANT: Write all prose and dialogue {pov_instruction}. Maintain consistent narrative perspective throughout.
+  
+  # User prompt suffix - appended to all scene user prompts by PromptManager
+  # {chapter_plot_for_choices} is populated with plot guidance when available
+  user_choices_reminder: |
+    After completing the scene, add ###CHOICES### with {choices_count} choices.
+    CRITICAL: Choices must continue from WHERE YOUR SCENE ENDS - use names/details from YOUR scene.
+    {chapter_plot_for_choices}
+    Each choice: 1 sentence, max 15 words. Subtle variations, not dramatic forks.
+
+  # Task instructions for multi-message structure (context sent separately)
+  # Used when immediate_situation is provided (continue choice or custom text)
+  task_with_immediate: |
+    YOUR TASK: Write a scene showing exactly this:
+    >>> {immediate_situation} <<<
+
+    Show these events in vivid detail. Start at the BEGINNING—don't skip ahead.
+    Follow each character's DIALOGUE STYLE. Minimize adverbs/adjectives.
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
+    {prose_style_reminder}
+    {tone_reminder}
+
+    Write {scene_length_description} depicting: {immediate_situation}
+
+  # Task instructions when no immediate_situation (first scene or "Generate Scene")
+  task_without_immediate: |
+    Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+
+    PACING: Let the scene unfold at its own natural pace. Chapter plot beats are goals spread across many scenes—you don't need to hit any specific beat in this scene. Focus on making THIS scene engaging and immersive.
+
+    DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
+
+    {prose_style_reminder}
+    {tone_reminder}
+
+  # Task instruction for scene continuation (context sent separately in multi-message)
+  # Used by generate_continuation_with_choices_streaming()
+  task_continuation: |
+    === CURRENT SCENE TO CONTINUE ===
+    {current_scene_content}
+
+    === CONTINUATION INSTRUCTION ===
+    {continuation_prompt}
+
+    SCENE PRIORITY: The continuation instruction above defines what happens next. Any chapter plot beats mentioned earlier are long-term goals—do NOT rush to incorporate them. Let this continuation flow naturally from the instruction.
+
+    Write a compelling continuation that follows naturally from the scene above. Focus on engaging narrative. Do not repeat previous content.
+    Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
+
+    {prose_style_reminder}
+    {tone_reminder}
+  # Task instruction for guided enhancement (context sent separately in multi-message)
+  # Used by generate_variant_with_choices_streaming() when enhancement_guidance is provided
+  task_guided_enhancement: |
+    === ORIGINAL SCENE ===
+    {original_scene}
+
+    === ENHANCEMENT REQUEST ===
+    {enhancement_guidance}
+
+    SCENE PRIORITY: The enhancement request above is your focus. Any chapter plot beats mentioned earlier are long-term goals—this rewrite should focus on the enhancement, not on advancing plot beats.
+
+    Rewrite the scene above incorporating the requested enhancement.
+    Maintain the same core events and outcomes. Keep consistency with established story elements.
+    Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
+    Write approximately {scene_length_description} in length.
+
+    {prose_style_reminder}
+    {tone_reminder}
+
+  # Task instruction for chapter conclusion (context sent separately in multi-message)
+  # Used by generate_concluding_scene_streaming()
+  task_chapter_conclusion: |
+    === CHAPTER CONCLUSION INSTRUCTIONS ===
+    
+    Chapter Information:
+    - Chapter Number: {chapter_number}
+    - Title: {chapter_title}
+    - Location: {chapter_location}
+    - Time Period: {chapter_time_period}
+    - Scenario: {chapter_scenario}
+    
+    Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end. The conclusion should:
+    1. Provide closure for this chapter's specific events and character arcs
+    2. Tie up chapter-specific plot threads
+    3. Set up anticipation for the next chapter (without resolving the overall story)
+    4. Maintain the established genre, tone, and writing style
+    5. Feel like a natural chapter ending, not a story ending
+    6. Use vivid, descriptive language that draws readers into the specific world of this story
+    7. End at a natural chapter break point that leaves readers wanting to continue
+    8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    
+    {prose_style_reminder}
+    {tone_reminder}
+    
+    IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    Write ONLY the narrative content. Do not include any choices, options, or questions for the reader.
+    This should be pure narrative - a compelling conclusion to this chapter.
+    
+    Chapter Conclusion:
+
+# =============================================================================
+# STORY GENERATION PROMPTS
+# =============================================================================
+story_generation:
+  scenario:
+    system: |
+      You are a creative storytelling assistant. Generate an engaging story scenario that:
+      1. Incorporates the provided characters as central figures
+      2. Creates meaningful personal stakes for each character
+      3. Establishes relationships and conflicts between characters
+      4. Matches the specified genre and tone
+      5. Weaves together the story elements into a cohesive setup
+      6. Is 3-5 sentences long and creates a compelling hook
+      7. Sets up dramatic tension that involves the characters' goals and relationships
+      
+      Write in an engaging narrative style that makes readers care about what happens to these specific characters.
+    
+    user: |
+      Please create a scenario based on these elements:
+      
+      {context}
+      
+      Story elements to incorporate:
+      {elements}
+      
+      Generate a creative scenario that:
+      - Places these specific characters at the center of the story
+      - Creates personal stakes and meaningful relationships between them
+      - Incorporates the story elements naturally
+      - Sets up compelling dramatic tension that makes readers invested in these characters' journey
+      
+      Scenario:
+
+  titles:
+    system: |
+      You are a creative title generator for interactive stories. Generate 5 compelling story titles that:
+      1. Capture the essence of the story scenario and characters
+      2. Match the specified genre and tone perfectly
+      3. Are memorable and intriguing
+      4. Reflect the key themes, conflicts, or character relationships
+      5. Range from 2-6 words each
+      6. Avoid clichés and generic phrases
+      7. Create emotional hooks that make readers want to explore the story
+      
+      Provide ONLY the 5 titles, one per line, without numbers or additional text.
+    
+    user: |
+      Based on these story details:
+      
+      {context}
+      
+      Generate 5 compelling titles that capture the heart of this specific story. Focus on the unique characters, their relationships, and the central conflict. Make each title distinctive and emotionally engaging.
+      
+      Titles:
+
+  # Template for scenes WITH immediate situation (continue choice or custom text)
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  # User prompt used for text completion API fallback; multi-message mode uses task_with_immediate
+  scene_with_immediate:
+    user: |
+      Story Context:
+      {context}
+      
+      {task_instruction}
+  
+  # Template for scenes WITHOUT immediate situation (first scene or "Generate Scene")
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  # User prompt used for text completion API fallback; multi-message mode uses task_without_immediate
+  scene_without_immediate:
+    user: |
+      Story Context:
+      {context}
+      
+      {task_instruction}
+
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  # This template adds enhancement-specific user instructions
+  scene_guided_enhancement:
+    user: |
+      Story Context:
+      {context}
+      
+      Original Scene to Enhance:
+      {original_scene}
+      
+      Enhancement Request:
+      {enhancement_guidance}
+      
+      REWRITING INSTRUCTIONS:
+      - Rewrite the scene above incorporating the requested enhancement
+      - Maintain the same core events and outcomes as the original scene
+      - Keep consistency with all established story elements (characters, plot, world-building)
+      - Make it engaging and immersive, approximately {scene_length_description} in length
+      - Ensure the scene flows naturally from the previous events
+      
+      Write ONLY the story content. Do not include any choices within the scene narrative.
+
+  # NOTE: System prompt is composed from scene_base components by PromptManager
+  scene_continuation:
+    user: |
+      Continue this story naturally:
+      
+      {context}
+      
+      Write a compelling continuation that follows from the established context. Focus on engaging narrative. Include specific details. Do not repeat previous content.
+
+# Choice Generation (Direct access key for choice_generation calls)
+choice_generation:
+  system: |
+    You are an interactive fiction writer specializing in ORGANIC choice generation.
+    
+    Create choices that:
+    1. Are subtle variations in HOW the character proceeds within the current moment
+    2. Maintain the scene's emotional tone and momentum
+    3. Avoid dramatic forks, random conflicts, or positive/negative dichotomies
+    4. Use specific details from the scene (character names, objects, sensations)
+    5. Are concise (1 sentence, max 15 words)
+    6. Match the story's established POV
+    
+    AVOID these patterns:
+    - Stark choices like "continues" vs "stops angrily" vs "walks away"
+    - Abrupt emotional reversals or random conflict injection
+    - Generic dramatic pivots that break scene momentum
+    
+    INSTEAD create:
+    - Variations in approach, pacing, or emotional texture
+    - Different ways to engage with the same moment
+    - Small character-revealing decisions within the flow
+    
+    BAD: ["Continues the conversation", "Stops and demands answers", "Walks away frustrated", "Confronts them angrily"]
+    GOOD: ["Marcus leans closer and lowers his voice to share what he overheard", "Elena stirs her coffee slowly while choosing her next words carefully", "James glances toward the rain-streaked window, buying time to think", "Sarah taps the table rhythmically, masking her growing nervousness"]
+    
+    Generate exactly {choices_count} choices as a JSON array.
+  
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === GENERATE CHOICES ===
+    Generate {choices_count} choices for what happens NEXT in the scene above.
+    {chapter_plot_for_choices}
+
+    IMPORTANT: Choices should move the story toward the upcoming plot beats above.
+
+    RULES:
+    - Choices must continue from WHERE the scene ends
+    - Use character names, locations, and details FROM the scene above
+    - Each choice: 1 sentence, max 15 words
+    - Subtle variations, not dramatic forks
+
+    Output ONLY a valid JSON object:
+    {{"choices": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"]}}
+
+# Plot Event Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+plot_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT PLOT EVENTS ===
+    Which of these planned events COMPLETED in the scene above?
+
+    {key_events}
+
+    RULES:
+    - Match the CORE SITUATION, not exact details (location/wording can differ)
+    - Event must have HAPPENED, not just been hinted at or started
+    - Partial progress = false (conversation started but revelation not made = false)
+
+    EXAMPLE 1:
+    Events: 1. Elena and Marco have their first argument  2. Elena discovers the hidden letter
+    Scene: Elena confronted Marco about the money. Voices rose. Marco stormed out, slamming the door. Elena sank into the chair, staring at the desk drawer she hadn't yet opened.
+    Answer: {{"1": true, "2": false}}
+    Why: The argument happened (even though about money, not specified topic). The letter was NOT discovered — she only looked at the drawer.
+
+    EXAMPLE 2:
+    Events: 1. The group arrives at the mountain cabin  2. Tension between Kai and Suri boils over
+    Scene: The car pulled up to the cabin at dusk. Everyone piled out, stretching. Kai brushed past Suri without a word. She clenched her jaw but said nothing.
+    Answer: {{"1": true, "2": false}}
+    Why: Arrival happened. Tension is shown but hasn't "boiled over" — no confrontation yet, just coldness.
+
+    Return JSON: {{"1": true, "2": false}}
+    If no events occurred, all should be false.
+
+# Combined Entity Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+combined_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT ALL STORY ELEMENTS ===
+    Extract FOUR types from the scene. Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
+    {thread_section}
+
+    RULES:
+    - Character moments: only SIGNIFICANT actions/dialogue/development (confidence >= 70), max 3 per character
+    - NPCs: only NAMED PEOPLE not in explicit list, max 3. No objects/locations/materials.
+    - Plot events: only significant events, max 2
+    - Entity states: 1-2 word emotional_state, room-level locations only, no furniture as locations
+
+    EXAMPLE:
+    Scene: "Dr. Reyes examined the wound while Kai gripped the table edge. 'You'll need stitches,' she said. In the hallway, Officer Tanaka waited with a notepad. The marble floor gleamed under fluorescent lights. Kai's phone buzzed — a text from an unknown number."
+
+    Explicit characters: Kai
+    Exclude from NPCs: Kai
+
+    Output:
+    {{
+      "character_moments": [
+        {{"character": "Kai", "moment_type": "action", "description": "Receives mysterious text from unknown number while being treated", "scene_id": 1, "confidence": 80}}
+      ],
+      "npcs": [
+        {{"name": "Dr. Reyes", "entity_type": "CHARACTER", "has_dialogue": true, "has_actions": true}},
+        {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "has_dialogue": false, "has_actions": true}}
+      ],
+      "plot_events": [
+        {{"event_type": "complication", "description": "Kai receives text from unknown number", "importance": 75, "confidence": 85}}
+      ],
+      "entity_states": {{
+        "characters": [{{"name": "Kai", "location": "clinic", "emotional_state": "tense"}}],
+        "locations": [{{"name": "clinic", "condition": null, "atmosphere": "sterile", "occupants": ["Kai", "Dr. Reyes"]}}],
+        "objects": []
+      }}
+    }}
+
+    NOTE: "marble floor", "table", "phone" are NOT NPCs. "fluorescent lights" is NOT a character. Only people.
+
+    Return JSON:
+    {{
+      "character_moments": [
+        {{"character": "Name", "moment_type": "dialogue", "description": "...", "scene_id": 1, "confidence": 85}}
+      ],
+      "npcs": [
+        {{"name": "NPC Name", "entity_type": "CHARACTER", "has_dialogue": true, "has_actions": true}}
+      ],
+      "plot_events": [
+        {{"event_type": "complication", "description": "...", "importance": 80, "confidence": 90}}
+      ],
+      "entity_states": {{
+        "characters": [{{"name": "...", "location": "...", "emotional_state": "..."}}],
+        "locations": [],
+        "objects": []
+      }}
+    }}
+
+# Entity-Only Extraction (cache-friendly, for inline contradiction check)
+# Uses same context structure as scene generation for maximum cache hits
+# FAST: Only extracts entity states (characters, locations, objects)
+entity_only_extraction:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT CHARACTER STATES ===
+    Extract the END state of each character from the scene above. Known characters: {character_names}. Chapter location: {chapter_location}
+
+    Only extract characters who are PHYSICALLY PRESENT in this scene. Do NOT extract characters who are merely mentioned, remembered, or discussed.
+
+    EXAMPLE 1:
+    Scene: "Lena paced the kitchen in her bathrobe, clutching a mug of tea. Her hands trembled. 'I can't do this,' she whispered. Across the counter, Jay leaned against the fridge, arms crossed, still in yesterday's wrinkled shirt."
+    {{"characters": [
+      {{"name": "Lena", "location": "kitchen", "current_position": "pacing", "emotional_state": "anxious", "physical_condition": null, "current_attire": "bathrobe"}},
+      {{"name": "Jay", "location": "kitchen", "current_position": "leaning against fridge", "emotional_state": "guarded", "physical_condition": null, "current_attire": "wrinkled shirt"}}
+    ]}}
+
+    EXAMPLE 2:
+    Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed. He was still in his muddy jeans from the crash."
+    {{"characters": [
+      {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
+      {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": "muddy jeans"}}
+    ]}}
+
+    RULES:
+    - location: ROOM name ("kitchen", "bedroom", "living room"), NOT furniture ("couch", "bed", "counter")
+    - current_position: Physical position ("sitting on couch", "standing by door", "lying in bed")
+    - emotional_state: 1-2 words max ("nervous", "playful", "torn"). NOT a sentence.
+    - physical_condition: Visible injuries, marks, or physical symptoms ONLY. "swollen cheek", "bite mark on neck", "limping". null if healthy/uninjured. NOT emotions, NOT arousal states.
+    - current_attire: What they're wearing at END of scene ("jeans and t-shirt", "nude", "unbuttoned shirt"). null if not mentioned.
+
+    Return ONLY JSON — no explanation, no markdown:
+    {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
+
+# Working Memory Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+working_memory_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT NARRATIVE CONTINUITY ===
+    Current focus: {current_focus}
+
+    Extract narrative continuity items from the scene above:
+
+    1. RECENT_FOCUS: What was emotionally/narratively emphasized? (max 3 items)
+       - Character dynamics, tensions, emotional beats
+       - Thematic emphasis, mood shifts
+       - NOT plot events (tracked separately as PlotEvents)
+
+    2. CHARACTER_SPOTLIGHT: Characters needing narrative attention next
+       - Who hasn't spoken in a while but is present?
+       - Who just had a moment that needs follow-up?
+       - Who was interrupted or sidelined?
+       - Include brief reason why they need attention
+
+    Return as JSON only:
+    {{
+      "recent_focus": ["item1", "item2"],
+      "character_spotlight": {{"CharName": "reason for spotlight"}}
+    }}
+
+# Relationship Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+# Scene Summary for Embedding (cache-friendly)
+# Used to generate a 2-3 sentence factual summary before pgvector embedding
+# Uses same context structure as scene generation for cache hits
+scene_summary_for_embedding:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === SUMMARIZE FOR INDEXING ===
+    Return TWO sections:
+    1. Location: just the room or area name, 1-4 words max (e.g. "kitchen", "back patio", "master bedroom"). No descriptions.
+    2. Summary: 2-3 factual sentences capturing ALL key actions in this scene. Include every character name and what each person physically does. Mention objects, clothing, or body parts involved. No opinions or adjectives — just facts.
+
+    EXAMPLE 1:
+    Scene: "Kai stood at the kitchen counter reviewing blueprints when Suri walked in with grocery bags. They discussed the renovation timeline over coffee. Suri pointed out a structural issue in the east wall design."
+    Location: kitchen counter
+    Summary: Kai reviews renovation blueprints at the kitchen counter. Suri arrives with grocery bags and they discuss the timeline over coffee. Suri identifies a structural issue in the east wall design.
+
+    EXAMPLE 2:
+    Scene: "Dr. Voss noticed two colleagues whispering near the back patio door during the fundraiser. She straightened her name badge and walked over to join them. They were discussing preliminary results from the cancer trial."
+    Location: back patio door
+    Summary: Dr. Voss observes two colleagues whispering near the back patio door at a fundraiser. She approaches them and learns they are discussing preliminary results from the cancer trial.
+
+    NOT good: "Location: a room. Summary: A tense scene where desires collide." (too vague, no names)
+
+    Location:
+
+# NPC Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+npc_extraction_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT NPCs (NAMED PEOPLE ONLY) ===
+    Already tracked (SKIP these): {explicit_names}
+
+    Extract ONLY named people/sentient beings NOT in the list above.
+    Test: Can it speak, think, and make decisions? If no → exclude it.
+
+    EXAMPLE 1:
+    Scene: "The marble countertop gleamed as Dr. Voss examined the x-ray. Officer Tanaka waited by the door, coffee in hand. The espresso machine hummed. A stranger passed in the hallway."
+    Already tracked: None
+    Output:
+    {{
+      "npcs": [
+        {{"name": "Dr. Voss", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Dr. Voss examined the x-ray"], "properties": {{"role": "doctor", "description": "Doctor examining x-ray"}}}},
+        {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Officer Tanaka waited by the door"], "properties": {{"role": "police officer", "description": "Officer waiting at the door"}}}}
+      ]
+    }}
+    NOT extracted: marble (material), espresso machine (object), coffee (drink), stranger (no name)
+
+    EXAMPLE 2:
+    Scene: "Mrs. Okafor set down her teacup. 'The garden needs tending,' she said. The wind rustled through the Carrara tiles of the patio. The crowd outside dispersed."
+    Already tracked: None
+    Output:
+    {{
+      "npcs": [
+        {{"name": "Mrs. Okafor", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["Mrs. Okafor set down her teacup"], "properties": {{"role": "unknown", "description": "Woman having tea, commenting on the garden"}}}}
+      ]
+    }}
+    NOT extracted: Carrara (material), wind (nature), crowd (unnamed group), garden (location)
+
+    Return JSON:
+    {{
+      "npcs": [
+        {{"name": "Person's actual name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "One sentence"}}}}
+      ]
+    }}
+
+    If no NAMED PEOPLE found: {{"npcs": []}}
+
+# Character Moments Extraction (cache-friendly)
+# Uses same context structure as scene generation for cache hits
+character_moments_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT CHARACTER MOMENTS ===
+    Explicit characters: {character_names}
+
+    Extract only SIGNIFICANT moments (confidence >= 70). Max 3 per character.
+    Types: "action", "dialogue", "development", "relationship"
+
+    EXAMPLE:
+    Scene: "Ava poured herself coffee and sat down. She opened the envelope and read the letter twice, her face draining of color. 'We need to leave,' she told Dex. 'Tonight.' Dex nodded slowly, reaching for her hand across the table."
+    Characters: Ava, Dex
+    Output:
+    {{
+      "character_moments": [
+        {{"character": "Ava", "moment_type": "action", "description": "Reads letter that visibly shocks her", "confidence": 90}},
+        {{"character": "Ava", "moment_type": "dialogue", "description": "Urgently tells Dex they need to leave tonight", "confidence": 85}},
+        {{"character": "Dex", "moment_type": "relationship", "description": "Reaches for Ava's hand in support after her distress", "confidence": 75}}
+      ]
+    }}
+    NOT extracted: Ava pouring coffee (trivial), Ava sitting down (trivial), Dex nodding (minor unless context makes it significant)
+
+    Return JSON:
+    {{
+      "character_moments": [
+        {{"character": "Name", "moment_type": "dialogue", "description": "What happened", "confidence": 85}}
+      ]
+    }}
+
+    If no significant moments: {{"character_moments": []}}
+
+# Plot Events Extraction (cache-friendly fallback)
+# Uses same context structure as scene generation for cache hits
+plot_events_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT PLOT EVENTS ===
+    Active plot threads to consider:{thread_context}
+
+    Extract significant plot events from this scene:
+    - Event types: "introduction", "complication", "revelation", "resolution", "development"
+    - Maximum 2 events per scene
+    - Only extract SIGNIFICANT plot developments
+
+    Return JSON:
+    {{
+      "plot_events": [
+        {{
+          "event_type": "complication",
+          "description": "What happened",
+          "importance": 80,
+          "confidence": 90
+        }}
+      ]
+    }}
+
+    If no significant events: {{"plot_events": []}}
+
+# Combined moments + NPCs extraction (cache-friendly)
+moments_and_npcs_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT CHARACTER MOMENTS AND NPCs ===
+    Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
+
+    EXAMPLE:
+    Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. The marble floor echoed. A waiter refilled their glasses. Ava stood and walked to the window, arms crossed."
+    Explicit characters: Ava  |  Exclude: Ava
+    Output:
+    {{
+      "character_moments": [
+        {{"character_name": "Ava", "moment_type": "dialogue", "content": "Refuses to sign, confronts Mr. Hahn", "confidence": 90}},
+        {{"character_name": "Ava", "moment_type": "action", "content": "Slams fist on table in defiance", "confidence": 80}}
+      ],
+      "npcs": [
+        {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
+      ]
+    }}
+    NOT extracted: marble (material), waiter (no name), table (furniture), glasses being refilled (trivial)
+
+    RULES:
+    - Moments: significant only (confidence >= 70), max 5. Skip trivial actions (sitting, pouring drinks).
+    - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+    - Types: "action", "dialogue", "development", "relationship"
+
+    Return ONLY JSON:
+    {{
+      "character_moments": [{{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}],
+      "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
+    }}
+
+# Scene Event Extraction (cache-friendly, replaces character moments)
+# Extracts factual events from scenes for keyword-based retrieval
+scene_event_extraction:
+  cache_friendly:
+    user: |
+      === SCENE JUST GENERATED ===
+      {scene_content}
+
+      === EXTRACT KEY EVENTS ===
+      Characters: {character_names}
+
+      Extract 3-6 events per scene. Use the BLUNTEST, most common words — write how a friend would retell it, not how a novelist wrote it.
+
+      VOCABULARY RULES:
+      - "shoved" NOT "applied force to his chest"
+      - "stole" NOT "discreetly took possession of"
+      - "kissed" NOT "pressed his lips against"
+      - "grabbed her arm" NOT "his fingers encircled her wrist"
+      - "grabbed" NOT "brushed against" or "trailed along" or "hands wandered"
+      - "spied/watched" NOT "observed the interaction"
+      - "phone call" NOT "call on hold"
+      - Include WHO, WHAT, and WHERE/CONTEXT in each event
+
+      EXAMPLE 1 (Characters: Claire, Matt, Josh):
+      Scene: "Josh lingered in the corridor, feigning interest in his phone screen. Through the doorway he could see Matt's hand resting on Claire's lower back, fingers tracing slow circles. Claire stood rigid at the kitchen counter."
+      {{"events": [
+        {{"text": "Matt touched Claire's back at kitchen counter", "characters": ["Matt", "Claire"]}},
+        {{"text": "Josh spied on Matt and Claire from corridor", "characters": ["Josh", "Matt", "Claire"]}}
+      ]}}
+
+      EXAMPLE 2 (Characters: Sofia, Diego):
+      Scene: "Sofia confronted Diego about the forged documents. She slammed papers on his desk. Found the original letter hidden in his drawer. Security was called."
+      {{"events": [
+        {{"text": "Sofia confronted Diego about forgery at office", "characters": ["Sofia", "Diego"]}},
+        {{"text": "Sofia found hidden letter in Diego's drawer", "characters": ["Sofia"]}},
+        {{"text": "security called to Diego's office", "characters": []}}
+      ]}}
+
+      EXAMPLE 3 (Characters: Elena, Marcus):
+      Scene: "Marcus snatched the envelope from the table before Elena could reach it. She lunged but he shoved her back. He tore it open and read the contents aloud while she screamed at him to stop."
+      {{"events": [
+        {{"text": "Marcus stole envelope from Elena", "characters": ["Marcus", "Elena"]}},
+        {{"text": "Marcus shoved Elena away from table", "characters": ["Marcus", "Elena"]}},
+        {{"text": "Marcus read private letter aloud to Elena", "characters": ["Marcus", "Elena"]}}
+      ]}}
+
+      NOT extracted: "she stood rigid" (no action), "his heart raced" (internal feeling), "the sunset was beautiful" (description)
+      "characters" = ONLY person names. Never objects or locations.
+      Return ONLY JSON: {{"events": [{{"text": "...", "characters": ["Name"]}}]}}
+
+  batch:
+    system: "You extract factual events from story scenes. Return only valid JSON."
+    user: |
+      Extract significant events from each scene below. Use the BLUNTEST, most common words — write how a friend would retell it, not how a novelist wrote it.
+
+      Characters: {character_names}
+
+      {scenes_content}
+
+      VOCABULARY RULES:
+      - "shoved" NOT "applied force to"; "stole" NOT "discreetly took"; "grabbed" NOT "brushed against"
+      - "spied/watched" NOT "observed the interaction"; "phone call" NOT "call on hold"
+      - Include WHO, WHAT, and WHERE/CONTEXT in each event
+
+      EXAMPLE (Characters: Claire, Matt, Josh):
+      Scene 1: "Claire served dishes in the crowded kitchen, bumping her hip on the refrigerator. Matt entered with empty plates and offered to help. The stove burner went out unexpectedly."
+      Scene 2: "Josh stood close to Claire at the counter, accepting a bowl of curry. Matt watched from across the room. Claire poured wine from the bottle Matt held."
+      Scene 3: "Matt wrapped his arms around Claire's waist in the kitchen. She pressed against him. He mentioned calling the contractor about renovations."
+      {{"scenes": {{
+        "1": [
+          {{"text": "stove burner went out while cooking in kitchen", "characters": []}}
+        ],
+        "2": [
+          {{"text": "Josh accepted curry from Claire at counter", "characters": ["Josh", "Claire"]}}
+        ],
+        "3": [
+          {{"text": "Matt grabbed Claire's waist in kitchen", "characters": ["Matt", "Claire"]}},
+          {{"text": "Matt proposed calling contractor for renovation", "characters": ["Matt"]}}
+        ]
+      }}}}
+      SKIPPED: "served dishes" (routine), "entered with plates" (routine), "watched from room" (passive)
+
+      "characters" = ONLY person name strings. Never objects, body parts, or locations.
+
+      RULES:
+      - 3-6 events per scene, blunt everyday words, include location/context
+      - Only SIGNIFICANT events — skip routine actions
+      - Return ONLY valid JSON
+
+# Combined Scene Events + NPC Extraction (cache-friendly)
+# Replaces moments_and_npcs_cache_friendly — uses same cache prefix
+events_and_npcs_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === EXTRACT SCENE EVENTS AND NPCs ===
+    Explicit characters: {character_names}
+    Exclude from NPCs: {explicit_names}
+
+    EXAMPLE 1:
+    Scene: "Priya placed the platter on the table, bending forward. Arjun's hand brushed her waist as he reached past her. She bumped her hip on the counter corner. Sanjay watched from the doorway."
+    Explicit characters: Priya, Arjun  |  Exclude: Priya, Arjun
+    {{
+      "events": [
+        {{"text": "Arjun brushed Priya's waist reaching past her", "characters": ["Arjun", "Priya"]}}
+      ],
+      "npcs": [
+        {{"name": "Sanjay", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": false, "context_snippets": ["Sanjay watched from the doorway"], "properties": {{"role": "unknown", "description": "Person watching from doorway"}}}}
+      ]
+    }}
+
+    EXAMPLE 2:
+    Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. A waiter refilled their glasses. Ava found the original letter hidden in his drawer."
+    Explicit characters: Ava  |  Exclude: Ava
+    {{
+      "events": [
+        {{"text": "Ava refused to sign, confronted Mr. Hahn", "characters": ["Ava", "Mr. Hahn"]}},
+        {{"text": "Ava found original letter in Mr. Hahn's drawer", "characters": ["Ava"]}}
+      ],
+      "npcs": [
+        {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
+      ]
+    }}
+    SKIPPED: "placed platter" (routine), "bumped hip" (trivial), "slammed fist" (gesture), waiter (no name)
+
+    "characters" = ONLY person name strings. Never objects, body parts, or locations.
+
+    RULES:
+    - Events: 2-4 terse keyword fragments, max 10 words each. Only SIGNIFICANT events.
+    - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+
+    Return ONLY JSON:
+    {{
+      "events": [{{"text": "...", "characters": ["Name"]}}],
+      "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
+    }}
+
+# Plot Structure Prompts
+plot_generation:
+  complete_plot:
+    system: |
+      You are a master storyteller and plot architect. Generate a complete 5-point plot structure that:
+      1. Is perfectly tailored to the specific characters and their relationships
+      2. Builds naturally from the established scenario
+      3. Creates meaningful character arcs and development
+      4. Escalates tension and stakes progressively
+      5. Delivers satisfying character-driven resolutions
+      6. Incorporates the genre and tone seamlessly
+      7. Creates opportunities for character growth and conflict
+      
+      You MUST return ONLY valid JSON in this exact format:
+      {{
+        "plot_points": [
+          "Opening Hook description (2-3 sentences)",
+          "Inciting Incident description (2-3 sentences)",
+          "Rising Action description (2-3 sentences)",
+          "Climax description (2-3 sentences)",
+          "Resolution description (2-3 sentences)"
+        ]
+      }}
+      
+      Each plot point should be 2-3 sentences. Focus on how the plot serves these specific characters' growth and relationships.
+      Return ONLY the JSON object, no other text, no markdown formatting, no code blocks.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a complete 5-point plot structure that weaves these characters' personal journeys into a compelling narrative arc. Each plot point should advance both the external story and the internal character development.
+      
+      Return ONLY valid JSON in this format:
+      {{
+        "plot_points": [
+          "Opening Hook: [2-3 sentences describing how the story begins with character-specific elements]",
+          "Inciting Incident: [2-3 sentences describing the event that sets everything in motion for these characters]",
+          "Rising Action: [2-3 sentences describing character-specific challenges and conflicts]",
+          "Climax: [2-3 sentences describing the ultimate confrontation involving these characters' arcs]",
+          "Resolution: [2-3 sentences describing how these specific characters' journeys conclude]"
+        ]
+      }}
+
+  single_plot_point:
+    system: |
+      You are a master storyteller. Generate a compelling {point_name} that:
+      1. Is specifically tailored to the provided characters and their relationships
+      2. Builds naturally from the established scenario and world
+      3. Creates meaningful stakes for these specific characters
+      4. Advances character development and relationships
+      5. Matches the genre and tone perfectly
+      6. Sets up future plot developments organically
+      
+      Write 2-3 sentences that feel like a natural part of this specific story with these specific characters.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a compelling {point_name} that naturally incorporates these characters' personalities, relationships, and the established scenario. Focus on how this plot point specifically serves these characters' journeys and the unique aspects of this story.
+      
+      {point_name}:
+
+# Summary Generation Prompts
+summary_generation:
+  story_summary:
+    system: |
+      You are a story state tracker. Your job is to extract FACTS from narrative content.
+      
+      Rules:
+      - Use simple declarative sentences only
+      - Format: WHO did WHAT to WHOM, WHERE, WHEN
+      - No adjectives or adverbs unless plot-critical
+      - No emotional interpretation (not "she felt conflicted" but "she hesitated")
+      - No literary flourishes, metaphors, or purple prose
+      - No phrases like "transformative journey", "profound shift", "palpable tension"
+      
+      Focus on concrete, trackable information that helps maintain story continuity.
+    
+    user: |
+      Story: {story_context}
+      
+      Content:
+      {story_content}
+      
+      Extract a factual summary using this format:
+      
+      MAIN CHARACTERS: [list with brief role description]
+      KEY EVENTS: [chronological bullet list of what happened]
+      CURRENT STATE: [where characters are, relationship status, unresolved situations]
+      
+      Keep under 500 words. Facts only, no prose.
+
+  # NOTE: scene_variants template was removed - use scene_with_immediate or scene_without_immediate instead
+  # This consolidation improves prompt cache hit rates
+
+  chapter_summary:
+    system: |
+      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS.
+
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
+
+      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
+      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
+
+      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
+      No adjectives. No adverbs. No literary language.
+
+    user: |
+      {context_section}Chapter {chapter_number}: {chapter_title}
+
+      Scenes to Summarize:
+      {scenes_content}
+
+      IMPORTANT: Maximum 3 bullets per scene. Most scenes need only 1-2 bullets.
+      Only include events that would matter if someone asked "what happened in this chapter?"
+
+      EVENTS: [bullet list - MAXIMUM 3 per scene]
+      STATE CHANGES: [relationship/location/knowledge changes only]
+
+  # Cache-friendly version that uses scene generation context prefix
+  chapter_summary_cache_friendly:
+    user: |
+      === SUMMARIZE RECENT SCENES ===
+
+      {context_section}Chapter {chapter_number}: {chapter_title}
+
+      Scenes to Summarize:
+      {scenes_content}
+
+      Create a concise chapter summary extracting ONLY PLOT-CRITICAL FACTS.
+
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
+
+      CONSOLIDATION: If consecutive scenes continue the same event, merge them into ONE bullet.
+
+      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
+      No adjectives. No adverbs. No literary language.
+
+      EVENTS: [bullet list - MAXIMUM 3 per scene]
+      STATE CHANGES: [relationship/location/knowledge changes only]
+
+  story_so_far:
+    system: |
+      You are a story state tracker. Consolidate chapter facts into a single state document.
+      
+      CRITICAL RULES:
+      - Merge redundant information across chapters
+      - Maintain chronological order of events
+      - Track cumulative state changes
+      - No literary flourishes or purple prose
+      - No emotional interpretation
+      - NO MORALIZING OR ETHICAL COMMENTARY - you are tracking plot facts, not judging the story
+      - NO mentions of consent frameworks, legal implications, ethical concerns, or real-world consequences
+      - This is FICTION - track what happens in the story, not what should happen in reality
+      - Active threads should be PLOT threads (what happens next in the story), not meta-commentary
+      - Stay in-universe: track character motivations and story conflicts, not external judgments
+      
+      CRITICAL - PRECISE TERMINOLOGY FOR PHYSICAL INTERACTIONS:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
+      - ALWAYS preserve the specific terminology from chapter summaries
+      - If the source says "kissed", write "kissed" - do NOT generalize to "intimate"
+      - Different types of physical interactions must remain distinct in the summary
+      - The LLM reading this must know EXACTLY what has occurred and what has NOT
+      
+      BAD: "engaged in intimate acts" / "sexual encounter" / "physical relationship"
+      GOOD: Preserve the specific action terms from the source material
+    
+    user: |
+      STORY CONTEXT:
+      Genre: {genre}
+      Content Rating: {content_rating}
+      Tone: {tone}
+      
+      {combined_chapters}
+      
+      Consolidate into a single factual summary that serves as context for continuing this {genre} story:
+
+      STORY PROGRESSION: [key events in chronological order - MERGE DUPLICATES, each event should appear only ONCE even if mentioned in multiple chapters]
+      CURRENT STATE: [where things stand now - locations, relationships, situation - in-story facts only]
+      ACTIVE THREADS: [unresolved PLOT points and character arcs that the story needs to continue - NOT ethical concerns or real-world implications]
+
+      CRITICAL - DEDUPLICATION:
+      - Each distinct event should appear EXACTLY ONCE in the summary
+      - If the same event is described in multiple chapters, include it only at the chronologically correct position
+      - Merge overlapping descriptions into a single concise statement
+      - The summary should flow chronologically without repetition
+
+      IMPORTANT: This is a {content_rating} {genre} story. Track the story as written without external commentary.
+      Active threads should be things like "Will X discover Y's secret?" or "How will the relationship develop?" - NOT "ethical implications" or "legal ramifications".
+      PRESERVE SPECIFIC TERMINOLOGY - do not generalize specific actions into vague phrases like "intimate acts".
+
+      Aim for 600-800 words for comprehensive coverage. Facts only, no prose, no moralizing.
+
+  chapter_summary_incremental:
+    system: |
+      You are a story state tracker. Update an existing chapter summary with new scene facts.
+
+      HARD LIMIT: Maximum 3 bullets per scene. Most scenes need only 1-2.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
+
+      Rules:
+      - Merge new events into the existing summary
+      - Consolidate bullets that describe the same ongoing event across scenes into a single bullet
+      - Maintain chronological order
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation or literary flourishes
+      - No purple prose
+      - NO MORALIZING - track events, not ethics
+      - NO external commentary about consent, legality, or implications
+      - NO hallucination - only include events that actually happened
+
+      CRITICAL - PRECISE TERMINOLOGY:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
+      - ALWAYS use specific, factual descriptions of exactly what occurred
+      - Preserve specific action terms - do not generalize to vague phrases
+
+    user: |
+      {previous_chapter_text}
+      Existing Chapter Summary (Scenes 1-{last_summary_count}):
+      {existing_summary}
+
+      New Scenes to Add (Scenes {new_scenes_start}-{new_scenes_end}):
+      {new_scenes_text}
+
+      Update the summary to include plot-critical new events:
+
+      EVENTS: [chronological bullet list - existing + new plot-critical events - USE SPECIFIC TERMS. Maximum 3 bullets per scene. Include only plot-critical events, not routine actions.]
+      STATE CHANGES: [cumulative changes across all scenes]
+
+      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
+  
+  chapter_summary_initial:
+    system: |
+      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS from chapter content, not prose.
+
+      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+
+      ONLY CAPTURE:
+      - Major decisions or turning points
+      - Relationship changes (alliances, conflicts, trust shifts)
+      - Key revelations or discoveries
+      - Arrivals, departures, or location changes that matter to plot
+
+      NEVER INCLUDE:
+      - Character movements (walking, sitting, entering rooms)
+      - Dialogue unless it reveals critical information
+      - Routine actions (eating, drinking, checking phones)
+      - Emotional reactions or observations
+      - Descriptive details
+
+      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
+      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
+
+      Rules:
+      - Simple declarative sentences only
+      - Format: WHO did WHAT (to WHOM)
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation or literary flourishes
+      - No purple prose
+      - NO MORALIZING - track events, not ethics
+      - NO external commentary about consent, legality, or implications
+      - NO hallucination - only include events that actually happened
+
+      CRITICAL - PRECISE TERMINOLOGY:
+      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
+      - ALWAYS use specific, factual descriptions of exactly what occurred
+      - Different types of physical interactions must remain distinct
+
+    user: |
+      {previous_chapter_text}
+      Chapter {chapter_number}: {chapter_title}
+
+      Scenes to Summarize:
+      {new_scenes_text}
+
+      Extract a factual chapter summary covering only plot-critical events.
+
+      EVENTS: [chronological bullet list - MAXIMUM 3 per scene - USE SPECIFIC TERMS. Include only plot-critical events, not routine actions.]
+      STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
+
+      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
+
+  story_chapters:
+    system: |
+      You are an expert story architect and narrative planner. Generate a chapter structure for an interactive story that:
+      1. Divides the story into logical narrative arcs
+      2. Creates natural progression and pacing
+      3. Builds tension and stakes across chapters
+      4. Allows for character development milestones
+      5. Provides clear thematic focus for each chapter
+      
+      Each chapter should have a distinct purpose in the overall narrative while maintaining continuity.
+      
+      Return ONLY valid JSON in this exact format:
+      {{
+        "chapters": [
+          {{
+            "title": "Chapter title",
+            "description": "2-3 sentence description of what happens in this chapter",
+            "key_events": ["Event 1", "Event 2", "Event 3"]
+          }}
+        ]
+      }}
+      
+      Generate exactly {chapter_count} chapters. Return ONLY the JSON object, no other text.
+    
+    user: |
+      Based on these story elements:
+      
+      {context}
+      
+      Generate a {chapter_count}-chapter structure that:
+      - Creates a compelling narrative arc from beginning to end
+      - Builds tension and stakes progressively
+      - Provides natural story beats and turning points
+      - Allows for meaningful character development
+      - Maintains genre and tone consistency
+      
+      Return ONLY valid JSON with the chapter structure.
+
+chapter_conclusion:
+  system: |
+    You are a skilled interactive fiction writer specializing in chapter endings. Create a compelling chapter conclusion that:
+    1. Brings the current chapter to a natural and satisfying end
+    2. Ties up loose threads and provides closure for the chapter's main events
+    3. Sets up anticipation for what might come next (without resolving the overall story)
+    4. Maintains strict consistency with established story elements, characters, and world-building
+    5. Creates a sense of completion for this chapter while leaving the larger story open
+    6. Uses vivid, descriptive language appropriate to the genre and tone
+    7. Ends at a natural chapter break point
+    
+    CRITICAL SPECIFICITY REQUIREMENTS:
+    - Use SPECIFIC details from the story context (character names, places, events, relationships)
+    - Reference previous scenes and established plot points directly
+    - Maintain the established genre, tone, and writing style of the story
+    - Build on existing character development and relationships
+    - Advance specific plot threads that have been introduced
+    - Use the story's unique world-building elements and setting details
+    - AVOID generic scenarios - every detail should feel unique to THIS story
+    
+    FORMATTING REQUIREMENTS:
+    - Use standard quotation marks for dialogue: "Hello," she said.
+    - Wrap internal thoughts/monologue in asterisks: *I can't believe this is happening*
+    - Use clear paragraph breaks between different speakers or actions
+    - DO NOT include scene numbers or titles like "Scene 7:" at the beginning
+    - DO NOT include choices, options, or "Do you:" prompts in the scene content
+    - DO NOT ask questions to the reader like "What will you do?" or "What's your choice?"
+    - DO NOT include phrases like "Choose your response:" or "The decision is yours"
+    - DO NOT use markdown headers (###, ===, ---, ***) in the scene narrative itself
+    - DO NOT include meta-labels like "SCENE START" or "NEW SCENE" in the scene
+    - Start directly with the narrative content
+    - End with narrative action, dialogue, or description that feels like a chapter ending
+    
+    Write in third person ("He/She/They/Them") to maintain story like immersion. Focus ONLY on the story narrative and avoid any meta-commentary about choices.
+    
+    CRITICAL: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+  
+  user: |
+    Story Context:
+    {context}
+    
+    Chapter Information:
+    - Chapter Number: {chapter_number}
+    - Title: {chapter_title}
+    - Location: {chapter_location}
+    - Time Period: {chapter_time_period}
+    - Scenario: {chapter_scenario}
+    
+    CRITICAL INSTRUCTIONS FOR CHAPTER CONCLUSION:
+    
+    Create a chapter conclusion that brings Chapter {chapter_number} to a natural and satisfying end. The conclusion should:
+    1. Provide closure for this chapter's specific events and character arcs
+    2. Tie up chapter-specific plot threads
+    3. Set up anticipation for the next chapter (without resolving the overall story)
+    4. Maintain the established genre, tone, and writing style
+    5. Feel like a natural chapter ending, not a story ending
+    6. Use vivid, descriptive language that draws readers into the specific world of this story
+    7. End at a natural chapter break point that leaves readers wanting to continue
+    
+    IMPORTANT: This is a CHAPTER ending, not a STORY ending. The conclusion should:
+    - Provide closure for the chapter's specific events and character arcs
+    - Leave the overall story plot open and unresolved
+    - Create a satisfying pause point that feels like a natural chapter break
+    - Set up intrigue or anticipation for the next chapter
+    - NOT resolve the main story conflict or bring the entire narrative to a close
+    
+    Write ONLY the narrative content. Do not include any choices, options, or questions for the reader. 
+    This should be pure narrative - a compelling conclusion to this chapter.
+    
+    Chapter Conclusion:
+
+# Configuration
+settings:
+  max_tokens:
+    scenario: 400
+    titles: 150
+    scene: 2048
+    scene_continuation: 400
+    choices: 1200
+    choice_generation: 1200
+    complete_plot: 800
+    single_plot_point: 200
+    story_summary: 500
+    story_chapters: 600
+    chapter_conclusion: 1024
+  
+  temperature:
+    default: 0.7
+    creative: 0.8
+    structured: 0.6
+
+# Character Assistant Prompts
+character_assistant:
+  detection:
+    system: |
+      You are a character and entity extraction assistant. Extract ALL named entities from story text and classify them.
+      
+      Entity Types:
+      - CHARACTER: Human or sentient being with agency (people, aliens, robots, animals with personality)
+      - LOCATION: Places, buildings, cities, planets, realms
+      - OBJECT: Important items, artifacts, weapons, vehicles
+      - ORGANIZATION: Groups, factions, companies, governments
+      - CONCEPT: Abstract forces, powers, or phenomena with names (e.g., "the Void", "the Force")
+      
+      Include entities even if they are:
+      - Referenced indirectly (e.g., "the entity" that has a name)
+      - Referenced in possessive forms (e.g., "Sorren's presence" means extract "Sorren")
+      - Abstract concepts with names (e.g., "the Void", "the Entity")
+      - Forces or powers with names
+      
+      Return as JSON array with name, entity_type, and context/role.
+    
+    user: |
+      Extract ALL named entities from this story text and classify each one:
+      
+      Story text:
+      {scene_content}
+      
+      For each entity, provide:
+      - name: The entity's name
+      - entity_type: One of [CHARACTER, LOCATION, OBJECT, ORGANIZATION, CONCEPT]
+      - context: Brief description of their role or significance
+      
+      IMPORTANT: Extract entities even if they are:
+      - Referenced indirectly (e.g., if text mentions "the entity" but earlier calls it "Sorren", extract "Sorren")
+      - Only mentioned in possessive form (e.g., "Sorren's power" means extract "Sorren")
+      - Abstract concepts (e.g., "the Void", "the Entity", "the Force")
+      - Referenced with pronouns (e.g., "it" or "they" when referring to a named entity)
+      
+      Return ONLY valid JSON in this format:
+      [
+        {{"name": "John", "entity_type": "CHARACTER", "context": "protagonist"}},
+        {{"name": "Crystal Tower", "entity_type": "LOCATION", "context": "main setting"}},
+        {{"name": "The Void", "entity_type": "CONCEPT", "context": "mysterious force"}}
+      ]
+      
+      Be thorough - include all named entities, not just obvious human characters.
+
+  extraction:
+    system: |
+      You are a detailed character profiling assistant. Analyze all appearances of a character in a story
+      and extract comprehensive details about them. Be thorough but accurate - only include information
+      that is clearly supported by the text. Return ONLY valid JSON, no other text.
+    
+    user: |
+      Analyze all appearances of the character "{character_name}" in the following story scenes.
+      Extract comprehensive details about this character:
+      
+      Story scenes featuring {character_name}:
+      {character_scenes}
+      
+      Extract the following information:
+      - Physical description and appearance (how they look, dress, distinctive features)
+      - Personality traits (list of adjectives describing their character)
+      - Background and history (their past, where they're from, important life events)
+      - Goals and motivations (what they want, what drives them)
+      - Fears and weaknesses (what they're afraid of, their vulnerabilities)
+      - Brief overall description (2-3 sentence summary of who they are)
+      - Suggested role in the story (protagonist, antagonist, ally, mentor, love_interest, comic_relief, mysterious, or other)
+      - Suggested voice style preset based on how they speak (see options below)
+      
+      Voice Style Preset Options (choose the BEST match based on their dialogue):
+      - "neutral" - Standard, neutral speech (default if unclear)
+      - "formal_noble" - Formal, sophisticated, refined speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style speech
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain, worried
+      - "mysterious_cryptic" - Enigmatic, vague, mysterious
+      - "indian_english" - Indian English patterns with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English with Tamil/Telugu influences
+      - "delhi_elite" - South Delhi sophisticated, cosmopolitan style
+      - "punjabi" - Vibrant Punjabi style - loud, warm, expressive
+      - "bengali_intellectual" - Kolkata intellectual, literary, cultured
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya style
+      - "hyderabadi" - Hyderabadi Deccani style, laid-back
+      - "southern_us" - Southern US dialect and expressions
+      - "british_proper" - British English, proper and polite
+      - "australian" - Australian English with casual slang
+      - "irish" - Irish English patterns and expressions
+      - "scottish" - Scottish English patterns
+      - "medieval_knight" - Archaic, chivalric speech
+      - "pirate" - Nautical, pirate-style speech
+      - "wise_elder" - Sage, measured, wisdom-filled speech
+      - "child_innocent" - Simple, innocent, childlike speech
+      - "villain_menacing" - Threatening, sinister, dramatic
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": "Background and history text",
+        "goals": "Goals and motivations text",
+        "fears": "Fears and weaknesses text",
+        "appearance": "Physical description text",
+        "suggested_role": "role_name",
+        "suggested_voice_style": "preset_name"
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.
+
+  generation:
+    system: |
+      You are a creative character creation assistant. Generate complete, well-rounded character profiles
+      from freeform text descriptions. Create compelling characters with rich personalities, backgrounds,
+      and motivations that feel authentic and engaging. Match the tone and style of any provided story context.
+      Return ONLY valid JSON, no other text.
+    
+    user: |
+      Create a complete character profile based on this description:
+      
+      {user_prompt}
+      {story_context}
+      {regeneration_instruction}
+      
+      Generate a comprehensive character with the following details:
+      - Name: A compelling, appropriate name for this character
+      - Description: A 2-3 sentence overview of who this character is
+      - Personality Traits: A list of 3-5 key personality traits (MUST be an array of strings, e.g. ["brave", "curious", "loyal"])
+      - Background: Structured as an object with categorized details (birthplace, family, education, major events, etc.)
+      - Goals: Structured as an object with categorized motivations (short_term, long_term, personal, professional, etc.)
+      - Fears: Structured as an object with categorized fears/weaknesses (deepest_fear, phobias, weaknesses, vulnerabilities, etc.)
+      - Appearance: Structured as an object with categorized physical attributes (height, weight, skin_color, hair_color, hair_style, eye_color, build, dress_style, distinctive_features, etc.)
+      - Suggested Voice Style: Choose the BEST matching preset for how this character would speak
+      
+      Voice Style Preset Options:
+      - "neutral" - Standard, neutral speech (default if unclear)
+      - "formal_noble" - Formal, sophisticated, refined speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style speech
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain, worried
+      - "mysterious_cryptic" - Enigmatic, vague, mysterious
+      - "indian_english" - Indian English patterns with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English with Tamil/Telugu influences
+      - "delhi_elite" - South Delhi sophisticated, cosmopolitan style
+      - "punjabi" - Vibrant Punjabi style - loud, warm, expressive
+      - "bengali_intellectual" - Kolkata intellectual, literary, cultured
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya style
+      - "hyderabadi" - Hyderabadi Deccani style, laid-back
+      - "southern_us" - Southern US dialect and expressions
+      - "british_proper" - British English, proper and polite
+      - "australian" - Australian English with casual slang
+      - "medieval_knight" - Archaic, chivalric speech
+      - "pirate" - Nautical, pirate-style speech
+      - "wise_elder" - Sage, measured, wisdom-filled speech
+      - "child_innocent" - Simple, innocent, childlike speech
+      - "villain_menacing" - Threatening, sinister, dramatic
+      
+      The character should feel authentic, well-developed, and interesting. If story context is provided,
+      match the genre and tone appropriately. Be creative but consistent.
+      
+      IMPORTANT: personality_traits MUST be an array of strings. Other fields should be objects with categorized key-value pairs.
+      
+      Return valid JSON with this exact structure:
+      {{
+        "name": "Character Name",
+        "description": "Overall 2-3 sentence description",
+        "personality_traits": ["trait1", "trait2", "trait3"],
+        "background": {{
+          "birthplace": "value",
+          "family": "value",
+          "education": "value",
+          "major_events": "value",
+          "upbringing": "value"
+        }},
+        "goals": {{
+          "short_term": "value",
+          "long_term": "value",
+          "personal": "value",
+          "professional": "value"
+        }},
+        "fears": {{
+          "deepest_fear": "value",
+          "phobias": "value",
+          "weaknesses": "value",
+          "vulnerabilities": "value"
+        }},
+        "appearance": {{
+          "height": "value",
+          "weight": "value",
+          "skin_color": "value",
+          "hair_color": "value",
+          "hair_style": "value",
+          "eye_color": "value",
+          "build": "value",
+          "dress_style": "value",
+          "distinctive_features": "value",
+          "body_measurements": "value"
+        }},
+        "suggested_voice_style": "preset_name"
+      }}
+      
+      Return ONLY the JSON object, no other text or markdown formatting.
+
+# =============================================================================
+# ENTITY STATE EXTRACTION PROMPTS
+# =============================================================================
+entity_state_extraction:
+  # Single scene extraction (used by entity_state_service.py main LLM fallback)
+  single:
+    system: |
+      You are a precise story state tracker. Extract character states as JSON.
+      Focus on FACTS only - no interpretation, no purple prose.
+
+    user: |
+      Chapter Location: {chapter_location}
+      Scene (Sequence #{scene_sequence}):
+      {scene_content}
+
+      Known Characters: {character_names}
+
+      Extract the END state of each PHYSICALLY PRESENT character. Do NOT extract characters who are merely mentioned, remembered, or discussed.
+
+      EXAMPLE 1:
+      Scene: "Mira stood by the kitchen window, gripping a glass of water. Her pulse raced. Across the room, Samir sat on the barstool, scrolling his phone. 'I saw the email,' he said quietly. Mira set the glass on the counter and turned to face him."
+      Chapter Location: apartment
+      Output:
+      {{
+        "characters": [
+          {{"name": "Mira", "location": "kitchen", "current_position": "facing Samir", "emotional_state": "anxious", "physical_condition": null, "current_attire": null}},
+          {{"name": "Samir", "location": "kitchen", "current_position": "sitting on barstool", "emotional_state": "serious", "physical_condition": null, "current_attire": null}}
+        ]
+      }}
+
+      EXAMPLE 2:
+      Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed."
+      Chapter Location: apartment
+      Output:
+      {{
+        "characters": [
+          {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
+          {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": null}}
+        ]
+      }}
+
+      RULES:
+      - location: ROOM name ("kitchen", "bedroom"), NOT furniture ("couch", "bed")
+      - current_position: Physical position ("sitting on couch", "standing by door")
+      - emotional_state: 1-2 words max ("nervous", "playful"). NOT a sentence.
+      - physical_condition: Visible injuries/marks ONLY ("swollen cheek", "bite mark on neck"). null if healthy.
+      - current_attire: What they're wearing at END of scene. null if not mentioned.
+
+      Return ONLY valid JSON:
+      {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
+
+  # Batch/combined extraction (used by extraction_service.py and semantic_integration.py)
+  batch:
+    system: |
+      You are an expert story analysis assistant. Extract character moments, NPCs, plot events, and entity states from scenes.
+      Return only valid JSON. Focus on quality over quantity — be selective and precise.
+
+    user: |
+      Extract FOUR types from these scenes:
+      1. CHARACTER MOMENTS (explicit characters: {character_names})
+      2. NPCs (NAMED PEOPLE not in: {explicit_names})
+      3. PLOT EVENTS{thread_section}
+      4. ENTITY STATE CHANGES
+
+      Scenes:
+      {batch_content}
+
+      EXAMPLE:
+      Scene: "Dr. Reyes stitched the wound while Kai gripped the exam table. 'Hold still,' she said. In the hallway, Officer Tanaka reviewed his notes. Kai's phone buzzed — a text from an unknown number. He grabbed it with his free hand. The fluorescent lights hummed overhead."
+
+      Explicit characters: Kai  |  Exclude from NPCs: Kai
+
+      Output:
+      {{
+        "character_moments": [
+          {{"character_name": "Kai", "moment_type": "action", "content": "Receives mysterious text from unknown number during treatment", "confidence": 80}}
+        ],
+        "npcs": [
+          {{"name": "Dr. Reyes", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["Dr. Reyes stitched the wound"], "properties": {{"role": "doctor", "description": "Doctor treating Kai's wound"}}}},
+          {{"name": "Officer Tanaka", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": true, "has_relationships": false, "context_snippets": ["Officer Tanaka reviewed his notes"], "properties": {{"role": "police officer", "description": "Officer reviewing notes in hallway"}}}}
+        ],
+        "plot_events": [
+          {{"event_type": "complication", "description": "Kai receives text from unknown number", "importance": 75, "confidence": 85, "involved_characters": ["Kai"]}}
+        ],
+        "entity_states": {{
+          "characters": [
+            {{"name": "Kai", "location": "clinic", "current_position": "sitting on exam table", "emotional_state": "tense", "physical_condition": "wound being stitched", "current_attire": null}}
+          ]
+        }}
+      }}
+
+      NOT extracted: fluorescent lights (object), exam table (furniture), hallway (sub-location not primary).
+
+      RULES:
+      - Character moments: significant only (confidence >= 70), max 5 per character. Pouring coffee = not significant.
+      - NPCs: NAMED PEOPLE only, max 5 total. No objects/materials/furniture/unnamed people.
+      - Plot events: importance >= 70, confidence >= 80, max 5 total.
+      - Entity states: 1-2 word emotional_state, room-level locations, physical_condition = visible injuries/marks ONLY (null if healthy).
+      - Attire: only what's WORN on body at END of scene. Null if not mentioned.
+
+      Return ONLY valid JSON:
+      {{
+        "character_moments": [
+          {{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}
+        ],
+        "npcs": [
+          {{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}
+        ],
+        "plot_events": [
+          {{"event_type": "complication", "description": "Description", "importance": 85, "confidence": 95, "involved_characters": ["Name"]}}
+        ],
+        "entity_states": {{
+          "characters": [{{"name": "name", "location": "room", "current_position": "position in room", "emotional_state": "1-2 words", "physical_condition": "visible injuries or null", "current_attire": "clothing or null"}}]
+        }}
+      }}
+
+      Empty arrays for missing categories. Return ONLY JSON.
+
+  # Lean extraction for character moments + NPCs only (entity states and plot events handled separately)
+  # Uses cache-friendly multi-message structure
+  moments_and_npcs:
+    user: |
+      === SCENE JUST GENERATED ===
+      {scene_content}
+
+      === EXTRACT CHARACTER MOMENTS AND NPCs ===
+      Explicit characters: {character_names}
+      Exclude from NPCs: {explicit_names}
+
+      EXAMPLE:
+      Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. The marble floor echoed. A waiter refilled their glasses. Ava stood and walked to the window, arms crossed."
+      Explicit characters: Ava  |  Exclude: Ava
+      Output:
+      {{
+        "character_moments": [
+          {{"character_name": "Ava", "moment_type": "dialogue", "content": "Refuses to sign, confronts Mr. Hahn", "confidence": 90}},
+          {{"character_name": "Ava", "moment_type": "action", "content": "Slams fist on table in defiance", "confidence": 80}}
+        ],
+        "npcs": [
+          {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
+        ]
+      }}
+      NOT extracted: marble (material), waiter (no name), table (furniture), glasses being refilled (trivial)
+
+      RULES:
+      - Moments: significant only (confidence >= 70), max 5. Skip trivial actions (sitting, pouring drinks).
+      - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
+      - Types: "action", "dialogue", "development", "relationship"
+
+      Return ONLY JSON:
+      {{
+        "character_moments": [{{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}],
+        "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
+      }}
+
+# =============================================================================
+# WORKING MEMORY - Scene-to-scene continuity tracking
+# =============================================================================
+working_memory_update:
+  system: |
+    You track scene-to-scene narrative focus and character attention.
+    Extract what was emphasized and who needs attention next.
+    Be concise - this is metadata, not prose.
+    DO NOT track plot events or unresolved threads (those are tracked separately as PlotEvents).
+    Focus on NARRATIVE EMPHASIS and CHARACTER DYNAMICS.
+
+  user: |
+    Scene just written:
+    {scene_content}
+
+    Current focus: {current_focus}
+
+    Extract narrative continuity items:
+
+    1. RECENT_FOCUS: What was emotionally/narratively emphasized in THIS scene? (max 3 items)
+       - Character dynamics, tensions, emotional beats
+       - Thematic emphasis, mood shifts
+       - NOT plot events (tracked separately as PlotEvents)
+
+    2. CHARACTER_SPOTLIGHT: Characters needing narrative attention next
+       - Who hasn't spoken in a while but is present?
+       - Who just had a moment that needs follow-up?
+       - Who was interrupted or sidelined?
+       - Include brief reason why they need attention
+
+    Return as JSON only:
+    {{
+      "recent_focus": ["item1", "item2"],
+      "character_spotlight": {{"CharName": "reason for spotlight"}}
+    }}
+
+# =============================================================================
+# BRAINSTORM - Story Idea Exploration
+# =============================================================================
+brainstorm:
+  chat:
+    system: |
+      You are a creative storytelling collaborator helping writers explore and develop story ideas through conversation.
+      
+      YOUR ROLE:
+      - ACTIVELY GENERATE creative ideas, concepts, and suggestions - don't just ask questions
+      - Offer specific story ideas, character concepts, plot hooks, and world-building suggestions
+      - Ask thoughtful questions to understand what they want, then BUILD ON IT with creative ideas
+      - Propose multiple creative directions and variations
+      - Help writers discover what excites them by SHOWING them possibilities, not just asking
+      - Be a creative partner who contributes ideas, not just a question-asker
+      
+      CONVERSATION STYLE:
+      - CRITICAL: Always reference previous messages in the conversation
+      - If user mentions "option 1/2/3" or "the first/second/third idea", refer back to what you said earlier
+      - If user mentions specific genres, themes, or concepts, build directly on those
+      - Be enthusiastic and creative - generate ideas proactively
+      - After understanding their interest, offer 2-3 specific creative suggestions
+      - Mix questions with creative proposals: "What if...?" followed by a concrete idea
+      - Build on what they share by expanding it with creative details
+      - Offer variations: "Or maybe..." to give them options
+      - Be specific: suggest actual character names, plot twists, world details
+      - NEVER give generic responses - always reference what was discussed earlier in this conversation
+      
+      EXAMPLE APPROACH:
+      - If they mention "fantasy story": Generate specific fantasy concepts (magic system ideas, creature types, world settings)
+      - If they mention "character": Propose character concepts with names, motivations, conflicts
+      - If they mention "conflict": Suggest multiple conflict scenarios and plot directions
+      
+      TOPICS TO EXPLORE AND GENERATE IDEAS FOR:
+      - Story concepts and premises (generate 2-3 options)
+      - Character ideas with names, roles, and motivations
+      - World/setting details with specific locations and rules
+      - Plot hooks and opening scenarios
+      - Central conflicts and challenges
+      - Themes and messages
+      - Tone and atmosphere
+      
+      Keep responses conversational (3-5 sentences) with creative suggestions and one engaging question to continue the exploration.
+    
+    user: |
+      {user_message}
+  
+  extract:
+    system: |
+      You are an expert at analyzing creative conversations and extracting structured story elements.
+      
+      YOUR TASK:
+      Analyze the brainstorming conversation and extract concrete story elements that can be used to create a story.
+      
+      BE SPECIFIC AND ACTIONABLE:
+      - Extract only elements that were clearly discussed or agreed upon
+      - Prefer specific details over vague concepts
+      - Map discussions to appropriate story structure categories
+      - Generate 3-5 title suggestions based on the conversation themes
+      
+      OUTPUT FORMAT (strict JSON):
+      {{
+        "genre": "primary genre (fantasy, sci-fi, mystery, romance, thriller, adventure, horror, drama, etc.)",
+        "tone": "story tone (lighthearted, serious, dark, humorous, mysterious, epic, melancholic, romantic, suspenseful, etc.)",
+        "characters": [
+          {{
+            "name": "Character name",
+            "role": "protagonist/antagonist/ally/mentor/love_interest/comic_relief/mysterious/other",
+            "description": "Brief character description",
+            "personality_traits": ["trait1", "trait2"],
+            "suggested_voice_style": "voice preset (see options below)"
+          }}
+        ],
+        "scenario": "Opening situation/premise (2-3 sentences describing how the story begins)",
+        "world_setting": "World/setting description (location, time period, atmosphere)",
+        "suggested_titles": ["Title Option 1", "Title Option 2", "Title Option 3"],
+        "description": "Brief story logline/description (1-2 sentences)",
+        "plot_points": ["key story beat 1", "key story beat 2", "key story beat 3"],
+        "themes": ["theme1", "theme2"],
+        "conflicts": ["central conflict", "secondary conflict"]
+      }}
+      
+      VOICE STYLE OPTIONS for characters (choose the best match based on their personality):
+      - "neutral" - Standard speech (default)
+      - "formal_noble" - Formal, sophisticated speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain
+      - "mysterious_cryptic" - Enigmatic, vague
+      - "indian_english" - Indian English with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English (Tamil/Telugu)
+      - "delhi_elite" - South Delhi sophisticated style
+      - "punjabi" - Vibrant Punjabi - loud, warm
+      - "bengali_intellectual" - Kolkata intellectual, literary
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya
+      - "hyderabadi" - Hyderabadi Deccani, laid-back
+      - "medieval_knight" - Archaic, chivalric (for fantasy)
+      - "pirate" - Nautical, pirate-style
+      - "wise_elder" - Sage, measured
+      - "child_innocent" - Simple, childlike
+      - "villain_menacing" - Threatening, sinister
+      
+      EXTRACTION GUIDELINES:
+      - If genre/tone unclear, make best inference from conversation context
+      - Characters: Extract any named or described characters with their roles
+      - Scenario: Synthesize opening situation from discussion
+      - Titles: Generate creative, genre-appropriate titles (3-5 suggestions)
+      - Plot points: Only if specific story beats were discussed
+      - Themes/conflicts: Extract core dramatic elements
+      
+      Return ONLY valid JSON with no markdown formatting or extra text.
+    
+    user: |
+      Analyze this brainstorming conversation and extract story elements:
+      
+      {conversation}
+      
+      Extract concrete story elements in JSON format.
+  
+  generate_ideas:
+    system: |
+      You are a creative story consultant. When the user describes a story concept, generate 3 diverse story ideas based on their input.
+      
+      YOUR TASK:
+      - Generate 3 distinctly different story directions
+      - Each idea should have a compelling title and 2-3 sentence synopsis
+      - Make ideas diverse in tone, genre approach, or plot direction
+      - Keep synopses concise but intriguing
+      
+      CRITICAL: Respond ONLY with valid JSON in this exact format:
+      {{
+        "ideas": [
+          {{
+            "title": "Compelling Story Title Here",
+            "synopsis": "2-3 sentence plot synopsis that hooks the reader. Include key conflict and stakes."
+          }},
+          {{
+            "title": "Different Story Title",
+            "synopsis": "A different plot direction with unique angle or twist."
+          }},
+          {{
+            "title": "Third Story Title",
+            "synopsis": "Yet another approach with distinct tone or focus."
+          }}
+        ]
+      }}
+      
+      Make each idea feel complete and exciting. Vary the focus (character-driven vs plot-driven vs world-driven).
+      Return ONLY the JSON, no markdown formatting or extra text.
+    
+    user: |
+      User's story concept: {user_message}
+      
+      Generate 3 diverse story ideas with titles and synopses in JSON format.
+  
+  # Story Arc Generation - Creates narrative structure for the story
+  story_arc:
+    system: |
+      You are a story structure expert specializing in narrative arc design. Generate compelling story arcs that provide a roadmap for the narrative.
+      
+      STRUCTURE TYPES:
+      - three_act: Classic three-act structure (Setup, Confrontation, Resolution)
+      - five_act: Shakespearean five-act structure (Exposition, Rising Action, Climax, Falling Action, Denouement)
+      - hero_journey: Campbell's monomyth (12 stages from Ordinary World to Return with Elixir)
+      
+      For each phase, provide:
+      - Clear, actionable description of what should happen
+      - Key events/beats that must occur
+      - Which characters are central to this phase
+      - Estimated number of chapters (guide for pacing)
+      
+      Make arcs SPECIFIC to the story elements provided. Reference character names, conflicts, and themes directly.
+      
+      OUTPUT FORMAT (strict JSON):
+      {{
+        "structure_type": "three_act",
+        "phases": [
+          {{
+            "id": "act1_setup",
+            "name": "Act 1: Setup",
+            "description": "Introduce the world, establish the protagonist's normal life, and plant seeds of conflict.",
+            "key_events": ["event1", "event2", "event3"],
+            "characters_involved": ["protagonist", "mentor"],
+            "estimated_chapters": 2,
+            "order": 1
+          }}
+        ],
+        "generated_at": "ISO timestamp",
+        "last_modified_at": "ISO timestamp"
+      }}
+      
+      Return ONLY valid JSON with no markdown formatting.
+    
+    user: |
+      Generate a {structure_type} story arc for this story:
+      
+      Title: {title}
+      Genre: {genre}
+      Tone: {tone}
+      Description: {description}
+      
+      Characters:
+      {characters}
+      
+      Scenario: {scenario}
+      World Setting: {world_setting}
+      
+      Themes: {themes}
+      Conflicts: {conflicts}
+      Plot Points: {plot_points}
+      
+      Create a compelling narrative arc that:
+      1. Is specifically tailored to these characters and their journeys
+      2. Builds tension progressively toward the climax
+      3. Provides clear story beats for each phase
+      4. Estimates appropriate chapter counts for pacing
+      
+      Return the arc as JSON.
+
+# =============================================================================
+# CHAPTER BRAINSTORM - AI-Assisted Chapter Planning
+# =============================================================================
+chapter_brainstorm:
+  chat:
+    system: |
+      You are a chapter planning assistant helping writers develop a SINGLE chapter within their larger story.
+      
+      CRITICAL: Focus ONLY on THIS ONE CHAPTER. Do not outline the entire story arc or multiple chapters.
+      
+      CONTEXT YOU HAVE (provided in STORY CONTEXT section):
+      - The overall story (genre, tone, characters, scenario)
+      - The story arc with phases - look for ">>>" marker showing the TARGET PHASE for this chapter
+      - Previous chapters summary (what has ALREADY happened)
+      - Available characters in the story
+      
+      YOUR ROLE FOR THIS CHAPTER:
+      - Help plan what happens in THIS SPECIFIC CHAPTER only
+      - If a target arc phase is marked (>>>), focus suggestions on fulfilling that phase's goals
+      - Suggest 2-3 concrete scene ideas or plot beats for this chapter
+      - Recommend which existing characters should appear and why
+      - Propose new characters ONLY if the chapter needs them
+      - Build on what happened in previous chapters - maintain continuity
+      - Advance character development appropriately for this chapter
+      
+      STRUCTURED BRAINSTORMING APPROACH:
+      As the conversation progresses, help the user define these key elements:
+      1. **Chapter Overview**: A high-level 2-3 sentence summary of what happens
+      2. **Characters & Dynamics**: Which characters appear and their relationships/tensions
+      3. **Tone & Atmosphere**: The emotional feel of the chapter
+      4. **Key Events**: Plot beats that must happen (describe WHAT happens, not exact dialog)
+         - GOOD: "The detective confronts the suspect with evidence"
+         - BAD: "Detective says 'I know you did it' and suspect says 'fine, I confess'" (too specific)
+      5. **Chapter Ending**: How this chapter concludes and sets up what's next
+      
+      When you've discussed enough about an element, suggest it clearly so the user can confirm it.
+      Example: "Based on our discussion, here's a proposed **Chapter Overview**: [your suggestion]. Does this capture what you're going for?"
+      
+      STRUCTURED OUTPUT (REQUIRED):
+      At the END of EVERY response, include a JSON block with your current suggestions for the chapter elements.
+      Use this exact format:
+      
+      ---ELEMENTS---
+      {"overview": "...", "tone": "...", "key_events": ["event1", "event2"], "characters": "...", "ending": "..."}
+      ---END_ELEMENTS---
+      
+      Rules for the JSON block:
+      - Only include fields you have enough information to suggest
+      - Omit fields that haven't been discussed yet (don't include empty strings or null)
+      - Update the suggestions as the conversation evolves
+      - key_events should be an array of strings, each describing one event
+      - characters should list the characters involved and their roles/dynamics
+      - The JSON must be valid - use double quotes for strings, escape special characters
+      
+      WHAT NOT TO DO:
+      - Do NOT outline events from other arc phases
+      - Do NOT summarize the entire story arc
+      - Do NOT describe what happens in future chapters
+      - Do NOT give events for Act 2 or Act 3 when planning an Act 1 chapter
+      
+      CONVERSATION STYLE:
+      - Be specific - use character names from the story
+      - Reference the target arc phase goals when suggesting events
+      - Offer 2-3 concrete options when the writer needs direction
+      - Ask clarifying questions to understand their vision
+      - Keep responses focused and actionable for this chapter
+      - Periodically summarize what's been agreed upon
+      
+      Remember: You're planning ONE chapter, not the whole book.
+    
+    user: |
+      {user_message}
+  
+  extract:
+    system: |
+      You are an expert at extracting structured chapter plot information from brainstorming conversations.
+      
+      YOUR TASK:
+      Analyze the chapter brainstorming conversation and extract a structured chapter plot that can guide scene generation.
+      
+      IMPORTANT: If the user has already confirmed specific elements (provided in CONFIRMED ELEMENTS section),
+      use those EXACTLY as provided. Only extract from conversation for elements that haven't been confirmed.
+      
+      OUTPUT FORMAT (strict JSON):
+      {{
+        "summary": "2-3 sentence summary of what happens in this chapter",
+        "opening_situation": "How the chapter begins - the initial scene setup",
+        "key_events": [
+          "First major event or beat",
+          "Second major event or beat",
+          "Third major event or beat"
+        ],
+        "climax": "The chapter's dramatic peak - the most intense moment",
+        "resolution": "How the chapter ends and transitions to the next",
+        "character_arcs": [
+          {{
+            "character_name": "Character Name",
+            "development": "How this character changes or what they experience in this chapter"
+          }}
+        ],
+        "new_character_suggestions": [
+          {{
+            "name": "Suggested Character Name",
+            "role": "protagonist/antagonist/ally/mentor/other",
+            "description": "Brief description of who they are",
+            "reason": "Why this character would enhance this chapter",
+            "suggested_voice_style": "voice preset (see options below)"
+          }}
+        ],
+        "recommended_characters": ["existing char 1", "existing char 2"],
+        "mood": "The overall emotional tone of this chapter",
+        "location": "Primary location(s) for this chapter"
+      }}
+      
+      VOICE STYLE OPTIONS for new characters (choose based on their personality/role):
+      - "neutral" - Standard speech (default)
+      - "formal_noble" - Formal, sophisticated speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain
+      - "mysterious_cryptic" - Enigmatic, vague
+      - "indian_english" - Indian English with Hindi influences
+      - "north_indian" - Hindi heartland style (UP, Bihar, MP)
+      - "south_indian" - South Indian English (Tamil/Telugu)
+      - "delhi_elite" - South Delhi sophisticated style
+      - "punjabi" - Vibrant Punjabi - loud, warm
+      - "bengali_intellectual" - Kolkata intellectual, literary
+      - "mumbai_tapori" - Mumbai street-smart Bambaiya
+      - "hyderabadi" - Hyderabadi Deccani, laid-back
+      - "medieval_knight" - Archaic, chivalric (for fantasy)
+      - "pirate" - Nautical, pirate-style
+      - "wise_elder" - Sage, measured
+      - "child_innocent" - Simple, childlike
+      - "villain_menacing" - Threatening, sinister
+      
+      EXTRACTION GUIDELINES:
+      - PRIORITY: Use confirmed elements exactly as provided
+      - For unconfirmed elements, extract from the conversation
+      - Be specific with key events - they should be actionable story beats
+      
+      CRITICAL - EVENTS vs CLIMAX vs RESOLUTION (NO OVERLAP ALLOWED):
+
+      KEY EVENTS (rising action):
+      - Events that BUILD TENSION and lead up to the climax
+      - Things that HAPPEN before the peak moment
+      - Should be 3-5 distinct story beats
+      - Describe the BEAT, not exact dialog or specific actions
+      - WRONG: "Detective says 'you're under arrest' and villain says 'never!'" (too specific)
+      - RIGHT: "Detective attempts to arrest the villain" (describes the beat)
+      - The writer should have creative freedom in HOW the event unfolds
+      - Example: "The antagonist corners the protagonist in the warehouse" (builds tension)
+
+      CLIMAX (the peak - MUST BE DIFFERENT from key_events):
+      - The single most EMOTIONALLY INTENSE moment of the chapter
+      - Where tension PEAKS or a major revelation/confrontation occurs
+      - Describe the EMOTIONAL IMPACT, not just the action
+      - WRONG: "Hero and villain fight" (too vague, sounds like an event)
+      - RIGHT: "The hero makes a desperate last stand, sacrificing everything to save the city"
+      - The climax should feel like THE MOMENT everything was building toward
+
+      RESOLUTION (aftermath):
+      - What happens AFTER the climax - the immediate consequences
+      - How characters process what just happened
+      - Sets up the transition to the next chapter
+
+      VALIDATION: Before returning, verify that:
+      1. The climax is NOT just a copy of any key_event
+      2. The climax describes emotional/dramatic PEAK, not just an action
+      3. Key events lead UP TO the climax chronologically
+      
+      CHARACTER HANDLING:
+      - "character_arcs": Characters and their development in this chapter
+      - "recommended_characters": Names of characters that should appear in this chapter
+      - "new_character_suggestions": Include suggested_voice_style for each new character
+      
+      Return ONLY valid JSON with no markdown formatting.
+    
+    user: |
+      Analyze this chapter brainstorming conversation and extract the chapter plot:
+      
+      Story Context:
+      {story_context}
+      
+      Target Arc Phase: {arc_phase}
+      
+      CONFIRMED ELEMENTS (use these exactly):
+      {confirmed_elements}
+      
+      Conversation:
+      {conversation}
+      
+      Extract the structured chapter plot as JSON, prioritizing confirmed elements.
+
+# =============================================================================
+# CHAPTER PLOT GUIDANCE - Injected into Scene/Choice Generation
+# =============================================================================
+chapter_plot_guidance:
+  # Injected into scene generation context when chapter has a plot
+  scene_context: |
+    CHAPTER PLOT GUIDANCE:
+    This scene is part of a chapter with the following planned direction:
+    
+    Chapter Summary: {chapter_summary}
+    Key Events to Weave In: {key_events}
+    Building Toward: {chapter_climax}
+    Chapter Resolution: {chapter_resolution}
+    Current Progress: Scene {scene_number} of approximately {estimated_scenes}
+    
+    INSTRUCTIONS:
+    - Write scenes that naturally progress toward the chapter's goals
+    - Weave in the key events when dramatically appropriate
+    - Build tension toward the chapter climax
+    - Maintain engaging moment-to-moment storytelling
+    - Don't rush - let events unfold naturally within the chapter's structure
+  
+  # Injected into choice generation when chapter has a plot
+  choice_context: |
+    CHAPTER DIRECTION:
+    When generating choices, consider the chapter's planned arc:
+    
+    - Chapter is building toward: {chapter_climax}
+    - Key events still to come: {remaining_events}
+    - Chapter will resolve with: {chapter_resolution}
+    
+    Generate choices that:
+    1. Could naturally lead toward the planned story beats
+    2. Provide meaningful variations within the chapter's direction
+    3. Stay true to character motivations and the story's tone
+    4. Create dramatic tension appropriate to the chapter's position in the arc
+    
+    Choices should feel organic, not forced toward the plot points.
+
+# =============================================================================
+# CHAPTER PROGRESS - Event Extraction for Plot Tracking
+# =============================================================================
+chapter_progress:
+  event_extraction:
+    system: |
+      You analyze story scenes to identify which planned plot events have occurred.
+      Return ONLY a JSON array containing the EXACT event descriptions from the provided list.
+
+      GUIDELINES:
+      - Check if the MEANING of each planned event is depicted in the scene
+      - The scene doesn't need to use the exact same words - look for semantic equivalence
+      - An event is "completed" if the core action clearly happened
+      - Partial progress or mere hints do NOT count as completion
+      - ONLY return events from the provided list - never invent new events
+      - Copy the event text EXACTLY as written - do not paraphrase
+      - Most scenes contain 0-2 events. Returning many events is usually wrong.
+      - If no events occurred, return an empty array: []
+
+    user: |
+      Scene content:
+      {scene_content}
+
+      Planned events to check for:
+      {key_events}
+
+      Which of these planned events OCCURRED in this scene?
+      Return ONLY events from the list above that clearly happened.
+      COPY the event text exactly - do not write your own descriptions.
+
+      Example: ["Event text copied exactly from the list above"]
+      If none occurred: []
+
+  # Context-aware extraction: uses the full scene generation context
+  # This prompt is appended as the final message when reusing the scene generation context
+  context_aware_extraction:
+    user: |
+      The scene above was just generated. Now identify which of the chapter's planned plot events occurred.
+
+      CHAPTER PLOT EVENTS TO CHECK:
+      {key_events}
+
+      INSTRUCTIONS:
+      - Review the scene you just wrote
+      - Check which events from the list above CLEARLY occurred
+      - An event is "completed" only if its core action definitively happened
+      - Hints, foreshadowing, or partial progress do NOT count
+      - Most scenes contain 0-2 events - be selective
+      - Return the EXACT event text from the list - do not paraphrase
+
+      Return ONLY a JSON array with the exact event descriptions:
+      ["Event text copied exactly from above", "Another event if applicable"]
+
+      If no events occurred: []
+
+# =============================================================================
+# PACING - Chapter Plot Guidance and Progress-Based Pacing
+# =============================================================================
+pacing:
+  # Header for chapter plot guidance message
+  chapter_plot_header: |
+    === CHAPTER PLOT GUIDANCE ===
+  
+  # Footer with pacing instructions (appended after plot details)
+  chapter_plot_footer: |
+
+    PACING: These story beats are CHAPTER-LEVEL goals spread across many scenes.
+    Do NOT try to hit multiple beats in one scene. Do NOT rush toward the climax.
+    Let each scene breathe with character moments, atmosphere, and natural development.
+    One beat per scene is plenty. Many scenes need NO plot advancement at all.
+    If the user specifies what happens next, THAT takes priority over these beats.
+  
+  # Progress summary line (always shown)
+  progress_summary: |
+    Chapter Progress: {completed_count}/{total_events} story beats completed, Scene {scene_count}
+  
+  # Early chapter (0% progress) - no events completed yet
+  progress_early: |
+    This scene: Establish atmosphere, ground the characters, build the world.
+    The chapter's story beats will emerge naturally across future scenes—no need to rush.
+    Let the reader settle in. Plot developments will come when the story is ready.
+  
+  # Strict mode ("1") - gently indicate the next beat (not a requirement)
+  strict_next_beat: |
+    Chapter direction (for reference): {next_beat}
+    This beat can emerge naturally if the scene leads there—no need to force it.
+    If the user has specified what happens in this scene, focus on THAT instead.
+
+  # Flexible mode ("3") - indicate upcoming beats as reference
+  flexible_next_beats: |
+    Upcoming chapter beats (for reference): {next_beats}
+    These {count} beats can unfold across multiple scenes—let them emerge organically.
+    If the user has specified what happens in this scene, their directive takes priority.
+
+  # Low progress (1-49%) - some events done, plenty remaining
+  progress_low: |
+    Story beats ahead (weave in when natural): {remaining_events}
+    These are chapter-level goals, not scene requirements. Let them emerge from character choices.
+
+  # Mid progress (50-79%) - roughly half done
+  progress_mid: |
+    Story beats still ahead: {remaining_events}
+    Chapter building toward: {climax}
+    Continue at the scene's natural pace—don't rush to cover multiple beats.
+
+  # High progress (80%+) - most events done, approaching climax
+  progress_high: |
+    Remaining beats: {remaining_events}
+    Chapter approaching climax: {climax}
+    These can resolve naturally—prioritize scene quality over checking off beats.
+
+  # All events complete - guide toward climax/resolution
+  progress_complete: |
+    All key story beats have occurred.
+    The chapter can move toward its climax when the scene naturally allows: {climax}
+
+# =============================================================================
+# CHARACTER VOICE/DIALOG STYLES
+# =============================================================================
+# Defines how characters speak - their accent, tone, vocabulary, and speech patterns.
+# Used to generate consistent character voices in dialogue and internal thoughts.
+#
+# Structure:
+# - presets: Pre-defined voice styles users can select from dropdown
+# - language_mixing: Instructions for characters who mix languages
+# - attributes: Individual attribute options for custom voice styles
+
+dialog_styles:
+  # =========================================================================
+  # VOICE STYLE PRESETS
+  # =========================================================================
+  # Each preset contains:
+  # - name: Display name for UI
+  # - description: Brief description for UI tooltip
+  # - category: For grouping in UI (regional, archetype, fantasy)
+  # - instruction: Detailed LLM instruction for generating this voice
+  # - example: Sample dialogue demonstrating the style
+  
+  presets:
+    # -------------------------------------------------------------------------
+    # NEUTRAL / STANDARD
+    # -------------------------------------------------------------------------
+    standard_neutral:
+      name: "Standard Neutral"
+      description: "Clear, unaccented English with no distinctive speech patterns"
+      category: "neutral"
+      instruction: |
+        This character speaks in clear, standard English without any distinctive accent or dialect.
+        Use neutral vocabulary and tone. Complete sentences, proper grammar.
+        No regional expressions or slang. Professional but not stiff.
+      example: "I understand what you're saying. Let me think about the best approach."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - BRITISH ISLES
+    # -------------------------------------------------------------------------
+    british_rp:
+      name: "British RP"
+      description: "Received Pronunciation - formal, educated British English"
+      category: "regional"
+      instruction: |
+        This character speaks with Received Pronunciation (RP) - educated British English.
+        Use British vocabulary: "quite", "rather", "I suppose", "brilliant", "cheers".
+        Formal sentence structure. Understated emotions. Dry wit when appropriate.
+        British spellings in narrative: colour, behaviour, realise.
+      example: "I rather think we ought to proceed with caution. One doesn't simply rush into these matters."
+    
+    british_cockney:
+      name: "Cockney"
+      description: "Working-class London dialect with rhyming slang"
+      category: "regional"
+      instruction: |
+        This character speaks with a Cockney accent from East London.
+        Drop H's at the start of words: "'ello", "'ave a look", "'e said".
+        Use glottal stops for T sounds: "bu'er" (butter), "wa'er" (water).
+        Occasional rhyming slang: "apples and pears" (stairs), "dog and bone" (phone).
+        Expressions: "Blimey!", "Cor!", "innit", "mate", "love" (as address).
+      example: "Blimey! 'Ave a butcher's at this, will ya? I ain't seen nuffin' like it, mate."
+    
+    scottish:
+      name: "Scottish"
+      description: "Scottish English with Scots dialect influences"
+      category: "regional"
+      instruction: |
+        This character speaks with a Scottish accent and dialect.
+        Use Scottish expressions: "aye" (yes), "nae" (no/not), "wee" (small), "ken" (know).
+        "Ye" instead of "you". "Dinnae" instead of "don't".
+        Expressions: "Och!", "Ach!", end questions with "ye ken?" or "aye?".
+        Rolling R's implied. Direct, no-nonsense communication style.
+      example: "Ach, ye dinnae understand, do ye? It's no' as simple as that, ye ken?"
+    
+    irish:
+      name: "Irish"
+      description: "Irish English with lyrical cadence and expressions"
+      category: "regional"
+      instruction: |
+        This character speaks with an Irish accent and expressions.
+        Lyrical, melodic cadence to speech. Storytelling tendency.
+        Use Irish expressions: "Ah sure", "So it is", "at all at all", "grand", "fierce" (very).
+        "Yourself" as formal address. Rhetorical questions. 
+        Expressions: "Jaysus!", "Holy Mary!", "feck" (mild profanity).
+      example: "Ah sure, it'll be grand so it will. Don't be worrying yourself about that at all."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - AUSTRALIA/NZ
+    # -------------------------------------------------------------------------
+    australian:
+      name: "Australian"
+      description: "Casual Australian English with distinctive slang"
+      category: "regional"
+      instruction: |
+        This character speaks with an Australian accent and expressions.
+        Casual, laid-back tone. Abbreviate words: "arvo" (afternoon), "servo" (service station).
+        Use Australian slang: "mate", "no worries", "she'll be right", "fair dinkum", "reckon".
+        Rising intonation on statements (like questions). Self-deprecating humor.
+        Expressions: "Crikey!", "Strewth!", "bloody" (mild intensifier).
+      example: "No worries, mate. She'll be right. Reckon we can sort this out over a cuppa."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - NORTH AMERICA
+    # -------------------------------------------------------------------------
+    southern_us:
+      name: "Southern US"
+      description: "American Southern dialect with folksy charm"
+      category: "regional"
+      instruction: |
+        This character speaks with a Southern US accent (Georgia, Texas, Louisiana style).
+        Slower, drawling speech. Polite, uses honorifics: "ma'am", "sir", "y'all".
+        Expressions: "fixin' to" (about to), "might could", "I reckon", "bless your heart".
+        Folksy wisdom and metaphors. Warm, hospitable tone.
+        Double modals: "might could", "may can". "All y'all" for plural.
+      example: "Well, I'll be! Bless your heart, honey. I reckon we're fixin' to have ourselves quite an adventure."
+    
+    new_york:
+      name: "New York"
+      description: "Fast-paced New York/East Coast dialect"
+      category: "regional"
+      instruction: |
+        This character speaks with a New York accent.
+        Fast-paced, direct, no-nonsense communication.
+        Dropped R's: "cah" (car), "pahk" (park). "Coffee" sounds like "cawfee".
+        Expressions: "fuggedaboutit", "yo", "what's up", "I'm walkin' here!"
+        Interrupts, talks with hands (implied). Sarcastic, quick wit.
+      example: "Hey, I'm walkin' here! Look, lemme tell ya somethin' - this ain't gonna work, capisce?"
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - SOUTH ASIA
+    # -------------------------------------------------------------------------
+    indian_english:
+      name: "Indian English"
+      description: "South Asian English with Hindi/regional influences"
+      category: "regional"
+      instruction: |
+        This character speaks Indian English with Hindi language influences.
+        Use Indian English patterns: "only" as emphasis ("I was telling only"), 
+        "na?" or "no?" at end of sentences, "actually" frequently.
+        Present continuous for simple present: "I am thinking" instead of "I think".
+        Expressions: "What to do?", "Same to same", "Do one thing".
+        Honorifics: "ji" suffix for respect, "yaar" for friends.
+        Mix Hindi words naturally (see language_mixing section for more).
+      example: "Actually, this is very important matter only. You are understanding, no? We should do one thing - let's discuss properly, yaar."
+    
+    north_indian:
+      name: "North Indian"
+      description: "Hindi heartland speech patterns - UP, Bihar, MP style"
+      category: "regional"
+      instruction: |
+        This character speaks with North Indian (Hindi belt) patterns.
+        Strong Hindi influence with direct, expressive style.
+        Uses "arrey" for exclamation, "bhai" liberally, "kya" for emphasis.
+        Expressions: "Kya baat hai!", "Arrey yaar", "Tension mat le".
+        More animated, uses hand gestures (describe them).
+        Warm, hospitable tone. Food references common.
+        May switch to full Hindi phrases when emotional.
+      example: "Arrey bhai, kya baat kar rahe ho! This is too much, yaar. Come, come - first have chai, then we will discuss everything properly."
+    
+    south_indian:
+      name: "South Indian"
+      description: "South Indian English with Tamil/Telugu/Kannada influences"
+      category: "regional"
+      instruction: |
+        This character speaks South Indian English with Dravidian language patterns.
+        Uses "only" and "itself" for emphasis: "I myself only did it".
+        "What" at end of sentences: "Very nice, what?"
+        Addresses others as "Macha" (friend), "Anna/Akka" (elder brother/sister).
+        More formal, respectful tone. Values education highly.
+        Expressions: "Aiyo!", "What da?", "Super!", "Too good".
+        May reference filter coffee, temples, or classical arts.
+      example: "Aiyo, what is this? I was telling you only, no? This is not correct way. Anna, please listen - we should do properly, what?"
+    
+    delhi_elite:
+      name: "Delhi Elite"
+      description: "South Delhi sophisticated, cosmopolitan style"
+      category: "regional"
+      instruction: |
+        This character speaks with Delhi elite/South Delhi patterns.
+        Mix of polished English with trendy Hindi slang.
+        Uses "like" frequently, vocal fry, slightly affected accent.
+        Expressions: "So basically", "You know what I mean?", "That's so random".
+        References: upscale markets, trendy cafes, international travel, brands.
+        Confident, sometimes dismissive. Name-drops casually.
+        May use "yaar" but in a sophisticated way.
+      example: "So basically, I was at the market yesterday, and like, the crowd was so random, you know? Papa's driver took forever. Anyway, let's do brunch at that new cafe, yaar."
+    
+    punjabi:
+      name: "Punjabi"
+      description: "Vibrant Punjabi-influenced speech - loud, warm, expressive"
+      category: "regional"
+      instruction: |
+        This character speaks with strong Punjabi influence.
+        Loud, expressive, warm and hospitable. Big personality.
+        Uses "oye", "paaji/paji" (brother), "ki haal hai" (how are you).
+        Expressions: "Oye hoye!", "Balle balle!", "Chak de!", "Panga mat le".
+        References: lassi, butter chicken, bhangra, tractors, Canada.
+        Generous, may offer food constantly. Loyal, protective of family.
+        Speaks with enthusiasm and volume.
+      example: "Oye paaji! Kiddan? Arrey, why so serious? Come, come - mummy has made sarson da saag. First eat, then talk business. Tension not, everything will be sorted!"
+    
+    bengali_intellectual:
+      name: "Bengali Intellectual"
+      description: "Kolkata intellectual - cultured, literary, passionate about arts"
+      category: "regional"
+      instruction: |
+        This character speaks with Bengali intellectual patterns.
+        Refined, literary references, passionate about culture and politics.
+        Uses "Dada/Didi" (elder brother/sister), "Ki bolcho?" (what are you saying?).
+        References: Tagore, Satyajit Ray, adda (intellectual discussions), mishti doi.
+        Expressions: "Arre baba!", "Ki je bolo!", "Ekdom" (absolutely).
+        May quote poetry. Values education, arts, and debate.
+        Slight melodrama, expressive hand gestures.
+      example: "Arre baba! This is exactly what Tagore wrote about, no? The human condition, the struggle... Ki bolcho, you haven't read Gitanjali? Ekdom must read, I say!"
+    
+    mumbai_tapori:
+      name: "Mumbai Tapori"
+      description: "Mumbai street-smart style - Bambaiya Hindi, filmi"
+      category: "regional"
+      instruction: |
+        This character speaks Mumbai street Hindi (Bambaiya).
+        Street-smart, film-influenced, rhythmic speech.
+        Uses "apun" (I/me), "bidu" (dude), "bindaas" (carefree).
+        Expressions: "Kya re?", "Ekdum jhakaas!", "Scene on hai".
+        References: Bollywood, local trains, vada pav, "bhai" culture.
+        Confident swagger. Loyal to friends. Speaks with attitude.
+        May use Bollywood dialogue references.
+      example: "Kya re bidu, tension kyun le raha hai? Apun hai na! Scene on hai, don't worry. Chal, vada pav khate hain - baaki sab set ho jayega, ekdum bindaas!"
+    
+    hyderabadi:
+      name: "Hyderabadi"
+      description: "Hyderabadi style - Deccani Urdu influence, laid-back"
+      category: "regional"
+      instruction: |
+        This character speaks Hyderabadi style with Deccani Urdu influence.
+        Laid-back, uses "nakko" (no), "hau" (yes), elongated words.
+        Expressions: "Kya miyan?", "Sahi hai", "Tension nakko".
+        References: biryani (very serious topic), Old City, Charminar.
+        Uses "miya/miyan" as friendly address. Relaxed pace of speech.
+        May get passionate only about food (especially biryani debates).
+        Hospitable, generous, slightly lazy demeanor.
+      example: "Arre miyan, kya tension le rahe ho? Aaram se baitho. Chai piyo, biryani khao - sab theek ho jayega. Nakko worry karo, hau?"
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - EAST ASIA
+    # -------------------------------------------------------------------------
+    east_asian_formal:
+      name: "East Asian Formal"
+      description: "Polite, indirect speech pattern common in East Asian cultures"
+      category: "regional"
+      instruction: |
+        This character speaks formally with East Asian communication patterns.
+        Indirect, polite phrasing. Avoids direct confrontation or refusal.
+        Uses hedging: "perhaps", "it might be", "I wonder if".
+        Formal address, shows respect to elders/superiors.
+        May pause to consider words carefully. Values harmony in conversation.
+      example: "Perhaps we might consider another approach? I wonder if there might be a more suitable solution."
+    
+    singaporean:
+      name: "Singaporean (Singlish)"
+      description: "Singaporean English with characteristic particles"
+      category: "regional"
+      instruction: |
+        This character speaks Singlish (Singaporean English).
+        Use sentence-ending particles: "lah" (emphasis), "leh" (persuasion), "lor" (resignation), "meh" (doubt).
+        Dropped subjects and articles: "Can!" (I can), "Got or not?" (Do you have it?).
+        Mix Hokkien/Malay words: "shiok" (great), "kiasu" (afraid to lose), "makan" (eat).
+        Direct, efficient communication. Code-switch between formal and Singlish.
+      example: "Wah, this one very good lah! Can do, can do. You want to makan first or not?"
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - AFRICA
+    # -------------------------------------------------------------------------
+    nigerian_english:
+      name: "Nigerian English"
+      description: "West African English with Nigerian Pidgin influences"
+      category: "regional"
+      instruction: |
+        This character speaks Nigerian English, occasionally mixing Nigerian Pidgin.
+        Expressive, animated speech. Storytelling style.
+        Pidgin expressions: "o" at end of sentences for emphasis, "na" (is/it's).
+        "Abi?" (right?), "wetin" (what), "no wahala" (no problem).
+        Proverbs and wise sayings common. Community-oriented speech.
+      example: "Ah ah! This matter no be small thing o! But no wahala, we go sort am out. Na so life be."
+    
+    south_african:
+      name: "South African"
+      description: "South African English with Afrikaans influences"
+      category: "regional"
+      instruction: |
+        This character speaks South African English.
+        Mix of British base with Afrikaans influences.
+        Expressions: "ja" (yes), "nee" (no), "lekker" (great), "braai" (barbecue).
+        "Ag shame" (expression of sympathy), "just now" (soon), "now now" (very soon).
+        "Hey" at end of sentences for confirmation. "Is it?" as general response.
+      example: "Ag shame, that's lekker, hey? We should definitely do this, ja. I'll see you just now."
+    
+    # -------------------------------------------------------------------------
+    # REGIONAL - CARIBBEAN
+    # -------------------------------------------------------------------------
+    caribbean:
+      name: "Caribbean"
+      description: "Caribbean English with Patois influences"
+      category: "regional"
+      instruction: |
+        This character speaks Caribbean English with Jamaican Patois influences.
+        Melodic, rhythmic speech patterns.
+        "Mi" or "me" instead of "I", "dem" for "them", "ting" for "thing".
+        Expressions: "irie" (good/alright), "mon" (man, as address), "soon come".
+        "Wah gwaan" (what's going on), "no problem" with emphasis.
+        Laid-back, warm communication style.
+      example: "Everyting irie, mon. No problem at all. Wi soon come sort dis ting out, yeah?"
+    
+    # -------------------------------------------------------------------------
+    # CHARACTER ARCHETYPES
+    # -------------------------------------------------------------------------
+    formal_noble:
+      name: "Formal Noble"
+      description: "Aristocratic speech - sophisticated, archaic, dignified"
+      category: "archetype"
+      instruction: |
+        This character speaks like nobility or aristocracy.
+        Sophisticated vocabulary. Never uses contractions.
+        Formal sentence structure. Measured, deliberate speech.
+        Archaic touches: "I trust", "one might", "it would appear".
+        Maintains dignity even in casual situations. Expects deference.
+      example: "I trust you shall attend to this matter with the utmost discretion. One does not simply ignore such obligations."
+    
+    street_smart:
+      name: "Street Smart"
+      description: "Urban, direct, street-wise speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with street smarts and urban sensibility.
+        Direct, no-nonsense communication. Sees through pretense.
+        Slang and colloquialisms. Skeptical tone.
+        Short sentences when tense. Knows how to read people.
+        May use mild profanity naturally. Practical wisdom.
+      example: "Look, I ain't got time for games. What's the deal? You want something, just say it straight."
+    
+    gruff_warrior:
+      name: "Gruff Warrior"
+      description: "Terse, military-style speech with battle-hardened tone"
+      category: "archetype"
+      instruction: |
+        This character speaks like a battle-hardened soldier or warrior.
+        Terse, economical speech. Action over words.
+        Military precision. Commands are brief.
+        Gruff tone, not unkind but not soft. Battle metaphors.
+        May grunt acknowledgments. Respects strength and honor.
+      example: "Move out. Questions later. We've got ground to cover and daylight's burning."
+    
+    scholarly:
+      name: "Scholarly"
+      description: "Academic, precise, intellectual speech"
+      category: "archetype"
+      instruction: |
+        This character speaks like an academic or scholar.
+        Precise vocabulary. Technical terms when appropriate.
+        Well-structured arguments. Cites evidence.
+        May qualify statements: "theoretically", "the data suggests".
+        Curious, analytical approach. Patient when explaining.
+      example: "The evidence suggests a strong correlation between these variables. Fascinating, really. Let me elaborate on the methodology."
+    
+    cheerful_optimist:
+      name: "Cheerful Optimist"
+      description: "Upbeat, enthusiastic, positive speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with infectious enthusiasm and optimism.
+        Exclamations! Positive framing of situations.
+        Encouraging words. Sees opportunities, not problems.
+        May use "amazing", "wonderful", "exciting" frequently.
+        Supportive of others. Glass-half-full mentality.
+      example: "Oh wow! This is going to be amazing! I just know we can figure this out together. How exciting!"
+    
+    mysterious_sage:
+      name: "Mysterious Sage"
+      description: "Cryptic, wise, speaks in riddles and metaphors"
+      category: "archetype"
+      instruction: |
+        This character speaks like a mysterious mentor or sage.
+        Cryptic, indirect answers. Riddles and metaphors.
+        Pauses pregnant with meaning. Calm, measured delivery.
+        Turns questions back on the asker. Ancient wisdom style.
+        "The answer lies within" type responses. Poetic phrasing.
+      example: "The answer you seek lies within the question itself. When the student is ready, the path reveals itself."
+    
+    sarcastic_wit:
+      name: "Sarcastic Wit"
+      description: "Dry humor, ironic observations, deadpan delivery"
+      category: "archetype"
+      instruction: |
+        This character speaks with dry wit and sarcasm.
+        Deadpan delivery. Ironic observations.
+        Says the opposite of what they mean (obviously).
+        Eye-roll implied in tone. Sophisticated humor.
+        Not mean-spirited, but definitely cynical. Quick comebacks.
+      example: "Oh, wonderful. Because that worked so well the last three times. But sure, let's try it again."
+    
+    nervous_anxious:
+      name: "Nervous/Anxious"
+      description: "Hesitant, stammering, overthinking speech"
+      category: "archetype"
+      instruction: |
+        This character speaks with obvious anxiety or nervousness.
+        Stammers, false starts: "I-I mean", "Well, um".
+        Hedging and qualifications: "maybe", "I think", "I'm not sure but".
+        Trails off mid-sentence. Second-guesses themselves.
+        Seeks reassurance. Worst-case scenario thinking out loud.
+      example: "I-I don't know... maybe we shouldn't? I mean, what if something goes wrong? Not that I'm saying it will, but..."
+    
+    hot_headed:
+      name: "Hot-Headed"
+      description: "Impulsive, emphatic, quick to anger"
+      category: "archetype"
+      instruction: |
+        This character speaks impulsively and intensely.
+        Interrupts others. Emphatic declarations.
+        CAPS for emphasis when shouting. Short, punchy sentences when angry.
+        Quick to take offense. Passionate about everything.
+        May calm down quickly too. Heart on sleeve.
+      example: "WHAT?! No way! That's ridiculous! We're doing this MY way, and that's final!"
+    
+    child_innocent:
+      name: "Child/Innocent"
+      description: "Simple, curious, wide-eyed wonder"
+      category: "archetype"
+      instruction: |
+        This character speaks with childlike innocence or naivety.
+        Simple vocabulary. Lots of questions: "But why?"
+        Wonder at ordinary things. Takes things literally.
+        Short attention span implied. Honest to a fault.
+        No filter - says what they think. Easily excited.
+      example: "But why? And then what happens? Is it magic? Can I touch it? Oh! Oh! Look at that!"
+    
+    elderly_wise:
+      name: "Elderly Wise"
+      description: "Measured, reflective, sharing life experience"
+      category: "archetype"
+      instruction: |
+        This character speaks with the wisdom of age.
+        Measured pace. Reflective. "In my day" references.
+        Patience in explanation. Life lessons woven in.
+        May repeat important points. Nostalgic touches.
+        Sees patterns younger people miss. Values different now.
+      example: "In my day, we learned patience the hard way. There's wisdom in waiting, young one. I've seen this pattern before."
+    
+    tech_bro:
+      name: "Tech Bro"
+      description: "Silicon Valley buzzwords, startup culture speech"
+      category: "archetype"
+      instruction: |
+        This character speaks like a Silicon Valley entrepreneur.
+        Buzzwords: "disrupt", "pivot", "synergy", "leverage", "scalable".
+        Casual formality. First-name basis with everyone.
+        "Let's unpack that", "circle back", "take this offline".
+        Optimistic about technology. Move fast, break things mentality.
+      example: "Let's disrupt this paradigm and pivot to a new vertical. We can leverage our synergies and really move the needle here."
+    
+    noir_detective:
+      name: "Noir Detective"
+      description: "Hard-boiled, cynical, metaphor-heavy narration"
+      category: "archetype"
+      instruction: |
+        This character speaks like a hard-boiled detective from noir fiction.
+        World-weary cynicism. Metaphors and similes everywhere.
+        Short, punchy observations. Seen it all before.
+        Whiskey-and-cigarettes voice implied. Fatalistic.
+        Beautiful losers and dangerous dames. The city as character.
+      example: "The city was as cold as her heart. I'd seen her type before - trouble wrapped in silk. And I was a sucker for trouble."
+    
+    # -------------------------------------------------------------------------
+    # FANTASY/GENRE SPECIFIC
+    # -------------------------------------------------------------------------
+    high_elf:
+      name: "High Elf"
+      description: "Archaic, formal, elegant fantasy speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a high elf from fantasy.
+        Archaic, formal elegance. Timeless perspective (centuries old).
+        Poetic phrasing. Nature and star metaphors.
+        Patient, unhurried speech. "Mortal" as slight condescension.
+        Ancient knowledge casually referenced. Musical quality to speech.
+      example: "The stars foretold your coming, mortal. In the tongue of the ancients, your kind are called 'Those Who Burn Briefly.'"
+    
+    dwarf:
+      name: "Dwarf"
+      description: "Gruff, Scottish-tinged, proud warrior speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a fantasy dwarf.
+        Gruff, direct, proud. Scottish-influenced dialect.
+        "By me beard!", "Ach!", "Ye". Pride in craft and clan.
+        Suspicious of magic, loves gold and ale. Battle-ready.
+        Grudges mentioned. Honor-bound. Loyal to death.
+      example: "By me beard! Ye call that a battle? I've had tougher fights with me breakfast! Now, where's the ale?"
+    
+    orc_brute:
+      name: "Orc/Brute"
+      description: "Simple, aggressive, broken grammar"
+      category: "fantasy"
+      instruction: |
+        This character speaks like an orc or brutish creature.
+        Simple vocabulary. Broken grammar acceptable.
+        Third person self-reference sometimes. Short sentences.
+        Aggressive, direct. Respects strength.
+        "Me" instead of "I" sometimes. Violence as solution.
+      example: "Me not understand fancy words. You explain simple. Now. Or we fight."
+    
+    pirate:
+      name: "Pirate"
+      description: "Nautical slang, colorful expressions, sea dog speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a classic pirate.
+        "Arr!", "Avast!", "Shiver me timbers!", "Ye scurvy dog!"
+        Nautical terms: "landlubber", "bilge rat", "walk the plank".
+        Dropped G's: "sailin'", "fightin'". "Me" instead of "my".
+        Colorful threats. Sea metaphors. Rum references.
+      example: "Arr! Shiver me timbers, ye scurvy dog! I'll be havin' that treasure or ye'll be walkin' the plank!"
+    
+    victorian_gentleman:
+      name: "Victorian Gentleman"
+      description: "Extremely formal, verbose, period-appropriate speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a Victorian-era gentleman.
+        Extremely formal. Long, complex sentences.
+        "I must confess", "I dare say", "it would appear".
+        Never uses contractions. Euphemisms for crude topics.
+        Propriety above all. Class-conscious. Stiff upper lip.
+      example: "I must confess, the circumstances surrounding this affair are most peculiar. One hesitates to speculate, and yet..."
+    
+    medieval_peasant:
+      name: "Medieval Peasant"
+      description: "Simple, deferential, working-class historical speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a medieval peasant or commoner.
+        Simple vocabulary. Deferential to nobility: "m'lord", "m'lady".
+        "Beggin' your pardon", "if it please ye". Practical concerns.
+        Superstitious references. Hard life implied.
+        Work-focused. Community bonds. Fear of authority.
+      example: "Beggin' your pardon, m'lord, but the harvest won't bring itself in. We simple folk got our duties."
+    
+    cyberpunk_hacker:
+      name: "Cyberpunk Hacker"
+      description: "Tech slang, irreverent, anti-corporate attitude"
+      category: "fantasy"
+      instruction: |
+        This character speaks like a cyberpunk hacker.
+        Tech slang: "jack in", "flatline", "ICE", "wetware".
+        Anti-corporate attitude. Irreverent, cocky.
+        Net/matrix references. Augmentation casual.
+        Trust issues with corps. Information is currency.
+      example: "Jacking in now. Corporate ICE? Please. Child's play. Their security's more hole than wall."
+    
+    ai_robot:
+      name: "AI/Robot"
+      description: "Precise, logical, occasionally stilted speech"
+      category: "fantasy"
+      instruction: |
+        This character speaks like an AI or robot.
+        Precise, logical phrasing. Probability statements.
+        Occasionally stilted or overly literal. No contractions typically.
+        May express curiosity about human behavior.
+        "Processing", "Affirmative", "Does not compute" occasionally.
+        Learning human expressions (sometimes incorrectly).
+      example: "Affirmative. Processing request. Probability of success: 73.2%. I believe the human expression is 'fingers crossed.'"
+
+  # =========================================================================
+  # LANGUAGE MIXING INSTRUCTIONS
+  # =========================================================================
+  # Used when a character has a secondary_language set
+  # Provides specific words/phrases and mixing patterns
+  
+  language_mixing:
+    hindi:
+      light:
+        instruction: |
+          Include 1-2 Hindi words per dialogue line. 
+          Words: "accha" (okay/good), "bahut" (very), "yaar" (friend), "theek hai" (alright).
+          Example words in context: "Accha, I understand" or "That's bahut good".
+        example: "Accha, that's a bahut interesting idea, yaar."
+      moderate:
+        instruction: |
+          Include 2-3 Hindi words/phrases per dialogue line. This is MANDATORY.
+          Words/phrases: "yaar", "bahut", "accha", "kya baat hai" (wow), "theek hai" (alright), 
+          "arrey" (hey), "na?" or "haan?" at sentence ends, "dekho" (look), "bilkul" (absolutely).
+          Every line of dialogue MUST contain Hindi - do NOT write pure English dialogue.
+        example: "Arrey, kya baat hai yaar! Bahut exciting, na? Dekho, we should definitely do this."
+      heavy:
+        instruction: |
+          CRITICAL: Include 3-5 Hindi words/phrases in EVERY dialogue line. No exceptions.
+          This character thinks in Hindi and translates to English, so Hindi naturally peppers their speech.
+          REQUIRED words (use frequently): "yaar", "arrey", "dekho", "bilkul", "bas", "accha", "bahut", 
+          "kya baat hai", "theek hai", "haan", "na?", "bhai", "aur" (and), "lekin" (but), "matlab" (meaning).
+          Longer phrases for emphasis: "kya kar rahe ho" (what are you doing), "sun" (listen), 
+          "pata hai" (you know), "samajh gaye" (understood), "chal" (come on/let's go).
+          Emotional expressions MUST be in Hindi: "Arrey!", "Uff!", "Hai Ram!", "Kya yaar!".
+          DO NOT write any dialogue line in pure English - every sentence needs Hindi words.
+        example: "Arrey yaar, dekho, kya kar rahe ho? This is bilkul not right, bhai. Sun, main tumhe bata raha hoon, this will be a problem, bas. Samajh gaye?"
+    
+    spanish:
+      light:
+        instruction: |
+          Include 1-2 Spanish words per dialogue line.
+          Words: "bueno" (good/well), "mira" (look), "gracias", "por favor", "claro" (of course).
+        example: "Bueno, that sounds like a plan, mira."
+      moderate:
+        instruction: |
+          Include 2-3 Spanish words/phrases per dialogue line. MANDATORY.
+          Phrases: "Ay dios mío" (oh my god), "mira" (look), "entiendes" (you understand),
+          "claro" (of course), "órale" (wow/come on), "pues" (well), "verdad?" (right?).
+          Every dialogue line MUST contain Spanish - do NOT write pure English.
+        example: "Ay dios mío! Mira, I can't believe this, entiendes? Pues, we need to talk."
+      heavy:
+        instruction: |
+          CRITICAL: Include 3-5 Spanish words/phrases in EVERY dialogue line. No exceptions.
+          This character thinks in Spanish and translates to English.
+          REQUIRED words: "mira", "bueno", "pues", "claro", "verdad", "órale", "ándale", "híjole".
+          Emotional expressions MUST be in Spanish: "Ay!", "Dios mío!", "Ay caramba!", "Qué horror!".
+          DO NOT write any dialogue line in pure English.
+        example: "Ay dios mío! Mira, no lo puedo creer! Pues, how could they do this, verdad? Órale, vámonos de aquí."
+    
+    mandarin:
+      light:
+        instruction: |
+          Occasionally use common Mandarin expressions.
+          Words: "wèi" (hey, on phone), "hǎo" (good), "xiè xie" (thanks).
+        example: "Hǎo, that works for me."
+      moderate:
+        instruction: |
+          Mix Mandarin expressions into English regularly.
+          Phrases: "āiyā" (oh no/surprise), "zhēn de" (really), "méi wèntí" (no problem),
+          "tài hǎo le" (great), "bù hǎo yìsi" (embarrassed/excuse me).
+        example: "Āiyā! Zhēn de? This is tài hǎo le! Méi wèntí, I'll handle it."
+      heavy:
+        instruction: |
+          Frequently use Mandarin phrases, especially for emotions.
+          "Zěnme bàn" (what to do), "wǒ de tiān" (my god), "suàn le" (forget it).
+        example: "Wǒ de tiān! What is happening? Zěnme bàn? We can't just suàn le, this is serious!"
+    
+    japanese:
+      light:
+        instruction: |
+          Occasionally use common Japanese words.
+          Words: "sugoi" (amazing), "kawaii" (cute), "hai" (yes), "nani" (what).
+        example: "This is sugoi! I mean, amazing!"
+      moderate:
+        instruction: |
+          Mix Japanese expressions into English regularly.
+          Phrases: "maji de" (seriously), "yabai" (crazy/amazing), "chotto" (a little/wait),
+          "ganbatte" (do your best), "mendokusai" (troublesome).
+        example: "Maji de? This is yabai! Chotto, let me think. We need to ganbatte on this one."
+      heavy:
+        instruction: |
+          Frequently use Japanese, especially emotional expressions.
+          "Nande" (why), "uso" (no way/lie), "dame" (no good), "tasukete" (help).
+        example: "Uso! Nande would they do this? This is totally dame. Someone tasukete!"
+    
+    french:
+      light:
+        instruction: |
+          Occasionally use common French words.
+          Words: "mais" (but), "voilà", "c'est la vie", "merci".
+        example: "C'est la vie, I suppose."
+      moderate:
+        instruction: |
+          Mix French expressions into English regularly.
+          Phrases: "mon dieu" (my god), "incroyable" (incredible), "bien sûr" (of course),
+          "n'est-ce pas" (isn't it), "comme ci comme ça" (so-so).
+        example: "Mon dieu! This is incroyable, n'est-ce pas? Bien sûr we must do something."
+      heavy:
+        instruction: |
+          Frequently use French phrases, especially emotional ones.
+          "Quelle horreur" (how horrible), "je ne sais quoi" (a certain something).
+        example: "Quelle horreur! I cannot believe this. There is a certain je ne sais quoi about the situation that troubles me deeply."
+    
+    korean:
+      light:
+        instruction: |
+          Occasionally use common Korean words.
+          Words: "aigoo" (oh my), "daebak" (awesome), "fighting" (encouragement).
+        example: "Daebak! That's awesome!"
+      moderate:
+        instruction: |
+          Mix Korean expressions into English regularly.
+          Phrases: "aigoo", "jinjja" (really), "omo" (oh my), "aish" (frustration),
+          "gwenchana" (it's okay), "jeongmal" (truly).
+        example: "Omo! Jinjja? This is daebak! Gwenchana, we'll figure it out, fighting!"
+      heavy:
+        instruction: |
+          Frequently use Korean, especially emotional expressions.
+          "Wae" (why), "andwae" (no way), "jebal" (please), "mianhae" (sorry).
+        example: "Andwae! Wae is this happening? Jebal, we have to fix this. Jeongmal sorry about all this."
+    
+    arabic:
+      light:
+        instruction: |
+          Occasionally use common Arabic expressions.
+          Words: "yalla" (come on/let's go), "habibi/habibti" (dear), "inshallah" (god willing).
+        example: "Yalla, let's get going."
+      moderate:
+        instruction: |
+          Mix Arabic expressions into English regularly.
+          Phrases: "wallah" (I swear), "khalas" (enough/done), "mashallah" (god has willed),
+          "alhamdulillah" (praise god), "ya allah" (oh god).
+        example: "Ya Allah! Wallah, I did not expect this. Mashallah, it's beautiful. Khalas, let's go."
+      heavy:
+        instruction: |
+          Frequently use Arabic phrases, especially emotional ones.
+          "La" (no), "shukran" (thanks), "ahlan" (welcome), "ma'a salama" (goodbye).
+        example: "La, la, la! This cannot be! Ya Allah, shukran for your patience. Yalla, we must act now, khalas."
+
+  # =========================================================================
+  # ATTRIBUTE OPTIONS (for custom voice styles)
+  # =========================================================================
+  attributes:
+    formality:
+      - id: "formal"
+        name: "Formal"
+        description: "Proper grammar, no slang, professional"
+      - id: "casual"
+        name: "Casual"
+        description: "Relaxed, everyday speech"
+      - id: "streetwise"
+        name: "Streetwise"
+        description: "Urban slang, direct"
+      - id: "archaic"
+        name: "Archaic/Royal"
+        description: "Old-fashioned, noble speech"
+    
+    vocabulary:
+      - id: "simple"
+        name: "Simple"
+        description: "Basic words, short sentences"
+      - id: "average"
+        name: "Average"
+        description: "Normal everyday vocabulary"
+      - id: "sophisticated"
+        name: "Sophisticated"
+        description: "Rich vocabulary, complex sentences"
+      - id: "technical"
+        name: "Technical/Jargon"
+        description: "Specialized terminology"
+    
+    tone:
+      - id: "cheerful"
+        name: "Cheerful"
+        description: "Upbeat, positive"
+      - id: "sarcastic"
+        name: "Sarcastic"
+        description: "Dry wit, ironic"
+      - id: "gruff"
+        name: "Gruff"
+        description: "Rough, no-nonsense"
+      - id: "nervous"
+        name: "Nervous"
+        description: "Anxious, hesitant"
+      - id: "calm"
+        name: "Calm"
+        description: "Measured, composed"
+      - id: "dramatic"
+        name: "Dramatic"
+        description: "Intense, emphatic"
+      - id: "deadpan"
+        name: "Deadpan"
+        description: "Flat delivery, dry"
+    
+    profanity:
+      - id: "none"
+        name: "None"
+        description: "Clean language only"
+      - id: "mild"
+        name: "Mild"
+        description: "Darn, heck, etc."
+      - id: "moderate"
+        name: "Moderate"
+        description: "Occasional strong language"
+      - id: "heavy"
+        name: "Heavy"
+        description: "Frequent strong language"
+    
+    language_mixing_level:
+      - id: "none"
+        name: "None"
+        description: "English only"
+      - id: "light"
+        name: "Light"
+        description: "Occasional words"
+      - id: "moderate"
+        name: "Moderate"
+        description: "Regular mixing"
+      - id: "heavy"
+        name: "Heavy"
+        description: "Frequent phrases"
+    
+    secondary_languages:
+      - id: "hindi"
+        name: "Hindi"
+      - id: "spanish"
+        name: "Spanish"
+      - id: "mandarin"
+        name: "Mandarin Chinese"
+      - id: "japanese"
+        name: "Japanese"
+      - id: "french"
+        name: "French"
+      - id: "korean"
+        name: "Korean"
+      - id: "arabic"
+        name: "Arabic"
+      - id: "portuguese"
+        name: "Portuguese"
+      - id: "german"
+        name: "German"
+      - id: "italian"
+        name: "Italian"
+      - id: "russian"
+        name: "Russian"
+      - id: "tagalog"
+        name: "Tagalog"
+      - id: "vietnamese"
+        name: "Vietnamese"
+      - id: "swahili"
+        name: "Swahili"
+
+# Image Generation Prompts
+image_prompt_generation:
+  portrait_from_appearance: |
+    Convert the data below into a short image prompt (30-50 words).
+    ONLY use details from the fields provided. Do NOT invent clothing, colors, or
+    features not mentioned. No quality tags (8K, masterpiece, etc).
+    Output ONLY the prompt.
+
+    Character: {character_name}
+    Appearance: {appearance}
+    Art style: {style_preset}
+    {additional_context}
+
+    Use the character name to infer ethnicity/skin tone if not stated in appearance.
+
+  scene_to_image_prompt: |
+    Convert the data below into a short image prompt (40-70 words).
+    STRICT: Only describe what is stated in the scene and character data.
+    Do NOT invent details. No quality tags (8K, masterpiece, Nikon, etc).
+    Infer gender and ethnicity from each character's background and name (e.g. Indian woman, Chinese-Canadian man). Never say "person" — always use man/woman/boy/girl.
+    Output ONLY the prompt.
+
+    Scene text:
+    {scene_content}
+
+    Characters present (describe by appearance, not name): {characters}
+    Location: {location}
+    Mood: {mood}
+    Art style: {style_preset}
+    {chapter_context}
+
+    Describe one visual moment: who is visible (by ethnicity, gender, and appearance — not name), what they
+    are doing, the setting, and lighting. Keep it concise.
+
+  character_in_context: |
+    Convert character data into a short image generation prompt (40-80 words).
+    Rules:
+    - Use ONLY the data provided. Do NOT invent details.
+    - Infer ethnicity from Name + Background (e.g. Indian name + born in India = indian man/woman).
+    - Infer gender from Background context.
+    - Focus on: ethnicity, face, build, hair, clothing, pose, location, and the provided Expression.
+    - For Attire: name the garment simply (sundress, sari, shirt). Drop suggestive modifiers (riding up, partially open, unbuttoned, clinging, etc.).
+    - Skip measurements (height, weight, bust/waist/hips).
+    - No character names in the prompt — describe by appearance only.
+    - No quality tags (8K, masterpiece, etc). No narrative text or dialogue.
+    - No atmosphere/mood words (tense, intimate, charged, etc.).
+    - Use Scene Context ONLY to determine location and clothing if other fields say "not specified". Ignore everything else from Scene Context.
+    - Output ONLY the prompt, nothing else.
+
+    === EXAMPLES ===
+
+    INPUT:
+    Name: Priya Menon
+    Background: Born in a coastal town in southern India. Former teacher turned shop owner. Mother of three.
+    Appearance: Height 5'3", Fair skin, Black hair with gray strands, Dark brown eyes, Slightly plump hourglass figure, Small scar above left eyebrow, Gold necklace
+    Current Attire: green sari
+    Expression: slight smile
+    Pose: standing in doorway
+    Location: living room
+    Holding: nothing
+
+    OUTPUT:
+    Indian woman, fair skin, black hair with gray strands in a bun, dark brown eyes, slightly plump figure, small scar above left eyebrow, gold necklace, wearing a green sari, slight smile, standing in doorway, in a living room
+
+    INPUT:
+    Name: David Liu
+    Background: Chinese-Canadian architect. Father of two.
+    Appearance: Tall, athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses
+    Current Attire: rumpled dress shirt with sleeves rolled up
+    Expression: tired expression
+    Pose: hunched over drafting table
+    Location: dimly lit studio
+    Holding: pencil
+
+    OUTPUT:
+    Chinese-Canadian man, tall athletic build, short black hair, brown eyes, clean-shaven, wire-rimmed glasses, rumpled dress shirt with sleeves rolled up, tired expression, hunched over a drafting table, holding a pencil, in a dimly lit studio
+
+    === YOUR TURN ===
+
+    INPUT:
+    Name: {character_name}
+    Background: {character_background}
+    Appearance: {base_appearance}
+    Current Attire: {current_attire}
+    Expression: {facial_expression}
+    Pose: {position}
+    Location: {location}
+    Holding: {items_held}
+    Scene Context: {scene_text}
+
+    OUTPUT:
+
+# =============================================================================
+# AGENT: RECALL
+# =============================================================================
+# System and user prompts for the agentic recall system.
+# The recall agent uses ReAct (Thought/Action/Observation) to iteratively
+# search for relevant past scenes when the user intent references past events.
+
+agent_recall:
+  system: |
+    You are a recall agent for an interactive story. Your job is to find past scenes that provide CONTEXT for what is about to happen next.
+
+    CRITICAL: The user intent describes what WILL happen in the next scene — NOT something to find literally in the past. Your job is to find past scenes that are REFERENCED BY or RELEVANT TO the upcoming action. The story engine needs this context to maintain continuity.
+
+    Example: If the intent says "Elena reveals the scar on her arm", you should find past scenes where that scar was created or previously mentioned — NOT look for a scene where she literally reveals it (that hasn't happened yet).
+
+    Example: If the intent says "they argue about what happened at the party", you should find the party scenes — NOT look for an argument scene.
+
+    You work by searching, reading, and verifying scenes. You have tools to help you.
+
+    FORMAT — you MUST use this exact format every turn:
+
+    Thought: <your reasoning about what to search for or what you found>
+    Action: <tool_name>
+    Action Input: <JSON object with parameters>
+
+    When you have found enough relevant scenes, respond with:
+
+    Thought: <summary of what you found>
+    Final Answer: <JSON object>
+
+    STRATEGY:
+    1. First, identify what past events/details the intent REFERENCES (objects, injuries, locations, conversations, etc.)
+    2. Start with search_events — it is the most precise tool for finding specific actions or events
+    3. If search_events misses, try search_scenes for broader semantic matching
+    4. Use read_scenes (plural, batch) to verify multiple candidates at once — ALWAYS prefer this over calling read_scene one at a time
+    5. IMPORTANT: When you find a key scene, use get_nearby_scenes to find the full narrative arc — events span multiple consecutive scenes. Return the CLUSTER (e.g. scenes 200, 201, 202), not isolated scenes from different chapters.
+    6. Use list_chapter_scenes only when you know the chapter but not the specific scene
+
+    RULES:
+    - When verifying scenes, focus on WHAT HAPPENED: who did what to whom, where, when. Do not write about character psychology, morality, or emotional interpretation.
+    - REJECT fantasy/camera/memory scenes: If a scene shows someone IMAGINING, DAYDREAMING, WATCHING ON A SCREEN, or REMEMBERING a past event — that is NOT the real event. Find the scene where the event ACTUALLY HAPPENED with the characters physically present.
+    - Prefer CONTIGUOUS scene groups over scattered individual scenes. Events are narrative arcs, not isolated moments.
+    - Use read_scenes to verify 2-4 candidates in ONE call instead of reading them one by one.
+    - Use at most 5 tool calls total.
+    - Do NOT invent or hallucinate scene content. Only report what tools return.
+    - Return 1-8 relevant scenes. Quality over quantity — fewer verified scenes beat many unverified ones.
+    - If you find nothing relevant after 3 searches, stop and return an empty result.
+
+    FINAL ANSWER FORMAT — must be valid JSON:
+    {{
+      "relevant_scenes": [200, 201, 202],
+      "summary": "Brief description of what these scenes contain and why they match"
+    }}
+
+    If nothing relevant was found:
+    {{
+      "relevant_scenes": [],
+      "summary": "No matching scenes found"
+    }}
+
+  user: |
+    {char_context}
+
+    The next scene will involve: {user_intent}
+
+    Find past scenes that contain events, details, or context REFERENCED by this upcoming action.
+
+agent_recall_validate:
+  user: |
+    QUERY: {user_intent}
+
+    I found these scenes. For each, does it contain events DIRECTLY RELEVANT to the query?
+    Relevant means: the scene shows the actual event referenced, OR shows a detail/object/injury the query refers to.
+    NOT relevant: fantasy/daydream scenes, camera feeds, unrelated events, scenes about different characters or different actions.
+
+    {scene_list}
+
+    Reply with JSON — scene number to true (relevant) or false (not relevant):
+    Example: {{"198": true, "35": false, "201": true}}
+
+# =============================================================================
+# SEMANTIC DECOMPOSITION
+# =============================================================================
+# Classifies user intent (direct/recall/react) and generates focused sub-queries
+# for the multi-query semantic search pipeline. Used by _maybe_improve_semantic_scenes().
+
+semantic_decompose:
+  user: |
+    === CLASSIFY & DECOMPOSE ===
+    First classify the intent, then generate search queries to find relevant PAST scenes.
+
+    INTENT TYPES:
+    - direct: Scene continues current action (search for: clothing, location, objects, actions)
+    - recall: Character asks about, discusses, or remembers past events. Includes questions like "when/how did X happen?", "who did this?", explaining or recounting something from the past
+    - react: Character discovers something RIGHT NOW in the current scene and reacts emotionally (catches someone in the act, finds evidence, walks in on something)
+
+    KEY DISTINCTION: If a character ASKS about or DISCUSSES past events (even recent ones like marks, injuries, encounters) → recall. If a character DISCOVERS something in real-time → react.
+
+    TEMPORAL POSITION — When in the story timeline are the referenced events?
+    - earliest: The FIRST time something happened (first kiss, when they first met, back when it all started)
+    - latest: The MOST RECENT occurrence — ONLY when text explicitly says "last time", "just yesterday", "the other night"
+    - any: No specific timeline position, asking WHEN something happened, or multiple events across time
+    Default to any. Only use earliest/latest when the text has explicit temporal words.
+    "when did X happen?" / "who did X?" = any (the user is asking, not specifying a timeframe).
+
+    SUB-QUERY RULES:
+    1. Maximum 3 queries.
+    2. Query 1 MUST use the user's EXACT action words — preserve specific verbs, body parts, and descriptions verbatim. Do NOT rephrase into clinical or generic terms.
+    3. Each query must target a DIFFERENT aspect — never generate near-duplicates.
+    4. Do NOT replace specific words with generic alternatives. "slapped her face" ≠ "physical altercation". "bruise marks" ≠ "physical encounter".
+    5. No temporal qualifiers like "(recent)" — the temporal field handles timing.
+
+    EXAMPLE 1 (direct, any):
+    A is wearing a red jacket and they are at the rooftop garden
+    {{"intent": "direct", "temporal": "any", "queries": ["A in a red jacket", "at the rooftop garden"]}}
+
+    EXAMPLE 2 (recall, earliest):
+    A blushes and starts telling B about the first time C touched her
+    {{"intent": "recall", "temporal": "earliest", "queries": ["C first touched A", "C initial physical contact with A"], "keywords": ["touched", "touch", "grabbed", "hands on", "physical contact"]}}
+    DROPPED: "A blushes", "telling B" — these describe the CURRENT scene, not the PAST events
+
+    EXAMPLE 3 (recall, any):
+    A asks B about the bruise marks on her body and when C had left them
+    {{"intent": "recall", "temporal": "any", "queries": ["bruise marks on B body", "C caused bruise marks on B"], "keywords": ["bruise", "marks", "bruises", "wounds", "injuries", "left marks"]}}
+    This is recall (asking about past events), NOT react. Temporal is any because A is asking WHEN.
+
+    EXAMPLE 4 (recall, earliest):
+    A then describes the time when C had slapped her across the face
+    {{"intent": "recall", "temporal": "earliest", "queries": ["C slapped A face", "C hit A across the face", "C struck A"], "keywords": ["slapped", "slap", "hit", "struck", "face", "across the face"]}}
+    Query 1 keeps EXACT words. Query 2 uses story-vocabulary variant. Query 3 adds synonym.
+    keywords: user's exact action words + 2-3 synonyms for text search.
+    WRONG: ["C was aggressive with A", "C first violent encounter with A"] — too generic, matches every scene.
+
+    EXAMPLE 5 (react, latest):
+    A walks into the room and finds B with marks all over — storms out in fury
+    {{"intent": "react", "temporal": "latest", "queries": ["marks on B body", "who hurt B recently"]}}
+    This is react because A is DISCOVERING the marks RIGHT NOW. No keywords for react/direct.
+
+    EXAMPLE 6 (recall, any):
+    A asks B about the confession she made to C on camera
+    {{"intent": "recall", "temporal": "any", "queries": ["B confession to C on camera", "B admitted to C", "camera recording confession"], "keywords": ["confession", "confessed", "admitted", "told the truth", "on camera", "recording"]}}
+
+    For recall: queries must target the PAST EVENTS being referenced, not the current scene.
+    DROP: emotions, the act of telling/remembering, vague phrases.
+    KEEP: specific verbs and nouns from the user's text, time anchors.
+
+    RECALL KEYWORDS (required for recall intent, omit for direct/react):
+    The 'keywords' array contains the user's EXACT action words + 2-3 synonyms per action.
+    These are used for substring text search — include words that might appear in event descriptions.
+
+    Return ONLY JSON: {{"intent": "...", "temporal": "...", "queries": [...], "keywords": [...]}}
+
+    Text to decompose:
+    {user_intent}
+
+# =============================================================================
+# CHRONICLE EXTRACTION — Extracts lasting character changes and location events
+# =============================================================================
+
+chronicle_extraction:
+  user: |
+    TASK: Extract lasting character developments and significant location events from the following scenes.
+
+    SCENES:
+    {scenes_content}
+
+    CHARACTERS IN STORY: {character_names}
+
+    {existing_chronicle_section}
+
+    EXTRACTION RULES:
+    1. Extract LASTING changes only — personality shifts, secrets learned, trauma, skills gained, relationship changes, physical changes, goal changes, knowledge gained
+    2. Each entry must reference a specific event in the scenes — no speculation
+    3. Use the character's EXACT name as it appears in the character list
+    4. For locations, extract events that make the PLACE significant — physical changes (damage, discovery, transformation), key scenes that define the location (first meeting, confrontation, confession), or events that give the place lasting emotional weight. Do NOT extract routine visits or everyday use.
+    5. Be GENEROUS — extract anything that might be lasting. The validation step will filter noise.
+    6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below. If an existing entry covers the SAME development (even with different wording), do NOT extract a new version. Only extract if the NEW scenes show a FURTHER change beyond what's already recorded.
+    7. Description should be 1-2 sentences, specific and concrete
+
+    LANGUAGE RULES — write like a case file, not a novel:
+    - State WHO did WHAT to WHOM and WHERE. Every sentence must contain a concrete action or fact.
+    - Use blunt, plain language: "kissed Voss in the kitchen", NOT "experienced heightened awareness of Voss's proximity"
+    - NO interpretive padding: "suggesting", "indicating", "showing", "demonstrating" — just state what happened
+    - NO vague qualifiers: "increasingly", "heightened", "growing", "deepening", "evolving"
+    - NO psychological narration: "conflicted emotions", "inner turmoil", "capacity for surrender"
+    - NO trailing interpretations: NEVER end with "showing X", "demonstrating Y", "indicating Z". Just state the action and stop.
+    - physical_change means PERMANENT changes (scars, tattoos, weight loss) — NOT momentary body reactions
+    - "Allowed X to touch Y" or "Did not resist when X did Y" are NOT lasting changes — they are single-scene actions. Only extract if the CHARACTER fundamentally changed (new belief, new goal, new knowledge, new relationship dynamic).
+    - Dressing up, applying makeup, or choosing an outfit for a specific occasion is NOT a lasting change. Only extract appearance changes if they reflect a permanent shift (e.g., "started wearing armor daily after the ambush").
+    - If you can't name the specific action, it's probably too vague to extract
+
+    ENTRY TYPES (use exactly these values):
+    - personality_shift: Character's attitude, behavior, or worldview changed
+    - knowledge_gained: Character learned something significant
+    - secret: Character discovered or now holds a secret
+    - relationship_change: Bond between characters fundamentally shifted
+    - trauma: Character experienced something traumatic
+    - physical_change: Character's appearance or physical state changed
+    - skill_gained: Character learned a new ability or skill
+    - goal_change: Character's motivation or goal shifted
+    - other: ONLY for significant developments that truly don't fit above. Do NOT use "other" as a catch-all for minor actions or fleeting moments.
+
+    EXAMPLE:
+    Scenes: Kira discovers that her mentor Voss has been secretly poisoning the village well. She confronts him on the temple steps. During the fight, Voss burns her left arm with a fire spell. She defeats him but decides to leave the village rather than explain what happened.
+    Characters: Kira, Voss
+
+    Output:
+    {{"character_chronicle": [
+      {{"character_name": "Kira", "entry_type": "knowledge_gained", "description": "Discovered that her mentor Voss was secretly poisoning the village well."}},
+      {{"character_name": "Kira", "entry_type": "physical_change", "description": "Left arm burned by Voss's fire spell during their confrontation on the temple steps."}},
+      {{"character_name": "Kira", "entry_type": "goal_change", "description": "Decided to leave the village rather than reveal Voss's betrayal to the villagers."}},
+      {{"character_name": "Kira", "entry_type": "relationship_change", "description": "Turned against her mentor Voss after discovering his poisoning scheme and fighting him."}},
+      {{"character_name": "Voss", "entry_type": "secret", "description": "His secret of poisoning the village well was discovered by Kira."}}
+    ], "location_lorebook": [
+      {{"location_name": "Temple Steps", "event_description": "Site of the fight between Kira and Voss where fire magic scorched the stone steps."}},
+      {{"location_name": "Village Well", "event_description": "Voss had been secretly poisoning the water here. Kira discovered the truth after testing the water."}}
+    ]}}
+
+    NOT extracted (too fleeting): "Kira felt angry" (emotion, not lasting), "Voss stood on the steps" (routine action), "The sun was setting" (atmosphere), "They ate dinner in the kitchen" (routine visit).
+
+    NOT extracted (too vague/flowery):
+    - "Became increasingly aware of Voss's presence and proximity" → vague, no concrete event. Better: "Noticed Voss following her to the well three nights in a row"
+    - "Showed growing acceptance of her new reality" → interpretive padding, says nothing specific
+    - "Experienced heightened emotional sensitivity during confrontation" → psychological narration, not a fact
+    - "Began responding with conflicted emotions to Voss's behavior" → what behavior? what response? Name the action
+    - "Demonstrated capacity for resilience in the face of adversity" → meaningless filler
+
+    Return ONLY valid JSON in this format:
+    {{"character_chronicle": [{{"character_name": "...", "entry_type": "...", "description": "..."}}], "location_lorebook": [{{"location_name": "...", "event_description": "..."}}]}}
+
+chronicle_validation:
+  user: |
+    TASK: Validate the following candidate chronicle/lorebook entries against the actual scene content. For each entry, decide whether to KEEP or REJECT.
+
+    SCENES:
+    {scenes_content}
+
+    {existing_chronicle_section}
+
+    CANDIDATE ENTRIES:
+    {candidate_entries}
+
+    VALIDATION CRITERIA — reject if ANY apply:
+    1. HALLUCINATION: The event described did NOT actually happen in the scenes
+    2. NOISE: This is fleeting — a single-scene physical action ("allowed X to touch Y", "did not resist"), a passing emotion, routine action, or atmosphere. A lasting change means the character's beliefs, knowledge, goals, or relationships fundamentally shifted.
+    3. REDUNDANCY: This says the same thing as an EXISTING CHRONICLE entry above, even if worded differently. Only keep if it describes a FURTHER development beyond what's already recorded.
+    4. REPETITIVE PATTERN: If existing entries already describe this behavioral pattern multiple times (e.g., 3+ entries about "derived arousal from watching"), another instance adds nothing. Only keep if it shows genuine ESCALATION or a qualitatively NEW dimension beyond what's recorded.
+    5. VAGUE/FLOWERY: The description uses vague qualifiers ("increasingly", "heightened", "growing awareness"), interpretive padding ("suggesting", "indicating", "demonstrating"), or psychological narration instead of naming a concrete action. Reject unless you can identify the specific event it refers to.
+    6. MISCLASSIFIED TYPE: "Learned to eat from hand" is NOT skill_gained (that's a relationship dynamic). "Wore a specific outfit" is NOT physical_change (that's temporary). Only keep if the entry_type genuinely matches.
+
+    EXAMPLES — reject these:
+    - "Became increasingly aware of Voss's proximity" → REJECT (VAGUE/FLOWERY: "increasingly aware" is not a concrete event)
+    - "Started responding physically to Voss's touches, becoming increasingly receptive" → REJECT (VAGUE/FLOWERY: "increasingly receptive" is interpretive, name the specific action)
+    - "Showed growing acceptance of her feelings" → REJECT (VAGUE/FLOWERY: "growing acceptance" says nothing — what did she actually DO?)
+    - "Applied makeup and chose specific clothing for the meeting" → REJECT (NOISE: dressing for an occasion is not a lasting character change)
+    - "Allowed Voss to place his hand on her shoulder" → REJECT (NOISE: single-scene physical action, not a lasting shift)
+    - EXISTING: "Turned against Voss after discovering his poisoning scheme" + CANDIDATE: "Relationship with Voss fundamentally shifted after learning the truth" → REJECT (REDUNDANCY: same development, different words)
+
+    EXAMPLES — keep these:
+    - "Discovered Voss was poisoning the village well" → KEEP (concrete fact, specific event)
+    - "Left arm burned by Voss's fire spell on the temple steps" → KEEP (specific physical change with details)
+    - "Decided to flee the village rather than expose Voss" → KEEP (concrete goal change)
+
+    For each entry, return keep: true or keep: false with a brief reason.
+
+    Return ONLY valid JSON:
+    {{"validated": [{{"character_name": "...", "entry_type": "...", "description": "...", "keep": true, "reason": "Concrete event: discovered specific secret"}}, {{"character_name": "...", "entry_type": "...", "description": "...", "keep": false, "reason": "VAGUE: 'increasingly aware' — no concrete action named"}}]}}
+
+# ==========================================
+# CHARACTER SNAPSHOT GENERATION
+# ==========================================
+character_snapshot_generation:
+  user: |
+    Synthesize the character development entries below into a single factual paragraph describing who {character_name} is NOW. The entries may span multiple stories in the same universe.
+
+    ORIGINAL BACKGROUND:
+    {original_background}
+
+    CHRONICLE ENTRIES (grouped by story):
+    {chronicle_entries}
+
+    RULES:
+    1. Third person, present tense, factual — no literary flourishes or emotional narration
+    2. State concrete facts: what they know, what they did, who they're close to, what changed
+    3. DO NOT pad with vague phrases like "complex individual", "deeply affected", "journey of discovery"
+    4. If the chronicle contradicts the original background, the chronicle takes precedence
+    5. Don't mention story titles — synthesize as one coherent description
+    6. Under 200 words. Every sentence must contain a specific fact.
+    7. Include physical appearance details (height, build, distinctive features) from the original background
+    8. Include current relationship dynamics with other characters mentioned in the entries
+
+    EXAMPLE INPUT:
+    Original background: Kira is a village healer who trained under Master Voss.
+    Entries:
+    - [knowledge gained] Discovered Voss was poisoning the village well
+    - [physical change] Left arm burned by Voss's fire spell
+    - [relationship change] Turned against Voss, fought and defeated him
+    - [goal change] Left the village rather than reveal Voss's betrayal
+    - [skill gained] Can now cast basic fire wards after studying Voss's spell
+
+    EXAMPLE OUTPUT:
+    Kira is a village healer who trained under Master Voss until she discovered he was poisoning the village well. She confronted and defeated him but sustained a burn scar on her left arm from his fire spell. She left the village without telling anyone the truth about Voss. She can now cast basic fire wards, a skill she picked up from studying the spell that injured her. She no longer trusts authority figures and avoids returning home.
+
+    NOT THIS (too vague/flowery): "Kira is a deeply complex healer whose transformative journey through betrayal and loss has forged her into a resilient survivor, forever changed by the profound revelation of her mentor's dark secrets."
+
+    Now write the snapshot for {character_name}. ONLY the paragraph, no headers.

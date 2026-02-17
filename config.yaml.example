@@ -1,0 +1,531 @@
+# ============================================================================
+# KAHANI CONFIGURATION
+# All application settings - see CONFIGURATION_GUIDE.md for details
+# Environment variables can override any value (use UPPERCASE with underscores)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# APPLICATION
+# ----------------------------------------------------------------------------
+application:
+  app_name: "Kahani"
+  app_version: "1.0"
+  debug: true
+  environment: "development"  # development, production
+
+# ----------------------------------------------------------------------------
+# SERVER & NETWORKING
+# ----------------------------------------------------------------------------
+server:
+  backend:
+    port: 9876
+    host: "0.0.0.0"
+  frontend:
+    port: 6789
+
+cors:
+  origins: "*"  # Restrict to your domain in production (e.g., "https://kahani.example.com")
+
+# ----------------------------------------------------------------------------
+# DATABASE
+# ----------------------------------------------------------------------------
+# Supports SQLite (default) and PostgreSQL
+# DATABASE_URL environment variable takes priority over this setting
+#
+# OPTION 1: SQLite (Default - No setup needed)
+#   database_url: "sqlite:///./data/kahani.db"
+#   - Works out of the box
+#   - No additional configuration needed
+#
+# OPTION 2: PostgreSQL (Recommended for production)
+#   For Docker Compose:
+#     1. Copy .env.example to .env (if not already done)
+#     2. Edit .env and set PostgreSQL credentials (see .env.example)
+#     3. Uncomment postgres service in docker-compose.yml
+#     4. Uncomment depends_on in backend service in docker-compose.yml
+#     5. Uncomment volumes section in docker-compose.yml
+#     6. Set DATABASE_URL in .env file (see .env.example)
+#
+#   For local/baremetal:
+#     database_url: "postgresql://user:password@localhost:5432/kahani"
+#     Or set DATABASE_URL environment variable
+#
+# NOTE: DATABASE_URL environment variable always takes priority!
+#       This config.yaml value is only used if DATABASE_URL is not set
+#
+# Connection Pool Settings (PostgreSQL only):
+#   pool_size: Base number of connections to keep open (default: 10)
+#   max_overflow: Additional connections allowed when pool is exhausted (default: 20)
+#   pool_timeout: Seconds to wait for a connection before failing (default: 30)
+#
+#   Total max connections = pool_size + max_overflow
+#   For 20+ concurrent users, recommended: pool_size=20, max_overflow=40
+#   Note: Ensure PostgreSQL max_connections >= total across all app instances
+# ----------------------------------------------------------------------------
+database:
+  database_url: "sqlite:///./data/kahani.db"
+  # PostgreSQL connection pool settings (ignored for SQLite)
+  pool_size: 20
+  max_overflow: 40
+  pool_timeout: 30
+
+# ----------------------------------------------------------------------------
+# SECURITY
+# Note: SECRET_KEY and JWT_SECRET_KEY MUST be set via .env file
+# ----------------------------------------------------------------------------
+security:
+  jwt_algorithm: "HS256"
+  access_token_expire_minutes: 120
+  refresh_token_expire_days: 30
+
+# ----------------------------------------------------------------------------
+# STORAGE & PATHS
+# ----------------------------------------------------------------------------
+storage:
+  data_dir: "./data"
+  export_dir: "./exports"
+  logs_dir: "./logs"
+  max_story_size_mb: 10
+  max_users: 100
+
+# ----------------------------------------------------------------------------
+# FEATURES
+# ----------------------------------------------------------------------------
+features:
+  enable_registration: true
+  enable_story_sharing: true
+  enable_public_stories: false
+
+# ----------------------------------------------------------------------------
+# SSO / EXTERNAL AUTH
+# ----------------------------------------------------------------------------
+# Single Sign-On via reverse proxy headers (e.g., Authelia, Authentik)
+# When enabled, users authenticated via the proxy can skip Kahani login
+# if their proxy username matches a Kahani username
+sso:
+  enabled: false  # Set to true to enable SSO auto-login
+  # Header names sent by your auth proxy (Authelia defaults shown)
+  header_username: "Remote-User"
+  header_email: "Remote-Email"
+  header_groups: "Remote-Groups"
+  # If true, auto-login when valid headers are present and user exists
+  auto_login: false
+  # If true, create Kahani user if they don't exist (requires approval if enabled)
+  create_users: false
+  # Trust proxy headers only from these IPs (empty = trust all - use with caution)
+  trusted_proxies:
+    - "localhost"
+
+# ----------------------------------------------------------------------------
+# CONTEXT MANAGEMENT
+# ----------------------------------------------------------------------------
+context:
+  max_tokens: 4000
+  keep_recent_scenes: 3
+  summary_threshold: 5
+  summary_threshold_tokens: 10000
+  token_buffer: 0.9
+  default_character_extraction_threshold: 5
+  chapter_context_threshold_percentage: 80  # Percentage of context tokens used before suggesting new chapter
+
+context_strategy:
+  strategy: "hybrid"  # "linear" or "hybrid"
+  semantic_scenes_in_context: 5
+  character_moments_in_context: 3
+  semantic_min_similarity: 0.3  # Minimum similarity score to include (0.0-1.0)
+  location_recency_window: 10   # Only show locations updated in last N scenes
+
+# ----------------------------------------------------------------------------
+# SEMANTIC MEMORY
+# ----------------------------------------------------------------------------
+semantic_memory:
+  enabled: true
+  # Vectors stored in PostgreSQL via pgvector (no external vector DB needed)
+  embedding_model: "sentence-transformers/all-mpnet-base-v2"
+  search_top_k: 5
+  context_weight: 0.4
+  enable_reranking: true                        # Cross-encoder reranking for multi-query semantic search
+  # reranker_model: "BAAI/bge-reranker-v2-m3"  # Default; ~568M params, ~2.5GB RAM, ~3.5s on CPU
+
+# ----------------------------------------------------------------------------
+# EXTRACTION & NPC TRACKING
+# ----------------------------------------------------------------------------
+extraction:
+  auto_extract_character_moments: false  # Replaced by scene events
+  auto_extract_plot_events: false        # Replaced by scene events
+  confidence_threshold: 70
+
+extraction_model:
+  enabled: false
+  url: "http://localhost:1234/v1"
+  api_key: ""
+  model_name: "qwen2.5-3b-instruct"
+  temperature: 0.3
+  max_tokens: 1000
+  fallback_to_main: true
+  # Advanced sampling settings
+  top_p: 1.0
+  repetition_penalty: 1.0  # 1.0 = disabled
+  min_p: 0.0
+  # Thinking/reasoning disable settings
+  # Methods: "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
+  thinking_disable_method: "none"
+  thinking_disable_custom: ""  # Custom tag pattern for "custom" method (e.g., "<think>", "[THINKING]")
+  thinking_enabled_extractions: false  # Allow thinking for extraction tasks (slower but potentially better)
+  thinking_enabled_memory: true        # Allow thinking for memory/recall tasks (benefits from CoT)
+  recommended_models:
+    - "qwen2.5-3b-instruct"
+    - "ministral-3b-instruct"
+    - "phi-3-mini"
+    - "glm-4-flash"
+  # Thinking disable presets for dropdown
+  thinking_presets:
+    none:
+      name: "None"
+      description: "No thinking to disable"
+      strip_pattern: ""
+    qwen3:
+      name: "Qwen3 (/no_think)"
+      description: "Add /no_think prefix to prompts and strip <think> tags"
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+      prompt_prefix: "/no_think "
+    deepseek:
+      name: "DeepSeek (<think> tags)"
+      description: "Strip <think>...</think> tags from response"
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+    mistral:
+      name: "Mistral (prompt_mode)"
+      description: "Uses prompt_mode=null API parameter"
+      api_param: "prompt_mode"
+      api_value: null
+    gemini:
+      name: "Gemini (thinkingBudget)"
+      description: "Uses thinkingBudget=0 API parameter"
+      api_param: "thinking_config"
+      api_value: {"thinking_budget": 0}
+    openai:
+      name: "OpenAI o1/o3 (reasoning_effort)"
+      description: "Uses reasoning_effort=none API parameter"
+      api_param: "reasoning_effort"
+      api_value: "none"
+    kimi:
+      name: "Kimi K2"
+      description: "Use Kimi-K2-Instruct model variant"
+      strip_pattern: ""
+    glm:
+      name: "GLM-4"
+      description: "Passes enable_thinking=False to chat template + strips <think> tags"
+      api_param: "chat_template_kwargs"
+      api_value: {"enable_thinking": false}
+      strip_pattern: "<think>[\\s\\S]*?</think>"
+    custom:
+      name: "Custom"
+      description: "Define custom tag pattern to strip"
+      strip_pattern: ""  # User defines in thinking_disable_custom
+
+npc_tracking:
+  enabled: true
+  importance_threshold: 1.0
+  auto_extract_profile: true
+  prompt_user: false
+  # Recency-based NPC inclusion settings
+  active_recency_window: 5       # Scenes - NPCs seen within this window get full details
+  inactive_recency_window: 15    # Scenes - NPCs seen within this window get brief mention
+  use_chapter_awareness: true    # NPCs appearing in current chapter are always active
+
+# ----------------------------------------------------------------------------
+# SPEECH-TO-TEXT (STT)
+# ----------------------------------------------------------------------------
+stt:
+  model: "small"  # Options: tiny, base, small, medium, large-v2
+  device: "auto"  # auto, cuda, or cpu
+  compute_type: "int8"  # int8, int8_float16, float16 for GPU; int8 for CPU
+  language: "en"
+  use_silero_vad: true
+  vad_threshold: 0.5
+  min_speech_duration_ms: 250
+  min_silence_duration_ms: 1000
+  max_speech_duration_s: 60
+  speech_pad_ms: 300
+
+# ----------------------------------------------------------------------------
+# FRONTEND DEFAULTS
+# Default URLs for TTS providers and extraction models
+# Users can override these in their settings
+#
+# Note: NEXT_PUBLIC_API_URL is an environment variable (not in this file)
+# - Set in .env file for Docker deployments (required)
+# - Optional for baremetal (auto-detects from server.backend.port)
+# - See .env.example for configuration examples
+# ----------------------------------------------------------------------------
+frontend:
+  tts:
+    default_providers:
+      openai_compatible: "http://localhost:1234"
+      chatterbox: "http://localhost:8880"
+      kokoro: "http://localhost:8188"
+      vibevoice: "http://localhost:3000"
+  extraction:
+    default_url: "http://localhost:1234/v1"
+  websocket:
+    stt_path: "/ws/stt"
+    tts_path: "/ws/tts"
+
+# ----------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------
+logging:
+  log_level: "INFO"
+  log_file: "./logs/kahani.log"
+
+# ----------------------------------------------------------------------------
+# DEBUG
+# ----------------------------------------------------------------------------
+debug:
+  prompt_debug: true  # Save prompts and raw LLM responses to files
+
+# ----------------------------------------------------------------------------
+# USER DEFAULTS
+# Applied when creating new users or resetting settings
+# ----------------------------------------------------------------------------
+user_defaults:
+  llm_settings:
+    temperature: 0.7
+    top_p: 1.0
+    top_k: 50
+    repetition_penalty: 1.1
+    max_tokens: 2048
+    timeout_total: 240  # Default timeout in seconds
+  llm_api:
+    api_type: "openai-compatible"
+    api_key: ""
+    model_name: ""
+  text_completion:
+    mode: "chat"
+    preset: "llama3"
+  context_settings:
+    max_tokens: 4000
+    keep_recent_scenes: 3
+    summary_threshold: 5
+    summary_threshold_tokens: 8000
+    enable_summarization: true
+    auto_generate_summaries: true
+    character_extraction_threshold: 5
+    enable_semantic_memory: true
+    context_strategy: "hybrid"
+    semantic_search_top_k: 5
+    semantic_scenes_in_context: 5
+    semantic_context_weight: 0.4
+    character_moments_in_context: 3
+    auto_extract_character_moments: false  # Replaced by scene events
+    auto_extract_plot_events: false        # Replaced by scene events
+    extraction_confidence_threshold: 70
+    plot_event_extraction_threshold: 5
+    fill_remaining_context: true  # Fill remaining context window with older scenes (disable for weaker LLMs)
+    # Memory & Continuity Settings
+    enable_working_memory: true  # Track scene-to-scene focus and pending items
+    enable_contradiction_detection: true  # Detect continuity errors like location jumps
+    contradiction_severity_threshold: "info"  # Minimum severity to log: "info", "warning", "error"
+    enable_contradiction_injection: true  # Inject unresolved contradictions into generation prompt
+    enable_inline_contradiction_check: false  # Run entity extraction + contradiction check every scene (adds extraction LLM call per scene)
+    auto_regenerate_on_contradiction: false  # Auto-regenerate scene once if contradictions detected (requires inline check)
+    enable_relationship_graph: true  # Track character relationship arcs and trajectory
+  generation_preferences:
+    default_genre: ""
+    default_tone: ""
+    scene_length: "medium"
+    auto_choices: true
+    choices_count: 4
+    alert_on_high_context: true
+    use_extraction_llm_for_summary: false
+    separate_choice_generation: false
+    enable_chapter_plot_tracking: true  # Track plot progress and guide LLM pacing
+    default_plot_check_mode: "1"  # How many events to check: "1" (strict), "3" (flexible), "all"
+    enable_streaming: true  # Show content as it's generated (streaming) vs all at once
+  ui_preferences:
+    color_theme: "pure-dark"
+    font_size: "medium"
+    show_token_info: false
+    show_context_info: false
+    notifications: true
+    scene_display_format: "default"
+    show_scene_titles: true
+    scene_edit_mode: "textarea"
+    auto_open_last_story: false
+  export_settings:
+    format: "markdown"
+    include_metadata: true
+    include_choices: true
+  character_assistant_settings:
+    enable_suggestions: true
+    importance_threshold: 70
+    mention_threshold: 5
+  stt_settings:
+    enabled: true
+    model: "small"
+  extraction_model_settings:
+    enabled: false
+    url: "http://localhost:1234/v1"
+    api_key: ""
+    model_name: "qwen2.5-3b-instruct"
+    temperature: 0.3
+    max_tokens: 1000
+    fallback_to_main: true
+    use_context_aware_extraction: false  # Use main LLM with full scene context for extraction (better accuracy, leverages cache)
+    top_p: 1.0
+    repetition_penalty: 1.0  # 1.0 = disabled
+    min_p: 0.0
+    thinking_disable_method: "none"  # "none", "qwen3", "deepseek", "mistral", "gemini", "openai", "kimi", "glm", "custom"
+    thinking_disable_custom: ""  # Custom tag pattern when method is "custom"
+    thinking_enabled_extractions: false  # Allow thinking for extraction tasks
+    thinking_enabled_memory: true        # Allow thinking for memory/recall tasks
+  reasoning_settings:
+    thinking_model_type: null            # Local thinking model type for main LLM (null = none)
+    thinking_enabled_generation: false   # Allow thinking for story generation
+  advanced:
+    custom_system_prompt: ""
+    experimental_features: false
+  image_generation_settings:
+    enabled: false
+    server_url: ""
+    api_key: ""
+    checkpoint: ""
+    model_type: "sdxl"
+    width: 1024
+    height: 1024
+    steps: 4
+    cfg_scale: 1.5
+    default_style: "illustrated"
+    use_extraction_llm_for_prompts: false
+
+# ----------------------------------------------------------------------------
+# SYSTEM DEFAULTS
+# Applied to system_settings table on initialization
+# Note: First user to register becomes admin automatically
+# ----------------------------------------------------------------------------
+system_defaults:
+  permissions:
+    default_allow_nsfw: false
+    default_can_change_llm_provider: true
+    default_can_change_tts_settings: true
+    default_can_use_stt: true
+    default_can_use_image_generation: true
+    default_can_export_stories: true
+    default_can_import_stories: true
+  resource_limits:
+    default_max_stories: null  # null = unlimited
+    default_max_images_per_story: null
+    default_max_stt_minutes_per_month: null
+  llm_defaults:
+    default_llm_api_url: null
+    default_llm_api_key: null
+    default_llm_model_name: null
+    default_llm_temperature: 0.7
+  registration:
+    registration_requires_approval: true
+
+# ----------------------------------------------------------------------------
+# SERVICE DEFAULTS
+# Internal defaults used by various services
+# ----------------------------------------------------------------------------
+service_defaults:
+  llm_client:
+    default_max_tokens: 2048
+    default_temperature: 0.7
+    # HTTP request timeout settings (in seconds)
+    timeout_total: 240      # Total timeout for the entire request
+    timeout_connect: 30     # Timeout for establishing connection
+    timeout_read: 150       # Timeout for reading response
+    timeout_write: 150      # Timeout for writing request
+    max_retries: 3          # Maximum number of retry attempts for 504/timeout errors
+    retry_base_delay: 2.0   # Base delay in seconds for exponential backoff
+  extraction_service:
+    default_max_tokens: 1000
+    default_temperature: 0.3
+    npc_tracking_max_tokens: 1500
+    character_assistant_max_tokens: 3000
+    character_profile_max_tokens: 3000
+    entity_state_max_tokens: 1000
+    plot_thread_batch_max_tokens: 1500
+    plot_thread_single_max_tokens: 500
+    character_memory_batch_max_tokens: 1500
+    character_memory_single_max_tokens: 500
+  prompts:
+    default_max_tokens: 2048
+  character_generation:
+    max_tokens: 2000
+    temperature: 0.8
+  recall_agent:
+    enabled: false              # Enable agentic recall (replaces deterministic pipeline for recall intents)
+    quality_score: 0.85         # Score assigned to agent-verified scenes (must beat 0.60 quality gate)
+    max_turns: 8                # Max LLM calls per agent run
+    timeout: 90                 # Max seconds per agent run
+
+# ----------------------------------------------------------------------------
+# IMAGE GENERATION
+# AI-powered image generation using ComfyUI
+# ----------------------------------------------------------------------------
+image_generation:
+  enabled: true
+  storage_path: "./data/images"
+
+  # Default ComfyUI settings (users override in their settings)
+  comfyui:
+    server_url: "http://localhost:8188"
+    api_key: ""
+    timeout: 300
+    websocket_fallback_to_polling: true
+    polling_interval: 2  # seconds
+
+  defaults:
+    width: 1024
+    height: 1024
+    steps: 4
+    cfg_scale: 1.5
+    sampler: "euler"
+    # Which LLM to use for text->image prompt conversion
+    prompt_llm: "main"  # "main" or "extraction"
+
+  # Style presets for modern models (Flux, z-image) — natural language, no tag spam
+  style_presets:
+    illustrated:
+      name: "Illustrated"
+      description: "Digital art with vibrant colors"
+      prompt_suffix: "in a digital illustration style with vibrant colors"
+      negative_prompt: ""
+    semi_realistic:
+      name: "Semi-Realistic"
+      description: "Detailed cinematic style"
+      prompt_suffix: "in a semi-realistic cinematic style"
+      negative_prompt: ""
+    anime:
+      name: "Anime"
+      description: "Japanese anime art style"
+      prompt_suffix: "in anime art style"
+      negative_prompt: ""
+    photorealistic:
+      name: "Photorealistic"
+      description: "Realistic photographic style"
+      prompt_suffix: "photorealistic, natural lighting"
+      negative_prompt: ""
+    fantasy:
+      name: "Fantasy Art"
+      description: "Epic fantasy illustration style"
+      prompt_suffix: "in a fantasy art style with dramatic lighting"
+      negative_prompt: ""
+    noir:
+      name: "Film Noir"
+      description: "Dark, dramatic black and white style"
+      prompt_suffix: "in film noir style, black and white, dramatic shadows"
+      negative_prompt: ""
+
+  # Character consistency settings by model type
+  consistency:
+    sdxl:
+      method: "ip_adapter"
+      model: "ip-adapter-plus-face_sdxl_vit-h.safetensors"
+      weight: 0.7
+    flux:
+      method: "pulid"  # or "redux" or "prompt_only"
+      model: "pulid_flux_v0.9.0.safetensors"
+      weight: 0.8
