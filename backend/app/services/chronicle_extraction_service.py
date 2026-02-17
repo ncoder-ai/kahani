@@ -134,6 +134,10 @@ async def extract_chronicle_and_lorebook(
 
     scenes_content = "\n\n".join(scenes_content_parts)
 
+    # --- Get chapter location for qualifying location names ---
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    chapter_location = chapter.location_name if chapter and chapter.location_name else ""
+
     # --- Get character names ---
     story_characters = db.query(StoryCharacter).filter(
         StoryCharacter.story_id == story_id,
@@ -167,6 +171,7 @@ async def extract_chronicle_and_lorebook(
             user_id=user_id,
             user_settings=user_settings,
             db=db,
+            chapter_location=chapter_location,
         )
     except Exception as e:
         logger.error(f"[CHRONICLE] Extraction LLM call failed: {e}")
@@ -246,23 +251,18 @@ async def extract_chronicle_and_lorebook(
         logger.warning(f"[CHRONICLE] Pass 2 results: {len(validation_verdicts)} verdicts")
 
     except Exception as e:
-        logger.error(f"[CHRONICLE] Validation failed, accepting all candidates: {e}")
-        # If validation fails, accept all raw candidates
-        for entry in raw_chronicle:
-            validation_verdicts.append({
-                "character_name": entry.get("character_name", ""),
-                "entry_type": entry.get("entry_type", ""),
-                "description": entry.get("description", ""),
-                "keep": True,
-                "reason": "Validation unavailable, accepted by default",
-            })
+        logger.error(f"[CHRONICLE] Validation failed: {e}")
+        # If validation fails, accept only lorebook candidates (harder to get)
+        # and reject chronicle candidates (too much noise without validation)
         for entry in raw_lorebook:
             validation_verdicts.append({
                 "location_name": entry.get("location_name", ""),
                 "event_description": entry.get("event_description", ""),
                 "keep": True,
-                "reason": "Validation unavailable, accepted by default",
+                "reason": "Validation unavailable, lorebook accepted by default",
             })
+        logger.warning(f"[CHRONICLE] Validation failed — accepting {len(raw_lorebook)} lorebook, "
+                       f"dropping {len(raw_chronicle)} chronicle candidates")
 
     # Build lookup of kept entries
     kept_chronicles = []
@@ -273,17 +273,46 @@ async def extract_chronicle_and_lorebook(
         if verdict.get("keep", False):
             result["validated"] += 1
             # Determine if chronicle or lorebook based on fields present
-            if verdict.get("character_name"):
-                kept_chronicles.append(verdict)
-            elif verdict.get("location_name"):
+            # Check location_name FIRST — lorebook entries may also have character_name
+            if verdict.get("location_name"):
                 kept_lorebooks.append(verdict)
             elif verdict.get("event_description"):
                 kept_lorebooks.append(verdict)
+            elif verdict.get("character_name"):
+                kept_chronicles.append(verdict)
             else:
                 kept_chronicles.append(verdict)
         else:
             result["rejected"] += 1
             rejected_entries.append(verdict)
+
+    # Safety net: if validation returned fewer verdicts than candidates,
+    # accept unmatched candidates (small LLMs often truncate long outputs)
+    total_verdicts = len(validation_verdicts)
+    total_candidates = len(all_candidates)
+    if total_verdicts < total_candidates:
+        # Build set of already-covered candidates by matching description text
+        covered_descriptions = set()
+        for v in validation_verdicts:
+            desc = v.get("description", "") or v.get("event_description", "")
+            if desc:
+                covered_descriptions.add(desc.strip().lower())
+
+        unmatched_count = 0
+        for candidate in all_candidates:
+            desc = candidate.get("description", "") or candidate.get("event_description", "")
+            if desc and desc.strip().lower() not in covered_descriptions:
+                unmatched_count += 1
+                result["validated"] += 1
+                candidate["keep"] = True
+                candidate["reason"] = "Accepted by default — validation LLM did not return a verdict"
+                if candidate.get("type") == "lorebook" or candidate.get("location_name"):
+                    kept_lorebooks.append(candidate)
+                else:
+                    kept_chronicles.append(candidate)
+
+        if unmatched_count > 0:
+            logger.warning(f"[CHRONICLE] {unmatched_count} candidates had no verdict — accepted by default")
 
     logger.warning(f"[CHRONICLE] Validation: {result['validated']} kept, {result['rejected']} rejected")
 
@@ -581,7 +610,7 @@ async def _check_chronicle_duplicate(
     db: Session, semantic_memory, world_id: int, char_id: int,
     story_id: int, branch_id: Optional[int],
     char_name: str, entry_type: str, description: str,
-    threshold: float = 0.78,
+    threshold: float = 0.70,
 ) -> bool:
     """Check if a similar chronicle entry already exists via embedding similarity."""
     try:

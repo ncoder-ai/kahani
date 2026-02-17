@@ -3690,6 +3690,7 @@ Chapter Conclusion:"""
         user_settings: Dict[str, Any],
         db: Optional[Session] = None,
         max_tokens: int = 3000,
+        chapter_location: str = "",
     ) -> str:
         """
         Extract character chronicle entries and location lorebook events
@@ -3705,11 +3706,16 @@ Chapter Conclusion:"""
             db=db,
         )
 
+        chapter_location_section = ""
+        if chapter_location:
+            chapter_location_section = f"\n    CHAPTER LOCATION: {chapter_location}\n    Use this to qualify generic room names (e.g., if chapter is set at \"Nishant's suburban home\", use \"Nishant's Kitchen\" not \"Kitchen\")."
+
         final_message = prompt_manager.get_prompt(
             "chronicle_extraction", "user",
             scenes_content=scenes_content,
             character_names=character_names,
             existing_chronicle_section=existing_state_section,
+            chapter_location_section=chapter_location_section,
         )
         messages.append({"role": "user", "content": final_message})
 
@@ -3734,7 +3740,7 @@ Chapter Conclusion:"""
             return await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
                 max_tokens=max_tokens, task_type="extraction",
-                force_main_llm=True,
+                force_main_llm=False,
             )
         except Exception as e:
             logger.error(f"[CHRONICLE] Extraction failed: {e}")

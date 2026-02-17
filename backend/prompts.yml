@@ -3653,6 +3653,7 @@ chronicle_extraction:
     {scenes_content}
 
     CHARACTERS IN STORY: {character_names}
+    {chapter_location_section}
 
     {existing_chronicle_section}
 
@@ -3660,10 +3661,18 @@ chronicle_extraction:
     1. Extract LASTING changes only — personality shifts, secrets learned, trauma, skills gained, relationship changes, physical changes, goal changes, knowledge gained
     2. Each entry must reference a specific event in the scenes — no speculation
     3. Use the character's EXACT name as it appears in the character list
-    4. For locations, extract events that make the PLACE significant — physical changes (damage, discovery, transformation), key scenes that define the location (first meeting, confrontation, confession), or events that give the place lasting emotional weight. Do NOT extract routine visits or everyday use.
-    5. Be GENEROUS — extract anything that might be lasting. The validation step will filter noise.
+    4. For locations, extract events that give the PLACE story significance. A location becomes significant when something memorable happens there — confrontations, confessions, secrets, intimate firsts, discoveries, betrayals, celebrations, or any event characters would remember happening there. Everyday locations become lorebook-worthy the moment they host a key scene. Do NOT extract routine visits with no notable event.
+    Location names MUST be specific enough to be unique across stories in a shared universe. Use owner/context to qualify generic rooms: "Nishant's Kitchen" not "Kitchen", "The Rosewood Café" not "Café", "Village Temple Steps" not "Steps". A reader should know EXACTLY which place you mean from the name alone.
+    5. QUALITY over QUANTITY — extract only the 2-4 MOST significant developments per batch. If nothing truly lasting happened, return empty arrays. Do NOT pad with minor actions.
     6. Do NOT re-extract entries already listed in EXISTING CHRONICLE below. If an existing entry covers the SAME development (even with different wording), do NOT extract a new version. Only extract if the NEW scenes show a FURTHER change beyond what's already recorded.
     7. Description should be 1-2 sentences, specific and concrete
+
+    WHAT IS A LASTING CHANGE vs. A SCENE ACTION:
+    A lasting change alters WHO the character IS going forward. A scene action is just what happened in one scene.
+    - LASTING: "Decided to leave the village" (goal change), "Discovered Voss was the poisoner" (knowledge), "Agreed to open marriage" (relationship)
+    - NOT LASTING: "Submitted to X's command", "Accepted X's touch", "Complied with X's order", "Displayed arousal when X did Y" — these are ACTIONS in a scene, not character changes. The character is the same person before and after.
+    - personality_shift means the character's WORLDVIEW, VALUES, or IDENTITY changed. "Submitted to Ali's commands" is NOT a personality shift — it's compliance in one scene. A personality shift would be: "Embraced submissive identity as core part of her sexuality" or "Abandoned belief in monogamy."
+    - Do NOT extract the same arc multiple times. If "accepted non-monogamy" was already extracted, do NOT extract "accepted Ali's touch" 10 more times — that's the same arc restated as individual actions.
 
     LANGUAGE RULES — write like a case file, not a novel:
     - State WHO did WHAT to WHOM and WHERE. Every sentence must contain a concrete action or fact.
@@ -3704,7 +3713,16 @@ chronicle_extraction:
       {{"location_name": "Village Well", "event_description": "Voss had been secretly poisoning the water here. Kira discovered the truth after testing the water."}}
     ]}}
 
-    NOT extracted (too fleeting): "Kira felt angry" (emotion, not lasting), "Voss stood on the steps" (routine action), "The sun was setting" (atmosphere), "They ate dinner in the kitchen" (routine visit).
+    EXAMPLE 2 (domestic setting):
+    Scenes: At the dinner party, Kira caught Voss staring at her from across the living room. Later in the kitchen, Voss cornered her and admitted his feelings. She pushed him away and left through the back patio where the other guests were.
+    {{"character_chronicle": [...], "location_lorebook": [
+      {{"location_name": "Kira's Kitchen", "event_description": "Voss confessed his feelings to Kira here during the dinner party. She rejected him physically."}},
+      {{"location_name": "Kira's Living Room", "event_description": "Dinner party venue where Voss first openly stared at Kira, escalating their tension."}}
+    ]}}
+    NOT a lorebook entry: "Back patio" — nothing significant happened there, she just walked through it.
+    Note: "Kitchen" alone is too generic — qualify with owner/context so locations are unique across stories.
+
+    NOT extracted (too fleeting): "Kira felt angry" (emotion, not lasting), "Voss stood on the steps" (routine action), "The sun was setting" (atmosphere).
 
     NOT extracted (too vague/flowery):
     - "Became increasingly aware of Voss's presence and proximity" → vague, no concrete event. Better: "Noticed Voss following her to the well three nights in a row"
