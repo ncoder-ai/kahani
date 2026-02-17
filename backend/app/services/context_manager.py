@@ -383,30 +383,35 @@ class ContextManager:
         try:
             from .npc_tracking_service import NPCTrackingService
             npc_service = NPCTrackingService(user_id=self.user_id, user_settings=self.user_settings)
-            
+
             # Get current scene sequence for recency calculation
             current_scene_sequence = None
             if scenes:
                 current_scene_sequence = max(s.sequence_number for s in scenes)
-            
+
+            # Collect explicit character names for cross-story dedup
+            explicit_names = {c["name"].lower() for c in active_characters + inactive_characters}
+
             # Get tiered NPCs (active with full details, inactive with brief mention)
             tiered_npcs = npc_service.get_tiered_npcs_for_context(
                 db=db,
                 story_id=story_id,
                 current_scene_sequence=current_scene_sequence,
                 chapter_id=chapter_id,
-                branch_id=branch_id
+                branch_id=branch_id,
+                world_id=story.world_id,
+                explicit_character_names=explicit_names
             )
-            
+
             active_npc_characters = tiered_npcs.get("active_npcs", [])
             inactive_npc_characters = tiered_npcs.get("inactive_npcs", [])
-            
+
             # Add active NPCs to active characters
             active_characters.extend(active_npc_characters)
-            
+
             # Add inactive NPCs to inactive characters
             inactive_characters.extend(inactive_npc_characters)
-            
+
             logger.info(f"[CONTEXT BUILD] Added {len(active_npc_characters)} active NPCs and {len(inactive_npc_characters)} inactive NPCs to context")
             if active_npc_characters:
                 logger.info(f"[CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
@@ -414,7 +419,7 @@ class ContextManager:
                 logger.info(f"[CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
-        
+
         # Format characters section with active/inactive distinction
         if chapter_id and inactive_characters:
             # Format with clear distinction
@@ -2583,13 +2588,18 @@ Appearance: {char.get('appearance', '')}
             ).order_by(desc(Scene.sequence_number)).first()
             current_scene_sequence = latest_scene.sequence_number if latest_scene else 0
 
+            # Collect explicit character names for cross-story dedup
+            explicit_names = {c["name"].lower() for c in active_characters + inactive_characters}
+
             # Get tiered NPCs (active with full details, inactive with brief mention)
             tiered_npcs = npc_service.get_tiered_npcs_for_context(
                 db=db,
                 story_id=story_id,
                 current_scene_sequence=current_scene_sequence,
                 chapter_id=chapter_id,
-                branch_id=branch_id
+                branch_id=branch_id,
+                world_id=story.world_id,
+                explicit_character_names=explicit_names
             )
 
             active_npc_characters = tiered_npcs.get("active_npcs", [])

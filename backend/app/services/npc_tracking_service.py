@@ -1929,7 +1929,118 @@ Return ONLY the JSON, no other text."""
             branch_id=branch_id
         )
         return result.get("active_npcs", [])
-    
+
+    def _get_cross_story_npcs(
+        self,
+        db: Session,
+        current_story_id: int,
+        world_id: Optional[int],
+        explicit_character_names: Optional[set],
+        current_npc_names: set,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Get important NPCs from sibling stories in the same world.
+
+        Returns inactive-tier entries (name + role + source label) for NPCs that:
+        - Crossed threshold in a sibling story
+        - Are CHARACTER type (not ENTITY)
+        - Are not already in the current story's NPC list
+        - Are not explicit characters in the current story
+
+        Args:
+            db: Database session
+            current_story_id: Current story ID (excluded from query)
+            world_id: World ID to find sibling stories
+            explicit_character_names: Lowercase names of explicit characters to exclude
+            current_npc_names: Lowercase names of NPCs already in current story's tiers
+            limit: Max cross-story NPCs to include
+
+        Returns:
+            List of inactive-tier NPC dicts with source label
+        """
+        if not world_id:
+            return []
+
+        try:
+            from ..models import Story
+
+            # Find sibling stories in the same world
+            sibling_stories = db.query(Story).filter(
+                Story.world_id == world_id,
+                Story.id != current_story_id
+            ).all()
+
+            if not sibling_stories:
+                return []
+
+            sibling_ids = [s.id for s in sibling_stories]
+            sibling_titles = {s.id: s.title for s in sibling_stories}
+
+            # Query threshold-crossing CHARACTER NPCs from sibling stories
+            from sqlalchemy import desc
+            sibling_npcs = db.query(NPCTracking).filter(
+                NPCTracking.story_id.in_(sibling_ids),
+                NPCTracking.crossed_threshold == True,
+                NPCTracking.converted_to_character == False,
+                or_(NPCTracking.entity_type == "CHARACTER", NPCTracking.entity_type.is_(None))
+            ).order_by(desc(NPCTracking.importance_score)).all()
+
+            if not sibling_npcs:
+                return []
+
+            explicit_names = explicit_character_names or set()
+            # Build name parts for partial matching (e.g. "ali" matches "ali malik")
+            explicit_name_parts = set()
+            for name in explicit_names:
+                explicit_name_parts.add(name)
+                for part in name.split():
+                    if len(part) > 2:
+                        explicit_name_parts.add(part)
+
+            cross_story_npcs = []
+            seen_names = set()
+
+            for npc in sibling_npcs:
+                if len(cross_story_npcs) >= limit:
+                    break
+
+                name_lower = npc.character_name.lower()
+
+                # Skip if already in current story's tiers
+                if name_lower in current_npc_names:
+                    continue
+
+                # Skip if it matches an explicit character (partial name matching)
+                npc_parts = [p for p in name_lower.split() if len(p) > 2]
+                if name_lower in explicit_name_parts or any(p in explicit_name_parts for p in npc_parts):
+                    continue
+
+                # Dedup across sibling stories — keep the one with richest profile
+                if name_lower in seen_names:
+                    continue
+                seen_names.add(name_lower)
+
+                profile = npc.extracted_profile or {}
+                source_title = sibling_titles.get(npc.story_id, "another story")
+                role = profile.get("role", "NPC")
+
+                cross_story_npcs.append({
+                    "name": npc.character_name,
+                    "role": f"{role} [From '{source_title}']",
+                    "description": profile.get("description", ""),
+                })
+
+            if cross_story_npcs:
+                logger.info(f"[NPC TIERED] Cross-story: {len(cross_story_npcs)} NPCs from world {world_id}: "
+                           f"{[n['name'] for n in cross_story_npcs]}")
+
+            return cross_story_npcs
+
+        except Exception as e:
+            logger.warning(f"[NPC TIERED] Failed to get cross-story NPCs: {e}")
+            return []
+
     def get_tiered_npcs_for_context(
         self,
         db: Session,
@@ -1937,7 +2048,9 @@ Return ONLY the JSON, no other text."""
         current_scene_sequence: Optional[int] = None,
         chapter_id: Optional[int] = None,
         limit: int = 10,
-        branch_id: int = None
+        branch_id: int = None,
+        world_id: Optional[int] = None,
+        explicit_character_names: Optional[set] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Get NPCs formatted for context inclusion with tiered recency-based filtering.
@@ -1953,6 +2066,9 @@ Return ONLY the JSON, no other text."""
         - TIER 2 (Inactive): Appeared in last M scenes but not Tier 1 - brief mention (name + role)
         - TIER 3 (Dormant): Haven't appeared in last M scenes - excluded from context
 
+        When world_id is provided, also includes important NPCs from sibling stories
+        in the same world as inactive-tier entries (name + role + source story label).
+
         Args:
             db: Database session
             story_id: Story ID
@@ -1960,6 +2076,9 @@ Return ONLY the JSON, no other text."""
             chapter_id: Current chapter ID for chapter-awareness
             limit: Maximum number of NPCs per tier (default: 10)
             branch_id: Optional branch ID for filtering
+            world_id: Optional world ID for cross-story NPC inclusion
+            explicit_character_names: Optional set of lowercase explicit character names
+                to exclude from cross-story NPC results (avoids duplication)
 
         Returns:
             Dictionary with:
@@ -1999,6 +2118,14 @@ Return ONLY the JSON, no other text."""
                 if active_npcs is not None and inactive_npcs is not None:
                     logger.info(f"[NPC TIERED] Using pre-calculated lists from snapshot (scene {snapshot.scene_sequence}): "
                                f"{len(active_npcs)} active, {len(inactive_npcs)} inactive")
+                    # Append cross-story world NPCs to inactive tier
+                    cross_story = self._get_cross_story_npcs(
+                        db, story_id, world_id, explicit_character_names,
+                        {npc.get("name", "").lower() for npc in active_npcs + inactive_npcs},
+                        limit
+                    )
+                    if cross_story:
+                        inactive_npcs = list(inactive_npcs) + cross_story
                     return {
                         "active_npcs": active_npcs,
                         "inactive_npcs": inactive_npcs
@@ -2101,6 +2228,15 @@ Return ONLY the JSON, no other text."""
 
             logger.info(f"[NPC TIERED] Dynamic result: {len(active_npcs)} active, {len(inactive_npcs)} inactive, "
                        f"{dormant_count} dormant (excluded)")
+
+            # Append cross-story world NPCs to inactive tier
+            cross_story = self._get_cross_story_npcs(
+                db, story_id, world_id, explicit_character_names,
+                {npc.get("name", "").lower() for npc in active_npcs + inactive_npcs},
+                limit
+            )
+            if cross_story:
+                inactive_npcs.extend(cross_story)
 
             return {
                 "active_npcs": active_npcs,
