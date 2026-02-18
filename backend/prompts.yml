@@ -340,7 +340,7 @@ scene_base:
     2. Develop characters through their actions, words, and thoughts
     3. Maintain strict consistency with established story elements
     4. Create dramatic tension appropriate to genre and tone
-    5. Use vivid, descriptive language
+    5. Write clean, direct prose — minimize adjectives and adverbs. Instead of "He walked gracefully with purpose from one end of the room to another", write "He walked to the other side of the room". Let actions and dialogue carry the scene, not descriptors.
 
     {prose_style_instruction}
 
@@ -426,6 +426,7 @@ scene_base:
 
     DIALOGUE: Each character has a unique DIALOGUE STYLE in their description. You MUST write their dialogue following their voice style, including any language mixing specified.
     If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
+    Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
 
     {prose_style_reminder}
     {tone_reminder}
@@ -485,9 +486,8 @@ scene_base:
     3. Set up anticipation for the next chapter (without resolving the overall story)
     4. Maintain the established genre, tone, and writing style
     5. Feel like a natural chapter ending, not a story ending
-    6. Use vivid, descriptive language that draws readers into the specific world of this story
-    7. End at a natural chapter break point that leaves readers wanting to continue
-    8. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
+    6. End at a natural chapter break point that leaves readers wanting to continue
+    7. Minimize the use of adverbs and adjectives. THIS IS CRITICAL. For example, instead of saying "He walked gracefully with purpose from one end of the room to another", say, "He walked to the other side of the room"
     
     {prose_style_reminder}
     {tone_reminder}
