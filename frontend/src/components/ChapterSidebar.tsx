@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, BookOpen, AlertCircle, Edit2, Save, X, Plus, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
 import apiClient, { getApiBaseUrl, StoryArc } from '@/lib/api';
 import { getAuthToken } from '@/utils/jwt';
@@ -119,6 +119,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
 
   // Resume creation state
   const [isResumingCreation, setIsResumingCreation] = useState(false);
+
+  // Track created chapter ID for wizard onDone callback
+  const createdChapterIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadChapters();
@@ -502,39 +505,25 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           brainstorm_session_id: chapterData.brainstorm_session_id,
           arc_phase_id: chapterData.arc_phase_id
         });
-        
+
         // Reload chapters to get updated list
         await loadChapters();
-        
+
         // Notify parent component to reload story
         if (onChapterChange) {
           onChapterChange();
         }
-        
-        // Close wizard
+
+        // Close wizard immediately for edits
         setShowChapterWizard(false);
         setEditingChapterId(null);
-        
-        // Show success message
-        alert('Chapter updated successfully!');
       } else {
         // Create new chapter
-        // Use previous chapter's auto_summary as story_so_far for new chapter
         const storySoFar = activeChapter?.auto_summary || activeChapter?.story_so_far || 'Continuing the story...';
-        
-        const handleStatusUpdate = (status: { message: string; step: string }) => {
-          // Status updates are handled by ChapterWizard
-        };
-        
-        let enrichmentFailed = false;
+
         const wrappedStatusUpdate = (status: { message: string; step: string }) => {
-          if (status.step === 'enrichment_failed') {
-            enrichmentFailed = true;
-          }
           if (onStatusUpdate) {
             onStatusUpdate(status);
-          } else {
-            handleStatusUpdate(status);
           }
         };
 
@@ -557,6 +546,9 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           wrappedStatusUpdate
         );
 
+        // Store created chapter ID for onDone
+        createdChapterIdRef.current = newChapter.id;
+
         // Reload chapters to get updated list
         await loadChapters();
 
@@ -565,32 +557,28 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
           onChapterChange(newChapter.id);
         }
 
-        // Close wizard
-        setShowChapterWizard(false);
-        setIsCreatingChapter(false);
-        setNewChapterTitle('');
-        setNewChapterDescription('');
-
-        // Show success message (with warning if enrichment failed)
-        if (enrichmentFailed) {
-          alert(`Chapter ${newChapter.chapter_number} created! Story context generation failed but you can retry from the chapter list.`);
-        } else {
-          alert(`Chapter ${newChapter.chapter_number} created successfully! You're now in the new chapter.`);
-        }
+        // Don't close wizard or alert — wizard shows its own progress/completion UI
+        // Wizard will call onDone when user clicks "Start writing"
       }
     } catch (err) {
       console.error('Failed to save chapter:', err);
       setIsSubmittingNewChapter(false);
-      const errMsg = err instanceof Error ? err.message : 'Unknown error';
-      if (editingChapterId) {
-        alert('Failed to update chapter. Please try again.');
-      } else {
-        // Check if a chapter may have been partially created (reload to detect)
+      if (!editingChapterId) {
+        // Reload to detect partially created chapters
         await loadChapters();
-        alert(`Failed to create new chapter: ${errMsg}`);
       }
-      throw err; // Re-throw so ChapterWizard can catch and reset loading state
+      throw err; // Re-throw so ChapterWizard can handle and show error in its UI
     }
+  };
+
+  // Called when user clicks "Start writing" in the wizard's progress view
+  const handleChapterWizardDone = () => {
+    setShowChapterWizard(false);
+    setIsCreatingChapter(false);
+    setIsSubmittingNewChapter(false);
+    setNewChapterTitle('');
+    setNewChapterDescription('');
+    createdChapterIdRef.current = null;
   };
   
   const handleChapterWizardCancel = () => {
@@ -1404,6 +1392,7 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
             setBrainstormArcPhaseId(undefined);
             handleChapterWizardCancel();
           }}
+          onDone={handleChapterWizardDone}
         />
       )}
       

@@ -1,9 +1,158 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { X, Plus, Check, MapPin, Clock, FileText } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Plus, Check, MapPin, Clock, FileText, CheckCircle, Circle, AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
 import apiClient, { StoryArc } from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
+
+// --- Creation Progress Sub-Component ---
+
+type StepStatus = 'pending' | 'active' | 'done' | 'warning';
+
+interface ProgressStep {
+  label: string;
+  subText?: string;
+  status: StepStatus;
+  optional?: boolean;
+}
+
+function CreationProgress({
+  steps,
+  chapterCreated,
+  creationError,
+  enrichmentWarning,
+  elapsedSeconds,
+  onStartWriting,
+}: {
+  steps: ProgressStep[];
+  chapterCreated: boolean;
+  creationError: string | null;
+  enrichmentWarning: string | null;
+  elapsedSeconds: number;
+  onStartWriting: () => void;
+}) {
+  const activeStepIndex = steps.findIndex(s => s.status === 'active');
+  const allDone = steps.every(s => s.status === 'done' || s.status === 'warning');
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[300px] py-8 px-4">
+      {/* Title */}
+      <h3 className="text-xl font-semibold text-white mb-8">
+        {creationError ? 'Something went wrong' : allDone ? 'All done!' : 'Creating chapter...'}
+      </h3>
+
+      {/* Steps */}
+      <div className="w-full max-w-md space-y-4 mb-8">
+        {steps.map((step, i) => (
+          <div key={i} className="flex items-start gap-3">
+            {/* Icon */}
+            <div className="flex-shrink-0 mt-0.5">
+              {step.status === 'done' ? (
+                <CheckCircle className="w-5 h-5 text-emerald-400" />
+              ) : step.status === 'active' ? (
+                <Loader2 className="w-5 h-5 text-pink-400 animate-spin" />
+              ) : step.status === 'warning' ? (
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              ) : (
+                <Circle className="w-5 h-5 text-white/20" />
+              )}
+            </div>
+            {/* Text */}
+            <div className="flex-1 min-w-0">
+              <div className={`text-sm font-medium ${
+                step.status === 'done' ? 'text-emerald-300' :
+                step.status === 'active' ? 'text-white' :
+                step.status === 'warning' ? 'text-amber-300' :
+                'text-white/40'
+              }`}>
+                {step.label}
+                {step.optional && <span className="text-white/30 font-normal ml-1">(optional)</span>}
+              </div>
+              {step.subText && step.status === 'active' && (
+                <p className="text-white/50 text-xs mt-0.5">{step.subText}</p>
+              )}
+              {/* Elapsed time on active step */}
+              {step.status === 'active' && elapsedSeconds > 0 && (
+                <p className="text-white/30 text-xs mt-1">{formatTime(elapsedSeconds)}</p>
+              )}
+              {/* Slow hint for step 3 */}
+              {step.status === 'active' && step.optional && elapsedSeconds > 30 && (
+                <p className="text-amber-300/70 text-xs mt-1">
+                  Taking a while? You can start writing now — this will finish in the background.
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chapter Created Banner */}
+      {chapterCreated && !creationError && (
+        <div className={`w-full max-w-md rounded-lg p-4 mb-4 ${
+          allDone && !enrichmentWarning
+            ? 'bg-emerald-500/15 border border-emerald-500/30'
+            : enrichmentWarning
+            ? 'bg-amber-500/10 border border-amber-500/30'
+            : 'bg-emerald-500/10 border border-emerald-500/20'
+        }`}>
+          <div className="flex items-center gap-2 mb-1">
+            <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span className="text-emerald-300 font-medium text-sm">Chapter created</span>
+          </div>
+          {enrichmentWarning && (
+            <p className="text-amber-300/80 text-xs ml-6">
+              Story context generation failed, but you can start writing — it can be retried later.
+            </p>
+          )}
+          {allDone && !enrichmentWarning && (
+            <p className="text-emerald-300/70 text-xs ml-6">
+              Everything is ready.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Error Display */}
+      {creationError && (
+        <div className="w-full max-w-md bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+            <span className="text-red-300 font-medium text-sm">Failed to create chapter</span>
+          </div>
+          <p className="text-red-300/80 text-xs ml-6">{creationError}</p>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-3">
+        {chapterCreated && (
+          <button
+            onClick={onStartWriting}
+            className="px-6 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors flex items-center gap-2 font-medium"
+          >
+            <ArrowRight className="w-4 h-4" />
+            Start Writing
+          </button>
+        )}
+        {creationError && !chapterCreated && (
+          <button
+            onClick={onStartWriting}
+            className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+          >
+            Close
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface Character {
   id: number;
@@ -48,6 +197,7 @@ interface ChapterWizardProps {
     brainstorm_session_id?: number;
   }, onStatusUpdate?: (status: { message: string; step: string }) => void) => Promise<void> | void;
   onCancel: () => void;
+  onDone?: () => void;  // Called when user clicks "Start writing" — parent handles close + chapter switch
 }
 
 export default function ChapterWizard({
@@ -59,7 +209,8 @@ export default function ChapterWizard({
   brainstormSessionId,
   initialData,
   onComplete,
-  onCancel
+  onCancel,
+  onDone
 }: ChapterWizardProps) {
   const [title, setTitle] = useState(initialData?.title || `Chapter ${chapterNumber || 1}`);
   const [selectedArcPhaseId, setSelectedArcPhaseId] = useState<string | undefined>(initialData?.arc_phase_id);
@@ -85,6 +236,16 @@ export default function ChapterWizard({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Creation progress state (only used for new chapter creation, not edit)
+  const [creationPhase, setCreationPhase] = useState(false);
+  const [creationSteps, setCreationSteps] = useState<ProgressStep[]>([]);
+  const [chapterCreated, setChapterCreated] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const [enrichmentWarning, setEnrichmentWarning] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeStepStartRef = useRef<number>(Date.now());
 
   useEffect(() => {
     loadAvailableData();
@@ -225,6 +386,27 @@ export default function ChapterWizard({
     }
   }, [availableCharacters, initialData?.recommended_characters]);
 
+  // Elapsed timer for creation progress — runs while any step is active
+  // Timer is cleared explicitly in the status callback when all steps complete
+  useEffect(() => {
+    if (creationPhase && !creationError) {
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - activeStepStartRef.current) / 1000));
+      }, 1000);
+    }
+    return () => {
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
+    };
+  }, [creationPhase, creationError]);
+
+  const resetStepTimer = useCallback(() => {
+    activeStepStartRef.current = Date.now();
+    setElapsedSeconds(0);
+  }, []);
+
   const loadAvailableData = async () => {
     try {
       setLoadingData(true);
@@ -325,53 +507,186 @@ export default function ChapterWizard({
     // Disable button immediately to prevent double-clicks
     setLoading(true);
     setStatusMessage(null);
-    
-    try {
-      // Get story_character_ids for characters already in the story
-      const storyCharacterIds = availableCharacters
-        .filter(c => selectedCharacterIds.includes(c.id))
-        .map(c => c.story_character_id)
-        .filter((id): id is number => id !== undefined && id !== null);
 
-      // Prepare character_ids and character_roles for new characters from library
-      const characterIds = newCharacterIds.length > 0 ? newCharacterIds : undefined;
-      const characterRolesMap = newCharacterIds.length > 0 
-        ? Object.fromEntries(
-            newCharacterIds.map(id => [id, characterRoles[id] || 'other'])
-          )
-        : undefined;
+    // Get story_character_ids for characters already in the story
+    const storyCharacterIds = availableCharacters
+      .filter(c => selectedCharacterIds.includes(c.id))
+      .map(c => c.story_character_id)
+      .filter((id): id is number => id !== undefined && id !== null);
 
-      const handleStatusUpdate = (status: { message: string; step: string }) => {
-        setStatusMessage(status.message);
-      };
+    // Prepare character_ids and character_roles for new characters from library
+    const characterIds = newCharacterIds.length > 0 ? newCharacterIds : undefined;
+    const characterRolesMap = newCharacterIds.length > 0
+      ? Object.fromEntries(
+          newCharacterIds.map(id => [id, characterRoles[id] || 'other'])
+        )
+      : undefined;
 
-      console.log('[ChapterWizard] Submitting chapter with plot:', {
-        chapter_plot: initialData?.chapter_plot,
-        climax: initialData?.chapter_plot?.climax,
-        brainstorm_session_id: brainstormSessionId
+    const chapterData = {
+      title: title.trim() || undefined,
+      description: description.trim() || undefined,
+      story_character_ids: storyCharacterIds.length > 0 ? storyCharacterIds : undefined,
+      character_ids: characterIds,
+      character_roles: characterRolesMap,
+      location_name: locationName.trim() || undefined,
+      time_period: timePeriod.trim() || undefined,
+      scenario: scenario.trim() || undefined,
+      continues_from_previous: continuesFromPrevious,
+      arc_phase_id: selectedArcPhaseId,
+      chapter_plot: initialData?.chapter_plot,
+      brainstorm_session_id: brainstormSessionId
+    };
+
+    console.log('[ChapterWizard] Submitting chapter with plot:', {
+      chapter_plot: initialData?.chapter_plot,
+      climax: initialData?.chapter_plot?.climax,
+      brainstorm_session_id: brainstormSessionId
+    });
+
+    // For edit mode, use the old simple flow (no progress overlay)
+    if (chapterId) {
+      try {
+        await onComplete(chapterData, (status) => setStatusMessage(status.message));
+      } catch (error) {
+        setLoading(false);
+        setStatusMessage(null);
+        console.error('Failed to save chapter:', error);
+      }
+      return;
+    }
+
+    // For new chapter creation, show progress overlay
+    const isFirstChapter = (chapterNumber || 1) === 1;
+    const initialSteps: ProgressStep[] = isFirstChapter
+      ? [{ label: 'Creating chapter', status: 'active' as StepStatus }]
+      : [
+          { label: 'Completing previous chapter', status: 'active' as StepStatus },
+          { label: 'Creating chapter', status: 'pending' as StepStatus },
+          { label: 'Generating story context', status: 'pending' as StepStatus, optional: true },
+        ];
+
+    setCreationSteps(initialSteps);
+    setCreationPhase(true);
+    setChapterCreated(false);
+    setCreationError(null);
+    setEnrichmentWarning(null);
+    activeStepStartRef.current = Date.now();
+    setElapsedSeconds(0);
+
+    const handleStatusUpdate = (status: { message: string; step: string }) => {
+      setStatusMessage(status.message);
+
+      if (isFirstChapter) {
+        // First chapter: single step — keep it active until onComplete resolves
+        if (status.step === 'enrichment_complete' || status.step === 'enrichment_failed') {
+          // Edge case: first chapter shouldn't have enrichment, but handle gracefully
+        }
+        return;
+      }
+
+      setCreationSteps(prev => {
+        const next = [...prev];
+        switch (status.step) {
+          case 'completing_previous':
+            // Step 1 active (already set in initial state)
+            break;
+          case 'generating_chapter_summary':
+            // Sub-text for step 1
+            next[0] = { ...next[0], subText: 'Summarizing scenes...' };
+            break;
+          case 'creating_chapter':
+            // Step 1 done, step 2 active
+            next[0] = { ...next[0], status: 'done', subText: undefined };
+            next[1] = { ...next[1], status: 'active' };
+            resetStepTimer();
+            break;
+          case 'generating_story_so_far':
+            // Step 2 done, step 3 active — chapter exists at this point
+            next[1] = { ...next[1], status: 'done' };
+            next[2] = { ...next[2], status: 'active' };
+            setChapterCreated(true);
+            resetStepTimer();
+            break;
+          case 'enrichment_complete':
+            // Step 3 done
+            next[2] = { ...next[2], status: 'done' };
+            // Stop the timer
+            if (elapsedTimerRef.current) {
+              clearInterval(elapsedTimerRef.current);
+              elapsedTimerRef.current = null;
+            }
+            break;
+          case 'enrichment_failed':
+            // Step 3 warning
+            next[2] = { ...next[2], status: 'warning' };
+            setEnrichmentWarning(status.message);
+            if (elapsedTimerRef.current) {
+              clearInterval(elapsedTimerRef.current);
+              elapsedTimerRef.current = null;
+            }
+            break;
+        }
+        return next;
       });
 
-      await onComplete({
-        title: title.trim() || undefined,
-        description: description.trim() || undefined,
-        story_character_ids: storyCharacterIds.length > 0 ? storyCharacterIds : undefined,
-        character_ids: characterIds,
-        character_roles: characterRolesMap,
-        location_name: locationName.trim() || undefined,
-        time_period: timePeriod.trim() || undefined,
-        scenario: scenario.trim() || undefined,
-        continues_from_previous: continuesFromPrevious,
-        arc_phase_id: selectedArcPhaseId,
-        chapter_plot: initialData?.chapter_plot,  // Pass through the brainstorm plot
-        brainstorm_session_id: brainstormSessionId
-      }, handleStatusUpdate);
+      // Mark chapter created on 'complete' event (the API client sends this as step)
+      // Actually the 'complete' type is handled inside onComplete in the sidebar — we detect it via
+      // the creating_chapter → generating_story_so_far transition or stream end
+    };
+
+    try {
+      await onComplete(chapterData, handleStatusUpdate);
+      // If we get here without error, the chapter was created successfully
+      setChapterCreated(true);
+
+      // For first chapter, mark single step as done
+      if (isFirstChapter) {
+        setCreationSteps([{ label: 'Creating chapter', status: 'done' as StepStatus }]);
+      }
+
+      // Stop timer
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
     } catch (error) {
-      // If there's an error, re-enable the button
-      setLoading(false);
-      setStatusMessage(null);
       console.error('Failed to save chapter:', error);
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      // If the chapter was already created (step 2 done), don't show as fatal error
+      // The sidebar will have already loaded the chapter
+      setCreationSteps(prev => {
+        const step2Done = prev.length >= 2 && prev[1]?.status === 'done';
+        if (step2Done) {
+          // Chapter exists — this error is from enrichment or post-creation
+          setChapterCreated(true);
+          setEnrichmentWarning(errMsg);
+          if (prev.length >= 3) {
+            const next = [...prev];
+            next[2] = { ...next[2], status: 'warning' };
+            return next;
+          }
+          return prev;
+        }
+        // Fatal error — chapter may not exist
+        setCreationError(errMsg);
+        return prev;
+      });
+
+      // Stop timer
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
     }
   };
+
+  const handleStartWriting = useCallback(() => {
+    if (onDone) {
+      onDone();
+    } else {
+      onCancel();
+    }
+  }, [onDone, onCancel]);
 
   if (loadingData) {
     return (
@@ -391,14 +706,29 @@ export default function ChapterWizard({
           <h2 className="text-2xl font-bold text-white">
             {chapterId ? `Edit Chapter ${chapterNumber || ''}` : (chapterNumber ? `Chapter ${chapterNumber} Setup` : 'Chapter Setup')}
           </h2>
-          <button
-            onClick={onCancel}
-            className="text-white/60 hover:text-white transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          {/* Show close button only when not in creation progress, or when chapter is created/errored */}
+          {(!creationPhase || chapterCreated || creationError) && (
+            <button
+              onClick={creationPhase ? handleStartWriting : onCancel}
+              className="text-white/60 hover:text-white transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          )}
         </div>
 
+        {/* Creation Progress Overlay */}
+        {creationPhase ? (
+          <CreationProgress
+            steps={creationSteps}
+            chapterCreated={chapterCreated}
+            creationError={creationError}
+            enrichmentWarning={enrichmentWarning}
+            elapsedSeconds={elapsedSeconds}
+            onStartWriting={handleStartWriting}
+          />
+        ) : (
+        <>
         <div className="space-y-6">
           {/* Brainstorm Button / Plot Applied Indicator */}
           {onBrainstorm && (
@@ -714,6 +1044,8 @@ export default function ChapterWizard({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Character Quick Add Modal */}

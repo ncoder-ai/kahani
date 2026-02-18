@@ -651,7 +651,7 @@ class ChapterSummaryService:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    timeout=extraction_service.timeout.total * 2
+                    timeout=extraction_service.timeout_total * 2
                 )
                 result = response.choices[0].message.content.strip()
                 logger.info(f"[CHAPTER:SUMMARY] Successfully generated with extraction LLM for {trace_context} (length={len(result)})")

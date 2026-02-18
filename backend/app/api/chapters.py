@@ -474,17 +474,8 @@ async def create_chapter(
                 db.refresh(new_chapter)
                 logger.info(f"[CHAPTER:CREATE] trace_id={trace_id} chapter_committed chapter_id={new_chapter.id} creation_step={new_chapter.creation_step}")
 
-                # Build and send the chapter response immediately — chapter is usable now
-                chapter_response = build_chapter_response(new_chapter, db)
-                if hasattr(chapter_response, 'model_dump'):
-                    chapter_dict = chapter_response.model_dump(mode='json')
-                else:
-                    chapter_dict = chapter_response.dict()
-                    if 'created_at' in chapter_dict and chapter_dict['created_at']:
-                        chapter_dict['created_at'] = chapter_dict['created_at'].isoformat()
-                    if 'completed_at' in chapter_dict and chapter_dict['completed_at']:
-                        chapter_dict['completed_at'] = chapter_dict['completed_at'].isoformat()
-                yield f"data: {json.dumps({'type': 'complete', 'chapter': chapter_dict})}\n\n"
+                # Send minimal chapter info — frontend reloads full data via loadChapters()
+                yield f"data: {json.dumps({'type': 'complete', 'chapter': {'id': new_chapter.id, 'chapter_number': new_chapter.chapter_number}})}\n\n"
 
             except Exception as e:
                 logger.error(f"[CHAPTER:CREATE:ERROR] trace_id={trace_id} step=creating_new_chapter error={e}")
@@ -584,17 +575,8 @@ async def resume_chapter_creation(
                     db.refresh(chapter)
                     logger.info(f"[CHAPTER:RESUME] trace_id={trace_id} story_so_far_generated, creation_step cleared")
 
-                    # Build and return the updated chapter response
-                    chapter_response = build_chapter_response(chapter, db)
-                    if hasattr(chapter_response, 'model_dump'):
-                        chapter_dict = chapter_response.model_dump(mode='json')
-                    else:
-                        chapter_dict = chapter_response.dict()
-                        if 'created_at' in chapter_dict and chapter_dict['created_at']:
-                            chapter_dict['created_at'] = chapter_dict['created_at'].isoformat()
-                        if 'completed_at' in chapter_dict and chapter_dict['completed_at']:
-                            chapter_dict['completed_at'] = chapter_dict['completed_at'].isoformat()
-                    yield f"data: {json.dumps({'type': 'complete', 'chapter': chapter_dict})}\n\n"
+                    # Send minimal chapter info — frontend reloads full data via loadChapters()
+                    yield f"data: {json.dumps({'type': 'complete', 'chapter': {'id': chapter.id, 'chapter_number': chapter.chapter_number}})}\n\n"
 
                 except Exception as e:
                     logger.error(f"[CHAPTER:RESUME:ERROR] trace_id={trace_id} story_so_far_failed error={e}")
