@@ -208,6 +208,14 @@ async def list_world_stories(
             Chapter.story_id == story.id
         ).scalar() or 0
 
+        # Get story_so_far from the latest chapter that has one
+        latest_chapter = db.query(Chapter).filter(
+            Chapter.story_id == story.id
+        ).order_by(Chapter.chapter_number.desc()).first()
+        story_summary = None
+        if latest_chapter:
+            story_summary = latest_chapter.story_so_far or latest_chapter.auto_summary
+
         # Get distinct character names from StoryCharacter records
         char_rows = (
             db.query(Character.name)
@@ -234,6 +242,7 @@ async def list_world_stories(
             "scene_count": scene_count,
             "chapter_count": chapter_count,
             "character_names": character_names,
+            "story_so_far": story_summary,
             "created_at": story.created_at,
             "updated_at": story.updated_at,
         })

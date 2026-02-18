@@ -383,6 +383,7 @@ export interface WorldStory {
   scene_count?: number;
   chapter_count?: number;
   character_names?: string[];
+  story_so_far?: string;
   created_at: string;
   updated_at: string;
 }

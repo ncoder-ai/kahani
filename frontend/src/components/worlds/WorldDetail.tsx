@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, Check, X, Save, BookOpen, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Check, X, BookOpen, ArrowUp, ArrowDown } from 'lucide-react';
 import { WorldsApi } from '@/lib/api/worlds';
 
 const worldsApi = new WorldsApi();
@@ -41,18 +41,12 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
   const [editDesc, setEditDesc] = useState(world.description || '');
 
   // Timeline ordering
-  const [timelineEdits, setTimelineEdits] = useState<Record<number, string>>({});
   const [savingOrder, setSavingOrder] = useState(false);
 
   const loadStories = useCallback(async () => {
     try {
       const data = await worldsApi.getWorldStories(world.id);
       setStories(data);
-      const edits: Record<number, string> = {};
-      data.forEach((s) => {
-        edits[s.id] = s.timeline_order != null ? String(s.timeline_order) : '';
-      });
-      setTimelineEdits(edits);
     } catch (err) {
       console.error('Failed to load stories:', err);
     }
@@ -110,27 +104,24 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
     }
   };
 
-  const hasTimelineChanges = stories.some((s) => {
-    const current = s.timeline_order != null ? String(s.timeline_order) : '';
-    return timelineEdits[s.id] !== current;
-  });
+  const moveStory = async (storyId: number, direction: 'up' | 'down') => {
+    const idx = stories.findIndex((s) => s.id === storyId);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= stories.length) return;
 
-  const saveTimelineOrder = async () => {
     setSavingOrder(true);
     try {
-      const storyOrders = stories
-        .filter((s) => timelineEdits[s.id] !== '')
-        .map((s) => ({
-          story_id: s.id,
-          timeline_order: parseInt(timelineEdits[s.id], 10),
-        }))
-        .filter((o) => !isNaN(o.timeline_order));
-
-      await worldsApi.reorderWorldStories(world.id, storyOrders);
+      const newOrders = stories.map((s, i) => {
+        let order = i;
+        if (i === idx) order = swapIdx;
+        if (i === swapIdx) order = idx;
+        return { story_id: s.id, timeline_order: order };
+      });
+      await worldsApi.reorderWorldStories(world.id, newOrders);
       await loadTabData('stories');
     } catch (err) {
-      console.error('Failed to save timeline order:', err);
-      alert('Failed to save timeline order.');
+      console.error('Failed to reorder stories:', err);
     } finally {
       setSavingOrder(false);
     }
@@ -196,20 +187,74 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
         )}
       </div>
 
-      {/* Constellation View — visual world map */}
+      {/* Constellation View — desktop only */}
       {stories.length >= 2 && (
-        <div className="mb-8">
+        <div className="mb-8 hidden md:block">
           <ConstellationMap stories={stories} worldId={world.id} />
+          <button
+            onClick={() => setActiveTab('stories')}
+            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            Reorder timeline &rarr;
+          </button>
+        </div>
+      )}
+
+      {/* Mobile story cards — shown instead of constellation */}
+      {stories.length >= 2 && (
+        <div className="mb-8 md:hidden space-y-2">
+          <h3 className="text-sm font-medium text-white/50 mb-3">Stories in this world</h3>
+          {stories.map((story) => (
+            <button
+              key={story.id}
+              onClick={() => router.push(`/story/${story.id}`)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-left hover:bg-white/10 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: getGenreColor(story.genre) }}
+                />
+                <h4 className="text-sm font-medium text-white truncate">{story.title}</h4>
+              </div>
+              <div className="flex items-center gap-2 ml-[18px]">
+                {story.genre && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                    style={{ backgroundColor: `${getGenreColor(story.genre)}20`, color: getGenreColor(story.genre) }}>
+                    {story.genre}
+                  </span>
+                )}
+                <span className={`text-[10px] ${story.status === 'active' ? 'text-green-400' : 'text-gray-400'}`}>
+                  {story.status}
+                </span>
+                <span className="text-[10px] text-white/30">
+                  {story.scene_count ?? 0}s · {story.chapter_count ?? 0}ch
+                </span>
+              </div>
+              {story.character_names && story.character_names.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2 ml-[18px]">
+                  {story.character_names.slice(0, 5).map((name) => (
+                    <span key={name} className="text-[10px] px-1.5 py-0.5 bg-white/10 rounded-full text-white/50">
+                      {name}
+                    </span>
+                  ))}
+                  {story.character_names.length > 5 && (
+                    <span className="text-[10px] text-white/30">+{story.character_names.length - 5}</span>
+                  )}
+                </div>
+              )}
+            </button>
+          ))}
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex space-x-2 mb-6">
+      <div className="flex space-x-2 mb-6 overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
+            className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium text-sm sm:text-base transition-all duration-200 whitespace-nowrap ${
               activeTab === tab.id
                 ? 'bg-indigo-600 text-white'
                 : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
@@ -241,18 +286,8 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
                   {/* Timeline order header */}
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-white/40 text-xs">
-                      Set timeline order to define chronological position (lower = earlier in timeline).
+                      Use arrows to reorder stories in the timeline.
                     </p>
-                    {hasTimelineChanges && (
-                      <button
-                        onClick={saveTimelineOrder}
-                        disabled={savingOrder}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white text-sm rounded-lg transition-colors"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        {savingOrder ? 'Saving...' : 'Save Order'}
-                      </button>
-                    )}
                   </div>
                   <div className="space-y-3">
                     {stories.map((story) => (
@@ -276,16 +311,28 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
                             <p className="text-white/50 text-sm mt-1 line-clamp-1">{story.description}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                          <label className="text-white/30 text-xs">Order:</label>
-                          <input
-                            type="number"
-                            value={timelineEdits[story.id] ?? ''}
-                            onChange={(e) => setTimelineEdits((prev) => ({ ...prev, [story.id]: e.target.value }))}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-white text-center focus:outline-none focus:border-indigo-400"
-                            placeholder="-"
-                          />
+                        <div className="flex items-center gap-1.5 ml-4 flex-shrink-0">
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); moveStory(story.id, 'up'); }}
+                              disabled={savingOrder || stories.indexOf(story) === 0}
+                              className="p-0.5 text-white/40 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed rounded transition-colors"
+                              title="Move earlier in timeline"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); moveStory(story.id, 'down'); }}
+                              disabled={savingOrder || stories.indexOf(story) === stories.length - 1}
+                              className="p-0.5 text-white/40 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed rounded transition-colors"
+                              title="Move later in timeline"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <span className="text-white/25 text-xs w-5 text-center tabular-nums">
+                            {story.timeline_order != null ? story.timeline_order + 1 : '-'}
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -383,6 +430,31 @@ export default function WorldDetail({ world, onBack, onWorldUpdated }: WorldDeta
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ========== Story So Far (expandable) ==========
+
+function StorySoFar({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 300;
+
+  return (
+    <div className="mb-2">
+      <h5 className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-1">Story so far</h5>
+      <p className={`text-sm text-white/60 leading-relaxed ${!expanded && isLong ? 'line-clamp-4' : ''}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-indigo-400 hover:text-indigo-300 mt-1 flex items-center gap-0.5 transition-colors"
+        >
+          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
       )}
     </div>
   );
@@ -681,7 +753,7 @@ function ConstellationMap({ stories, worldId }: { stories: WorldStory[]; worldId
                 className="absolute left-1/2 -translate-x-1/2 text-center pointer-events-none whitespace-nowrap transition-opacity duration-300"
                 style={{ top: `${sz / 2 + 24}px`, opacity: isDimmed ? 0.3 : 1 }}
               >
-                <p className="text-[11px] text-white/70 font-medium max-w-[100px] truncate">
+                <p className="text-[11px] text-white/70 font-medium max-w-[140px] truncate">
                   {star.story.title}
                 </p>
                 <p className="text-[9px] text-white/40">
@@ -750,11 +822,14 @@ function ConstellationMap({ stories, worldId }: { stories: WorldStory[]; worldId
                 </span>
               </div>
               {selectedStory.description && (
-                <p className="text-sm text-white/50 line-clamp-2 mb-3">{selectedStory.description}</p>
+                <p className="text-sm text-white/50 line-clamp-2 mb-2">{selectedStory.description}</p>
+              )}
+              {selectedStory.story_so_far && (
+                <StorySoFar text={selectedStory.story_so_far} />
               )}
               <button
                 onClick={() => router.push(`/story/${selectedStory.id}`)}
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors mt-2"
               >
                 Open story &rarr;
               </button>
@@ -850,7 +925,7 @@ function ConstellationMap({ stories, worldId }: { stories: WorldStory[]; worldId
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-white/40 italic">No snapshot generated for this character.</p>
+                <p className="text-xs text-white/40 italic">No chronicle data yet — entries are extracted automatically as the story progresses.</p>
               )}
             </div>
           )}
