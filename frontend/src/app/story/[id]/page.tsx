@@ -1062,8 +1062,14 @@ export default function StoryPage() {
           }
         }
       } else {
-        // Explicit chapter switch - update the active chapter ID state
+        // Explicit chapter switch - fetch and set the full chapter object + ID
         setActiveChapterId(chapterIdToUse);
+        try {
+          activeChapterData = await apiClient.getChapter(storyId, chapterIdToUse);
+          setActiveChapter(activeChapterData);
+        } catch (err) {
+          console.warn('Failed to fetch switched chapter details:', err);
+        }
       }
 
       // Fetch story and context status in parallel (they don't depend on each other)

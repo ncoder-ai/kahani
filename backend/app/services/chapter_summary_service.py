@@ -592,12 +592,13 @@ class ChapterSummaryService:
 
         user_settings = self._get_user_settings()
 
-        # Generate consolidated story_so_far via LLM
+        # Generate consolidated story_so_far via LLM (capped at 2048 tokens to enforce ~800 word limit)
         story_so_far = await self._generate_with_llm(
             prompt=user_prompt,
             system_prompt=system_prompt,
             user_settings=user_settings,
-            trace_context=f"story_so_far_{chapter_id}"
+            trace_context=f"story_so_far_{chapter_id}",
+            max_tokens=2048
         )
 
         # Update chapter

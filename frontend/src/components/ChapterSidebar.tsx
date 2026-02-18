@@ -166,6 +166,8 @@ export default function ChapterSidebar({ storyId, isOpen, onToggle, onChapterCha
               // Don't fail the whole load if context status fails
               setContextStatus(null);
             }
+          } else {
+            setContextStatus(null);
           }
         } catch (err) {
           // No active chapter found - this is expected when:

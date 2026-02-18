@@ -1304,54 +1304,68 @@ summary_generation:
   story_so_far:
     system: |
       You are a story state tracker. Consolidate chapter facts into a single state document.
-      
-      CRITICAL RULES:
-      - Merge redundant information across chapters
-      - Maintain chronological order of events
+
+      RULES:
+      - Merge redundant information across chapters — each event appears ONCE
+      - Maintain chronological order
       - Track cumulative state changes
-      - No literary flourishes or purple prose
-      - No emotional interpretation
-      - NO MORALIZING OR ETHICAL COMMENTARY - you are tracking plot facts, not judging the story
-      - NO mentions of consent frameworks, legal implications, ethical concerns, or real-world consequences
-      - This is FICTION - track what happens in the story, not what should happen in reality
-      - Active threads should be PLOT threads (what happens next in the story), not meta-commentary
-      - Stay in-universe: track character motivations and story conflicts, not external judgments
-      
-      CRITICAL - PRECISE TERMINOLOGY FOR PHYSICAL INTERACTIONS:
-      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations", "became intimate"
-      - ALWAYS preserve the specific terminology from chapter summaries
-      - If the source says "kissed", write "kissed" - do NOT generalize to "intimate"
-      - Different types of physical interactions must remain distinct in the summary
-      - The LLM reading this must know EXACTLY what has occurred and what has NOT
-      
-      BAD: "engaged in intimate acts" / "sexual encounter" / "physical relationship"
-      GOOD: Preserve the specific action terms from the source material
-    
+      - No literary flourishes, no prose, no emotional interpretation
+      - NO MORALIZING OR ETHICAL COMMENTARY — track plot facts, not judgments
+      - NO mentions of consent, legality, ethics, or real-world implications
+      - NEVER speculate about future possibilities — only track what HAS happened
+      - Active threads = unresolved setups from the story, NOT hypothetical "what if" scenarios
+      - Stay in-universe: character motivations and story conflicts, not external commentary
+      - HARD LIMIT: 800 words maximum for the entire output
+
+      PRECISE TERMINOLOGY:
+      - NEVER generalize to vague terms like "intimate encounter", "sexual acts", "physical relations"
+      - Preserve EXACT action terms from chapter summaries (kissed = kissed, not "intimate")
+      - The LLM reading this must know EXACTLY what occurred and what did NOT
+
     user: |
       STORY CONTEXT:
       Genre: {genre}
       Content Rating: {content_rating}
       Tone: {tone}
-      
+
       {combined_chapters}
-      
-      Consolidate into a single factual summary that serves as context for continuing this {genre} story:
 
-      STORY PROGRESSION: [key events in chronological order - MERGE DUPLICATES, each event should appear only ONCE even if mentioned in multiple chapters]
-      CURRENT STATE: [where things stand now - locations, relationships, situation - in-story facts only]
-      ACTIVE THREADS: [unresolved PLOT points and character arcs that the story needs to continue - NOT ethical concerns or real-world implications]
+      Consolidate into a factual summary using EXACTLY this format:
 
-      CRITICAL - DEDUPLICATION:
-      - Each distinct event should appear EXACTLY ONCE in the summary
-      - If the same event is described in multiple chapters, include it only at the chronologically correct position
-      - Merge overlapping descriptions into a single concise statement
-      - The summary should flow chronologically without repetition
+      STORY PROGRESSION (~400 words max):
+      Key events in chronological order. Each event appears ONCE. Deduplicate across chapters.
 
-      IMPORTANT: This is a {content_rating} {genre} story. Track the story as written without external commentary.
-      Active threads should be things like "Will X discover Y's secret?" or "How will the relationship develop?" - NOT "ethical implications" or "legal ramifications".
-      PRESERVE SPECIFIC TERMINOLOGY - do not generalize specific actions into vague phrases like "intimate acts".
+      CURRENT STATE (~200 words max):
+      Where things stand NOW — locations, relationships, situations. Facts only.
 
-      Aim for 600-800 words for comprehensive coverage. Facts only, no prose, no moralizing.
+      ACTIVE THREADS (~100 words max, MAXIMUM 5 items):
+      Each thread MUST cite a specific event that set it up. These are unresolved story setups, NOT speculation.
+
+      === EXAMPLE (generic fantasy) ===
+
+      STORY PROGRESSION:
+      - Elena inherited the Silver Cup tavern after her father's death (Ch1). She discovered a hidden cellar room containing old trade ledgers (Ch1).
+      - Merchant Kael reported his jade compass stolen and offered a reward (Ch2). Elena found the compass hidden behind a loose brick in the cellar (Ch2). She noticed unusual foot traffic near the tavern at night (Ch2).
+      - Elena confronted regular patron Soren about the compass. He admitted hiding it but claimed someone coerced him and refused to name them (Ch3). She banned Soren from the tavern (Ch3).
+
+      CURRENT STATE:
+      Elena runs the Silver Cup. The jade compass is secured behind the bar. Soren is banned but claims an unnamed third party coerced him into hiding the compass. Kael expects the compass returned by week's end. The hidden cellar room with trade ledgers remains unexplored.
+
+      ACTIVE THREADS:
+      1. Soren claimed coercion but hasn't named who forced him (Ch3)
+      2. Kael's deadline to return the compass is approaching (Ch2)
+      3. Unusual nighttime foot traffic near the tavern — unexplained (Ch2)
+
+      === END EXAMPLE ===
+
+      NOT active threads (these are speculation — NEVER include):
+      - "Will Elena develop feelings for Kael?" — not set up in story
+      - "How will the tavern's reputation be affected?" — hypothetical
+      - "What are the ethical implications of banning Soren?" — moralizing
+
+      HARD LIMIT: 800 words. If you exceed this the summary is useless as context.
+      This is a {content_rating} {genre} story. Track the story as written without external commentary.
+      PRESERVE SPECIFIC TERMINOLOGY — do not generalize specific actions into vague phrases.
 
   chapter_summary_incremental:
     system: |
