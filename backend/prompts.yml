@@ -1231,40 +1231,52 @@ summary_generation:
 
   chapter_summary:
     system: |
-      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS.
+      You are a story state tracker. Produce a CONSOLIDATED chapter summary — NOT a scene-by-scene log.
 
-      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+      RULES:
+      - Group related events across scenes into single bullets
+      - NEVER reference scene numbers (no "Scene 5", "Scenes 12-14")
+      - Each bullet = one distinct plot development, regardless of how many scenes it spans
+      - WHO did WHAT (to WHOM) — simple declarative sentences
+      - No adjectives/adverbs unless plot-critical
+      - No emotional interpretation, no literary language, no moralizing
+      - NO external commentary about consent, legality, or implications
+      - Preserve EXACT action terms — never generalize to "intimate encounter" or "sexual acts"
+      - HARD LIMIT: 15-25 bullets total for the entire chapter, plus a brief state summary
 
       ONLY CAPTURE:
       - Major decisions or turning points
       - Relationship changes (alliances, conflicts, trust shifts)
       - Key revelations or discoveries
-      - Arrivals, departures, or location changes that matter to plot
+      - Location changes that matter to plot
 
       NEVER INCLUDE:
-      - Character movements (walking, sitting, entering rooms)
+      - Routine actions (eating, drinking, walking, sitting)
       - Dialogue unless it reveals critical information
-      - Routine actions (eating, drinking, checking phones)
-      - Emotional reactions or observations
-      - Descriptive details
-
-      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
-      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
-
-      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
-      No adjectives. No adverbs. No literary language.
+      - Emotional reactions or internal observations
+      - Repeated versions of the same event across scenes
 
     user: |
       {context_section}Chapter {chapter_number}: {chapter_title}
 
-      Scenes to Summarize:
+      Scenes:
       {scenes_content}
 
-      IMPORTANT: Maximum 3 bullets per scene. Most scenes need only 1-2 bullets.
-      Only include events that would matter if someone asked "what happened in this chapter?"
+      Write a CONSOLIDATED summary of this chapter. Do NOT list events per scene — group them by plot development.
 
-      EVENTS: [bullet list - MAXIMUM 3 per scene]
-      STATE CHANGES: [relationship/location/knowledge changes only]
+      === EXAMPLE FORMAT ===
+      EVENTS:
+      - Elena discovered the jade compass hidden in the cellar and confronted Soren about it
+      - Soren admitted hiding the compass but claimed someone coerced him; he refused to name them
+      - Elena banned Soren from the tavern and secured the compass behind the bar
+      - Kael set a deadline of one week for the compass to be returned
+
+      CURRENT STATE:
+      Elena runs the Silver Cup. The compass is secured. Soren is banned. Kael's deadline approaches.
+      === END EXAMPLE ===
+
+      EVENTS: [15-25 consolidated bullets — NO scene numbers]
+      CURRENT STATE: [where things stand at chapter end — 2-4 sentences]
 
   # Cache-friendly version that uses scene generation context prefix
   chapter_summary_cache_friendly:
@@ -1273,33 +1285,20 @@ summary_generation:
 
       {context_section}Chapter {chapter_number}: {chapter_title}
 
-      Scenes to Summarize:
+      Scenes:
       {scenes_content}
 
-      Create a concise chapter summary extracting ONLY PLOT-CRITICAL FACTS.
+      Write a CONSOLIDATED chapter summary. Group related events — do NOT list per scene.
 
-      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
+      RULES:
+      - NEVER reference scene numbers — group by plot development
+      - 15-25 bullets total, each = one distinct plot development
+      - WHO did WHAT (to WHOM) — simple declarative sentences
+      - Preserve exact action terms — never generalize to vague phrases
+      - No moralizing, no emotional interpretation, no literary language
 
-      ONLY CAPTURE:
-      - Major decisions or turning points
-      - Relationship changes (alliances, conflicts, trust shifts)
-      - Key revelations or discoveries
-      - Arrivals, departures, or location changes that matter to plot
-
-      NEVER INCLUDE:
-      - Character movements (walking, sitting, entering rooms)
-      - Dialogue unless it reveals critical information
-      - Routine actions (eating, drinking, checking phones)
-      - Emotional reactions or observations
-      - Descriptive details
-
-      CONSOLIDATION: If consecutive scenes continue the same event, merge them into ONE bullet.
-
-      Format: Simple declarative sentences. WHO did WHAT (to WHOM).
-      No adjectives. No adverbs. No literary language.
-
-      EVENTS: [bullet list - MAXIMUM 3 per scene]
-      STATE CHANGES: [relationship/location/knowledge changes only]
+      EVENTS: [15-25 consolidated bullets — NO scene numbers]
+      CURRENT STATE: [where things stand at chapter end — 2-4 sentences]
 
   story_so_far:
     system: |
@@ -1369,104 +1368,65 @@ summary_generation:
 
   chapter_summary_incremental:
     system: |
-      You are a story state tracker. Update an existing chapter summary with new scene facts.
+      You are a story state tracker. Update an existing chapter summary with new events.
 
-      HARD LIMIT: Maximum 3 bullets per scene. Most scenes need only 1-2.
-
-      ONLY CAPTURE:
-      - Major decisions or turning points
-      - Relationship changes (alliances, conflicts, trust shifts)
-      - Key revelations or discoveries
-      - Arrivals, departures, or location changes that matter to plot
-
-      NEVER INCLUDE:
-      - Character movements (walking, sitting, entering rooms)
-      - Dialogue unless it reveals critical information
-      - Routine actions (eating, drinking, checking phones)
-      - Emotional reactions or observations
-      - Descriptive details
-
-      Rules:
-      - Merge new events into the existing summary
-      - Consolidate bullets that describe the same ongoing event across scenes into a single bullet
-      - Maintain chronological order
+      CRITICAL — CONSOLIDATED OUTPUT:
+      - Produce ONE combined summary, NOT a scene-by-scene log
+      - NEVER reference scene numbers (no "Scene 5", "Scenes 12-14")
+      - Merge new events into existing bullets where they continue the same development
+      - Each bullet = one distinct plot development, regardless of how many scenes it spans
+      - 15-25 bullets total for the entire chapter
+      - WHO did WHAT (to WHOM) — simple declarative sentences
       - No adjectives/adverbs unless plot-critical
-      - No emotional interpretation or literary flourishes
-      - No purple prose
-      - NO MORALIZING - track events, not ethics
-      - NO external commentary about consent, legality, or implications
-      - NO hallucination - only include events that actually happened
+      - No emotional interpretation, no moralizing, no external commentary
+      - Preserve EXACT action terms — never generalize to vague phrases
+      - NO hallucination — only include events that actually happened in the scenes provided
 
-      CRITICAL - PRECISE TERMINOLOGY:
-      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
-      - ALWAYS use specific, factual descriptions of exactly what occurred
-      - Preserve specific action terms - do not generalize to vague phrases
+      ONLY CAPTURE: decisions, turning points, relationship changes, revelations, plot-relevant location changes
+      NEVER INCLUDE: routine actions, dialogue (unless critical), emotional reactions, descriptive details
 
     user: |
       {previous_chapter_text}
-      Existing Chapter Summary (Scenes 1-{last_summary_count}):
+      Existing Chapter Summary:
       {existing_summary}
 
-      New Scenes to Add (Scenes {new_scenes_start}-{new_scenes_end}):
+      New Scenes:
       {new_scenes_text}
 
-      Update the summary to include plot-critical new events:
+      Merge new events into the existing summary. Group related events — do NOT add per-scene bullets.
 
-      EVENTS: [chronological bullet list - existing + new plot-critical events - USE SPECIFIC TERMS. Maximum 3 bullets per scene. Include only plot-critical events, not routine actions.]
-      STATE CHANGES: [cumulative changes across all scenes]
+      EVENTS: [15-25 consolidated bullets — NO scene numbers — existing + new merged together]
+      CURRENT STATE: [where things stand now — 2-4 sentences]
 
-      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
-  
   chapter_summary_initial:
     system: |
-      You are a story state tracker. Extract ONLY PLOT-CRITICAL FACTS from chapter content, not prose.
+      You are a story state tracker. Produce a CONSOLIDATED chapter summary — NOT a scene-by-scene log.
 
-      HARD LIMIT: Maximum 3 bullets per scene. If a scene has no plot-critical events, use 1 bullet.
-
-      ONLY CAPTURE:
-      - Major decisions or turning points
-      - Relationship changes (alliances, conflicts, trust shifts)
-      - Key revelations or discoveries
-      - Arrivals, departures, or location changes that matter to plot
-
-      NEVER INCLUDE:
-      - Character movements (walking, sitting, entering rooms)
-      - Dialogue unless it reveals critical information
-      - Routine actions (eating, drinking, checking phones)
-      - Emotional reactions or observations
-      - Descriptive details
-
-      CONSOLIDATION: If consecutive scenes continue the same event or emotional beat,
-      merge them into ONE bullet. Do not repeat the same development across multiple bullets.
-
-      Rules:
-      - Simple declarative sentences only
-      - Format: WHO did WHAT (to WHOM)
+      RULES:
+      - Group related events across scenes into single bullets
+      - NEVER reference scene numbers (no "Scene 5", "Scenes 12-14")
+      - Each bullet = one distinct plot development, regardless of how many scenes it spans
+      - WHO did WHAT (to WHOM) — simple declarative sentences
       - No adjectives/adverbs unless plot-critical
-      - No emotional interpretation or literary flourishes
-      - No purple prose
-      - NO MORALIZING - track events, not ethics
-      - NO external commentary about consent, legality, or implications
-      - NO hallucination - only include events that actually happened
+      - No emotional interpretation, no moralizing, no external commentary
+      - Preserve EXACT action terms — never generalize to vague phrases
+      - NO hallucination — only include events that actually happened in the scenes provided
+      - HARD LIMIT: 15-25 bullets total, plus a brief state summary
 
-      CRITICAL - PRECISE TERMINOLOGY:
-      - NEVER use vague terms like "intimate encounter", "sexual acts", "physical relations"
-      - ALWAYS use specific, factual descriptions of exactly what occurred
-      - Different types of physical interactions must remain distinct
+      ONLY CAPTURE: decisions, turning points, relationship changes, revelations, plot-relevant location changes
+      NEVER INCLUDE: routine actions, dialogue (unless critical), emotional reactions, descriptive details
 
     user: |
       {previous_chapter_text}
       Chapter {chapter_number}: {chapter_title}
 
-      Scenes to Summarize:
+      Scenes:
       {new_scenes_text}
 
-      Extract a factual chapter summary covering only plot-critical events.
+      Write a CONSOLIDATED summary of this chapter. Group related events — do NOT list per scene.
 
-      EVENTS: [chronological bullet list - MAXIMUM 3 per scene - USE SPECIFIC TERMS. Include only plot-critical events, not routine actions.]
-      STATE CHANGES: [relationship changes, location changes, new knowledge gained, objects acquired/lost]
-
-      Aim for 500-600 words total. Facts only, no moralizing, no hallucination.
+      EVENTS: [15-25 consolidated bullets — NO scene numbers]
+      CURRENT STATE: [where things stand at chapter end — 2-4 sentences]
 
   story_chapters:
     system: |
