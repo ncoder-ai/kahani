@@ -28,6 +28,7 @@ export interface GenerationPreferences {
   alert_on_high_context?: boolean;
   use_extraction_llm_for_summary?: boolean;
   separate_choice_generation?: boolean;
+  use_cache_friendly_prompts?: boolean;  // Preserve KV cache across LLM calls (default: true)
   enable_chapter_plot_tracking?: boolean;  // Track plot progress and guide LLM pacing (default: true)
   default_plot_check_mode?: '1' | '3' | 'all';  // How many events to check: "1" (strict), "3", "all"
 }

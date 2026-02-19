@@ -822,6 +822,47 @@ working_memory_cache_friendly:
 
 # Relationship Extraction (cache-friendly)
 # Uses same context structure as scene generation for cache hits
+relationship_extraction_cache_friendly:
+  user: |
+    === SCENE JUST GENERATED ===
+    {scene_content}
+
+    === CHARACTERS IN SCENE ===
+    {character_names}
+
+    === PREVIOUS RELATIONSHIPS ===
+    {previous_relationships}
+
+    === EXTRACT RELATIONSHIP CHANGES ===
+    Identify relationship changes that ACTUALLY HAPPENED in this scene.
+
+    Rules:
+    - Only extract relationships where the scene shows a CLEAR CHANGE (new bond, shift in trust, conflict, reconciliation, etc.)
+    - Both character_a and character_b must appear in the characters list above
+    - Use exact character names from the list
+    - If nothing changed between two characters, do NOT include them
+    - strength: -1.0 (hostile) to 1.0 (intimate). Match the previous strength if unchanged
+    - Valid types: stranger, acquaintance, friend, close_friend, romantic, family, professional, rival, enemy
+    - Valid sentiments: positive, negative, neutral
+
+    EXAMPLE:
+    Scene: "Maya slammed the door in Jake's face. 'We're done,' she said. Later, she called Priya to vent, and Priya listened patiently for an hour."
+    Previous: Maya <-> Jake: romantic (strength: 0.8) | Maya <-> Priya: friend (strength: 0.5)
+    Output:
+    ```json
+    [
+      {{"character_a": "Maya", "character_b": "Jake", "type": "rival", "strength": -0.3, "change": "Maya ended the relationship and slammed the door on Jake", "sentiment": "negative"}},
+      {{"character_a": "Maya", "character_b": "Priya", "type": "close_friend", "strength": 0.7, "change": "Priya listened patiently to Maya venting for an hour, deepening their bond", "sentiment": "positive"}}
+    ]
+    ```
+
+    NOT extracted:
+    - Two characters merely present in the same room with no interaction
+    - Routine greetings ("Hi" / "Bye") with no emotional weight
+    - Internal thoughts about someone who isn't present
+
+    Return a JSON array. If no relationships changed, return `[]`.
+
 # Scene Summary for Embedding (cache-friendly)
 # Used to generate a 2-3 sentence factual summary before pgvector embedding
 # Uses same context structure as scene generation for cache hits
@@ -959,41 +1000,6 @@ plot_events_cache_friendly:
     If no significant events: {{"plot_events": []}}
 
 # Combined moments + NPCs extraction (cache-friendly)
-moments_and_npcs_cache_friendly:
-  user: |
-    === SCENE JUST GENERATED ===
-    {scene_content}
-
-    === EXTRACT CHARACTER MOMENTS AND NPCs ===
-    Explicit characters: {character_names}
-    Exclude from NPCs: {explicit_names}
-
-    EXAMPLE:
-    Scene: "Ava slammed her fist on the table. 'I won't sign it,' she told Mr. Hahn. The marble floor echoed. A waiter refilled their glasses. Ava stood and walked to the window, arms crossed."
-    Explicit characters: Ava  |  Exclude: Ava
-    Output:
-    {{
-      "character_moments": [
-        {{"character_name": "Ava", "moment_type": "dialogue", "content": "Refuses to sign, confronts Mr. Hahn", "confidence": 90}},
-        {{"character_name": "Ava", "moment_type": "action", "content": "Slams fist on table in defiance", "confidence": 80}}
-      ],
-      "npcs": [
-        {{"name": "Mr. Hahn", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": false, "has_actions": false, "has_relationships": true, "context_snippets": ["told Mr. Hahn"], "properties": {{"role": "unknown", "description": "Person Ava is confronting about signing"}}}}
-      ]
-    }}
-    NOT extracted: marble (material), waiter (no name), table (furniture), glasses being refilled (trivial)
-
-    RULES:
-    - Moments: significant only (confidence >= 70), max 5. Skip trivial actions (sitting, pouring drinks).
-    - NPCs: NAMED PEOPLE only, max 5. No objects, materials, locations, or unnamed roles.
-    - Types: "action", "dialogue", "development", "relationship"
-
-    Return ONLY JSON:
-    {{
-      "character_moments": [{{"character_name": "Name", "moment_type": "action", "content": "Description", "confidence": 85}}],
-      "npcs": [{{"name": "NPC name", "entity_type": "CHARACTER", "mention_count": 1, "has_dialogue": true, "has_actions": true, "has_relationships": false, "context_snippets": ["snippet"], "properties": {{"role": "role", "description": "brief"}}}}]
-    }}
-
 # Scene Event Extraction (cache-friendly, replaces character moments)
 # Extracts factual events from scenes for keyword-based retrieval
 scene_event_extraction:
@@ -1043,45 +1049,6 @@ scene_event_extraction:
       NOT extracted: "she stood rigid" (no action), "his heart raced" (internal feeling), "the sunset was beautiful" (description)
       "characters" = ONLY person names. Never objects or locations.
       Return ONLY JSON: {{"events": [{{"text": "...", "characters": ["Name"]}}]}}
-
-  batch:
-    system: "You extract factual events from story scenes. Return only valid JSON."
-    user: |
-      Extract significant events from each scene below. Use the BLUNTEST, most common words — write how a friend would retell it, not how a novelist wrote it.
-
-      Characters: {character_names}
-
-      {scenes_content}
-
-      VOCABULARY RULES:
-      - "shoved" NOT "applied force to"; "stole" NOT "discreetly took"; "grabbed" NOT "brushed against"
-      - "spied/watched" NOT "observed the interaction"; "phone call" NOT "call on hold"
-      - Include WHO, WHAT, and WHERE/CONTEXT in each event
-
-      EXAMPLE (Characters: Claire, Matt, Josh):
-      Scene 1: "Claire served dishes in the crowded kitchen, bumping her hip on the refrigerator. Matt entered with empty plates and offered to help. The stove burner went out unexpectedly."
-      Scene 2: "Josh stood close to Claire at the counter, accepting a bowl of curry. Matt watched from across the room. Claire poured wine from the bottle Matt held."
-      Scene 3: "Matt wrapped his arms around Claire's waist in the kitchen. She pressed against him. He mentioned calling the contractor about renovations."
-      {{"scenes": {{
-        "1": [
-          {{"text": "stove burner went out while cooking in kitchen", "characters": []}}
-        ],
-        "2": [
-          {{"text": "Josh accepted curry from Claire at counter", "characters": ["Josh", "Claire"]}}
-        ],
-        "3": [
-          {{"text": "Matt grabbed Claire's waist in kitchen", "characters": ["Matt", "Claire"]}},
-          {{"text": "Matt proposed calling contractor for renovation", "characters": ["Matt"]}}
-        ]
-      }}}}
-      SKIPPED: "served dishes" (routine), "entered with plates" (routine), "watched from room" (passive)
-
-      "characters" = ONLY person name strings. Never objects, body parts, or locations.
-
-      RULES:
-      - 3-6 events per scene, blunt everyday words, include location/context
-      - Only SIGNIFICANT events — skip routine actions
-      - Return ONLY valid JSON
 
 # Combined Scene Events + NPC Extraction (cache-friendly)
 # Replaces moments_and_npcs_cache_friendly — uses same cache prefix
@@ -2384,100 +2351,6 @@ chapter_brainstorm:
       {conversation}
       
       Extract the structured chapter plot as JSON, prioritizing confirmed elements.
-
-# =============================================================================
-# CHAPTER PLOT GUIDANCE - Injected into Scene/Choice Generation
-# =============================================================================
-chapter_plot_guidance:
-  # Injected into scene generation context when chapter has a plot
-  scene_context: |
-    CHAPTER PLOT GUIDANCE:
-    This scene is part of a chapter with the following planned direction:
-    
-    Chapter Summary: {chapter_summary}
-    Key Events to Weave In: {key_events}
-    Building Toward: {chapter_climax}
-    Chapter Resolution: {chapter_resolution}
-    Current Progress: Scene {scene_number} of approximately {estimated_scenes}
-    
-    INSTRUCTIONS:
-    - Write scenes that naturally progress toward the chapter's goals
-    - Weave in the key events when dramatically appropriate
-    - Build tension toward the chapter climax
-    - Maintain engaging moment-to-moment storytelling
-    - Don't rush - let events unfold naturally within the chapter's structure
-  
-  # Injected into choice generation when chapter has a plot
-  choice_context: |
-    CHAPTER DIRECTION:
-    When generating choices, consider the chapter's planned arc:
-    
-    - Chapter is building toward: {chapter_climax}
-    - Key events still to come: {remaining_events}
-    - Chapter will resolve with: {chapter_resolution}
-    
-    Generate choices that:
-    1. Could naturally lead toward the planned story beats
-    2. Provide meaningful variations within the chapter's direction
-    3. Stay true to character motivations and the story's tone
-    4. Create dramatic tension appropriate to the chapter's position in the arc
-    
-    Choices should feel organic, not forced toward the plot points.
-
-# =============================================================================
-# CHAPTER PROGRESS - Event Extraction for Plot Tracking
-# =============================================================================
-chapter_progress:
-  event_extraction:
-    system: |
-      You analyze story scenes to identify which planned plot events have occurred.
-      Return ONLY a JSON array containing the EXACT event descriptions from the provided list.
-
-      GUIDELINES:
-      - Check if the MEANING of each planned event is depicted in the scene
-      - The scene doesn't need to use the exact same words - look for semantic equivalence
-      - An event is "completed" if the core action clearly happened
-      - Partial progress or mere hints do NOT count as completion
-      - ONLY return events from the provided list - never invent new events
-      - Copy the event text EXACTLY as written - do not paraphrase
-      - Most scenes contain 0-2 events. Returning many events is usually wrong.
-      - If no events occurred, return an empty array: []
-
-    user: |
-      Scene content:
-      {scene_content}
-
-      Planned events to check for:
-      {key_events}
-
-      Which of these planned events OCCURRED in this scene?
-      Return ONLY events from the list above that clearly happened.
-      COPY the event text exactly - do not write your own descriptions.
-
-      Example: ["Event text copied exactly from the list above"]
-      If none occurred: []
-
-  # Context-aware extraction: uses the full scene generation context
-  # This prompt is appended as the final message when reusing the scene generation context
-  context_aware_extraction:
-    user: |
-      The scene above was just generated. Now identify which of the chapter's planned plot events occurred.
-
-      CHAPTER PLOT EVENTS TO CHECK:
-      {key_events}
-
-      INSTRUCTIONS:
-      - Review the scene you just wrote
-      - Check which events from the list above CLEARLY occurred
-      - An event is "completed" only if its core action definitively happened
-      - Hints, foreshadowing, or partial progress do NOT count
-      - Most scenes contain 0-2 events - be selective
-      - Return the EXACT event text from the list - do not paraphrase
-
-      Return ONLY a JSON array with the exact event descriptions:
-      ["Event text copied exactly from above", "Another event if applicable"]
-
-      If no events occurred: []
 
 # =============================================================================
 # PACING - Chapter Plot Guidance and Progress-Based Pacing

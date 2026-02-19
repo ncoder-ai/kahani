@@ -230,6 +230,30 @@ class UnifiedLLMService:
         from .thinking_parser import strip_thinking_tags
         return strip_thinking_tags(response)
 
+    @staticmethod
+    def _will_use_extraction_llm(user_settings: Dict[str, Any], force_main_llm: Optional[bool] = None) -> bool:
+        """Check if an extraction/summary call will route to the extraction LLM.
+
+        Returns True when the extraction model is enabled AND force_main_llm is not True.
+        """
+        if force_main_llm is True:
+            return False
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        return bool(ext_settings.get('enabled', False))
+
+    @staticmethod
+    def _build_simple_extraction_messages(system_instruction: str, task_instruction: str) -> List[Dict[str, str]]:
+        """Build a minimal 2-message prompt for extraction/summary tasks.
+
+        Used when the extraction LLM is targeted (no KV cache benefit from the
+        full scene-generation prefix) or when the user has disabled cache-friendly
+        prompts (to save tokens on cloud providers).
+        """
+        return [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": task_instruction},
+        ]
+
     def _format_plot_for_choices(self, context: Dict[str, Any], user_settings: Optional[Dict[str, Any]] = None) -> str:
         """
         Format chapter plot info for inclusion in choices reminder.
@@ -914,7 +938,7 @@ Chapter Conclusion:"""
         """Generate a chapter structure for a story"""
         
         system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-            "summary_generation", "story_chapters",
+            "story_chapters", "story_chapters",
             context=self._format_context_for_chapters(context),
             chapter_count=chapter_count
         )
@@ -2750,16 +2774,13 @@ Chapter Conclusion:"""
         if not key_events:
             return []
 
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        # === DETERMINE ROUTING ===
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        force_main_llm_plot = ext_settings.get('use_main_llm_for_plot_extraction', False)
+        use_extraction_llm = self._will_use_extraction_llm(user_settings, force_main_llm_plot)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: SCENE + EXTRACTION INSTRUCTION ===
-        # (Same pattern as choice_generation - scene in user message, NOT assistant message)
+        # === BUILD FINAL MESSAGE (same for all paths) ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
         key_events_formatted = "\n".join(f"{i+1}. {e.strip()}" for i, e in enumerate(key_events))
 
@@ -2768,9 +2789,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             key_events=key_events_formatted
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You analyze story scenes to identify which planned plot events have occurred. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[PLOT_EXTRACTION] Simple structure: {len(messages)} messages, checking {len(key_events)} events")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2791,14 +2825,10 @@ Chapter Conclusion:"""
             except Exception as e:
                 logger.warning(f"Failed to write plot extraction prompt debug file: {e}")
 
-        # === ROUTE TO APPROPRIATE LLM ===
-        ext_settings = user_settings.get('extraction_model_settings', {})
-        use_main_for_plot = ext_settings.get('use_main_llm_for_plot_extraction', False)
-
         try:
             response = await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
-                task_type="extraction", force_main_llm=use_main_for_plot,
+                task_type="extraction", force_main_llm=force_main_llm_plot,
             )
 
             logger.info(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
@@ -2875,15 +2905,11 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string response from LLM
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        # === DETERMINE ROUTING ===
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: SCENE + COMBINED EXTRACTION INSTRUCTION ===
+        # === BUILD FINAL MESSAGE ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
 
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -2897,9 +2923,22 @@ Chapter Conclusion:"""
             explicit_names=explicit_names_str,
             thread_section=thread_section
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You are a precise story analysis assistant. Extract characters, NPCs, plot events, and entity states. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[COMBINED_EXTRACTION] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2964,15 +3003,11 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string response from LLM
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        # === DETERMINE ROUTING ===
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: BATCH EXTRACTION INSTRUCTION ===
+        # === BUILD FINAL MESSAGE ===
         character_names_str = ", ".join(character_names) if character_names else "None"
         explicit_names_str = ", ".join(explicit_character_names) if explicit_character_names else "None"
         thread_section = f"\n\nActive plot threads to consider:{thread_context}" if thread_context else ""
@@ -2988,9 +3023,22 @@ Chapter Conclusion:"""
             max_npcs_total=max_npcs_total,
             max_events_total=max_events_total
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[BATCH_EXTRACTION] Cache-friendly structure: {len(messages)} messages, {num_scenes} scenes")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You are a precise story analysis assistant. Extract characters, NPCs, plot events, and entity states from scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[BATCH_EXTRACTION] Simple structure: {len(messages)} messages, {num_scenes} scenes")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[BATCH_EXTRACTION] Cache-friendly structure: {len(messages)} messages, {num_scenes} scenes")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3038,12 +3086,8 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string with {"events": [...], "npcs": [...]}
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -3055,9 +3099,22 @@ Chapter Conclusion:"""
             character_names=character_names_str,
             explicit_names=explicit_names_str
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract factual events and named NPCs from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[EVENTS_NPCS] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -3085,12 +3142,8 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string with {"events": [...]}
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -3100,9 +3153,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             character_names=character_names_str
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract factual events from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[SCENE_EVENTS] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -3146,15 +3212,12 @@ Chapter Conclusion:"""
         Returns:
             Summary text
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        # === DETERMINE ROUTING ===
+        use_main_for_summary = not user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False)
+        use_extraction_llm = self._will_use_extraction_llm(user_settings, force_main_llm=use_main_for_summary)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: SUMMARIZATION INSTRUCTION ===
+        # === BUILD FINAL MESSAGE ===
         final_message = prompt_manager.get_prompt(
             "chapter_summary_cache_friendly", "user",
             context_section=context_section,
@@ -3162,18 +3225,28 @@ Chapter Conclusion:"""
             chapter_title=chapter_title or 'Untitled',
             scenes_content=scenes_content
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[CHAPTER_SUMMARY] Cache-friendly structure: {len(messages)} messages, chapter {chapter_number}")
-
-        # === ROUTE TO APPROPRIATE LLM ===
-        use_extraction_llm = user_settings.get('generation_preferences', {}).get('use_extraction_llm_for_summary', False)
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You are a skilled story analyst. Create concise, accurate chapter summaries that capture key events and character developments.",
+                final_message
+            )
+            logger.info(f"[CHAPTER_SUMMARY] Simple structure: {len(messages)} messages, chapter {chapter_number}")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[CHAPTER_SUMMARY] Cache-friendly structure: {len(messages)} messages, chapter {chapter_number}")
 
         try:
             return await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
                 max_tokens=max_tokens, task_type="extraction",
-                force_main_llm=not use_extraction_llm,
+                force_main_llm=use_main_for_summary,
             )
         except Exception as e:
             logger.error(f"[CHAPTER_SUMMARY] Cache-friendly generation failed: {e}")
@@ -3210,15 +3283,9 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string with entity states only
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: SCENE + ENTITY-ONLY EXTRACTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
 
@@ -3228,9 +3295,22 @@ Chapter Conclusion:"""
             character_names=character_names_str,
             chapter_location=chapter_location or "unspecified location"
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[ENTITY_ONLY_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract entity states (characters, locations, objects) from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[ENTITY_ONLY_EXTRACTION] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[ENTITY_ONLY_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3258,6 +3338,86 @@ Chapter Conclusion:"""
         except Exception as e:
             logger.error(f"[ENTITY_ONLY_EXTRACTION] Extraction failed: {e}")
             raise
+
+    async def extract_relationship_cache_friendly(
+        self,
+        scene_content: str,
+        character_names: List[str],
+        characters_in_scene: List[str],
+        previous_relationships: str,
+        context: Dict[str, Any],
+        user_id: int,
+        user_settings: Dict[str, Any],
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract relationship changes using cache-friendly multi-message structure.
+
+        Uses SAME message structure as scene generation for maximum cache hits.
+
+        Returns:
+            List of relationship dicts, or empty list on failure
+        """
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
+
+        cleaned_scene = self._clean_scene_numbers(scene_content)
+        character_names_str = ", ".join(character_names) if character_names else "None"
+
+        final_message = prompt_manager.get_prompt(
+            "relationship_extraction_cache_friendly", "user",
+            scene_content=cleaned_scene,
+            character_names=character_names_str,
+            previous_relationships=previous_relationships or "No previous relationships established."
+        )
+
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract relationship changes between characters from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[RELATIONSHIP_EXTRACTION] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[RELATIONSHIP_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+
+        try:
+            response = await self.generate_for_task(
+                messages=messages, user_id=user_id, user_settings=user_settings,
+                task_type="extraction",
+            )
+
+            if not response:
+                return []
+
+            import re
+            from ..chapter_progress_service import clean_llm_json
+            response_text = response.strip()
+
+            # Try to parse as JSON array
+            array_match = re.search(r'\[[\s\S]*\]', response_text)
+            if array_match:
+                try:
+                    data = json.loads(array_match.group())
+                    if isinstance(data, list):
+                        return data
+                except json.JSONDecodeError:
+                    cleaned = clean_llm_json(array_match.group())
+                    data = json.loads(cleaned)
+                    if isinstance(data, list):
+                        return data
+
+            return []
+
+        except Exception as e:
+            logger.error(f"[RELATIONSHIP_EXTRACTION] Cache-friendly extraction failed: {e}")
+            return []
 
     async def extract_working_memory_cache_friendly(
         self,
@@ -3288,15 +3448,9 @@ Chapter Conclusion:"""
         Returns:
             Dict with recent_focus and character_spotlight, or None on failure
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
-        # === FINAL USER MESSAGE: SCENE + WORKING MEMORY INSTRUCTION ===
         cleaned_scene = self._clean_scene_numbers(scene_content)
 
         final_message = prompt_manager.get_prompt(
@@ -3304,9 +3458,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             current_focus=current_focus or "None set"
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract working memory updates (narrative focus and character spotlight) from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[WORKING_MEMORY] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3370,21 +3537,30 @@ Chapter Conclusion:"""
         Returns:
             Dict with 'location' (specific room/area) and 'summary' (2-3 sentences), or None on failure
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         final_message = prompt_manager.get_prompt(
             "scene_summary_for_embedding", "user",
             scene_content=cleaned_scene
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You generate concise factual summaries and location descriptions for story scenes.",
+                final_message
+            )
+            logger.info(f"[SCENE_SUMMARY] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
 
         try:
             response = await self.generate_for_task(
@@ -3456,13 +3632,8 @@ Chapter Conclusion:"""
         Returns:
             List of NPC dicts, or empty list on failure
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         explicit_names_str = ", ".join(explicit_names) if explicit_names else "None"
@@ -3472,9 +3643,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             explicit_names=explicit_names_str
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract named NPCs (non-player characters) from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[NPC_EXTRACTION] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3540,13 +3724,8 @@ Chapter Conclusion:"""
         Returns:
             List of character moment dicts, or empty list on failure
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
         character_names_str = ", ".join(character_names) if character_names else "None"
@@ -3556,9 +3735,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             character_names=character_names_str
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract significant character moments from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[CHARACTER_MOMENTS] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3627,13 +3819,8 @@ Chapter Conclusion:"""
         Returns:
             List of plot event dicts, or empty list on failure
         """
-        # === USE HELPER FOR CACHE-FRIENDLY MESSAGE PREFIX ===
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         cleaned_scene = self._clean_scene_numbers(scene_content)
 
@@ -3642,9 +3829,22 @@ Chapter Conclusion:"""
             scene_content=cleaned_scene,
             thread_context=thread_context or "\n(No active threads)"
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract significant plot events from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[PLOT_EVENTS_FALLBACK] Simple structure: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3711,12 +3911,8 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string with character_chronicle and location_lorebook arrays.
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         chapter_location_section = ""
         if chapter_location:
@@ -3729,9 +3925,22 @@ Chapter Conclusion:"""
             existing_chronicle_section=existing_state_section,
             chapter_location_section=chapter_location_section,
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[CHRONICLE] Cache-friendly extraction: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You extract character chronicle entries and location lorebook events from story scenes. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[CHRONICLE] Simple extraction: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[CHRONICLE] Cache-friendly extraction: {len(messages)} messages")
 
         # Debug log
         from ...config import settings
@@ -3776,12 +3985,8 @@ Chapter Conclusion:"""
         Returns:
             Raw JSON string with validated entries and keep/reject verdicts.
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         final_message = prompt_manager.get_prompt(
             "chronicle_validation", "user",
@@ -3789,9 +3994,22 @@ Chapter Conclusion:"""
             candidate_entries=candidate_entries_json,
             existing_chronicle_section=existing_chronicle_section,
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[CHRONICLE_VALIDATION] Cache-friendly validation: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You validate chronicle and lorebook entries against story scene content. Return only valid JSON.",
+                final_message
+            )
+            logger.info(f"[CHRONICLE_VALIDATION] Simple validation: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[CHRONICLE_VALIDATION] Cache-friendly validation: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -3821,12 +4039,8 @@ Chapter Conclusion:"""
         Returns:
             Raw snapshot text (paragraph).
         """
-        messages = await self._build_cache_friendly_message_prefix(
-            context=context,
-            user_id=user_id,
-            user_settings=user_settings,
-            db=db,
-        )
+        use_extraction_llm = self._will_use_extraction_llm(user_settings)
+        use_cache = user_settings.get('generation_preferences', {}).get('use_cache_friendly_prompts', True)
 
         final_message = prompt_manager.get_prompt(
             "character_snapshot_generation", "user",
@@ -3834,15 +4048,27 @@ Chapter Conclusion:"""
             original_background=original_background,
             chronicle_entries=chronicle_entries,
         )
-        messages.append({"role": "user", "content": final_message})
 
-        logger.info(f"[SNAPSHOT] Cache-friendly generation for {character_name}: {len(messages)} messages")
+        if use_extraction_llm or not use_cache:
+            messages = self._build_simple_extraction_messages(
+                "You generate concise character snapshot paragraphs that summarize a character's current state based on chronicle entries.",
+                final_message
+            )
+            logger.info(f"[SNAPSHOT] Simple generation for {character_name}: {len(messages)} messages")
+        else:
+            messages = await self._build_cache_friendly_message_prefix(
+                context=context,
+                user_id=user_id,
+                user_settings=user_settings,
+                db=db,
+            )
+            messages.append({"role": "user", "content": final_message})
+            logger.info(f"[SNAPSHOT] Cache-friendly generation for {character_name}: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
                 messages=messages, user_id=user_id, user_settings=user_settings,
                 max_tokens=max_tokens, task_type="extraction",
-                force_main_llm=True,
             )
         except Exception as e:
             logger.error(f"[SNAPSHOT] Generation failed for {character_name}: {e}")
@@ -3874,13 +4100,13 @@ Chapter Conclusion:"""
         
         if plot_type == "complete":
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "plot_generation", "complete_plot",
+                "complete_plot", "complete_plot",
                 context=self._format_context_for_plot(context)
             )
             max_tokens = prompt_manager.get_max_tokens("complete_plot", user_settings)
         else:
             system_prompt, user_prompt = prompt_manager.get_prompt_pair(
-                "plot_generation", "single_plot_point",
+                "single_plot_point", "single_plot_point",
                 context=self._format_context_for_plot(context),
                 point_name=self._get_plot_point_name(context.get("plot_point_index", 0))
             )

@@ -76,6 +76,7 @@ class GenerationPreferencesUpdate(BaseModel):
     alert_on_high_context: Optional[bool] = None
     use_extraction_llm_for_summary: Optional[bool] = None
     separate_choice_generation: Optional[bool] = None
+    use_cache_friendly_prompts: Optional[bool] = None  # Preserve KV cache across LLM calls
     enable_chapter_plot_tracking: Optional[bool] = None  # Track plot progress and guide LLM pacing
     default_plot_check_mode: Optional[str] = Field(default=None, pattern="^(1|3|all)$")  # How many events to check: "1" (strict), "3", "all"
 
@@ -440,6 +441,8 @@ async def update_user_settings(
             user_settings.use_extraction_llm_for_summary = gen.use_extraction_llm_for_summary
         if gen.separate_choice_generation is not None:
             user_settings.separate_choice_generation = gen.separate_choice_generation
+        if gen.use_cache_friendly_prompts is not None:
+            user_settings.use_cache_friendly_prompts = gen.use_cache_friendly_prompts
         if gen.enable_chapter_plot_tracking is not None:
             user_settings.enable_chapter_plot_tracking = gen.enable_chapter_plot_tracking
         if gen.default_plot_check_mode is not None:

@@ -81,6 +81,7 @@ class UserSettings(Base):
     alert_on_high_context = Column(Boolean, nullable=True)  # Alert user to create new chapter when context is high
     use_extraction_llm_for_summary = Column(Boolean, nullable=True)  # Use extraction LLM instead of main LLM for summaries
     separate_choice_generation = Column(Boolean, nullable=True)  # Generate choices in separate LLM call for higher quality
+    use_cache_friendly_prompts = Column(Boolean, nullable=True)  # Preserve KV cache across LLM calls (extraction/summary)
     enable_chapter_plot_tracking = Column(Boolean, nullable=True)  # Track plot progress and guide LLM pacing
     default_plot_check_mode = Column(String(10), nullable=True)  # Default plot check mode for new stories: "1", "3", or "all"
     enable_streaming = Column(Boolean, nullable=True)  # Enable streaming generation (vs full response)
@@ -246,6 +247,7 @@ class UserSettings(Base):
                 "alert_on_high_context": self.alert_on_high_context if self.alert_on_high_context is not None else gen_defaults.get("alert_on_high_context", True),
                 "use_extraction_llm_for_summary": self.use_extraction_llm_for_summary if self.use_extraction_llm_for_summary is not None else gen_defaults.get("use_extraction_llm_for_summary", False),
                 "separate_choice_generation": self.separate_choice_generation if self.separate_choice_generation is not None else gen_defaults.get("separate_choice_generation", False),
+                "use_cache_friendly_prompts": self.use_cache_friendly_prompts if self.use_cache_friendly_prompts is not None else gen_defaults.get("use_cache_friendly_prompts", True),
                 "enable_chapter_plot_tracking": self.enable_chapter_plot_tracking if self.enable_chapter_plot_tracking is not None else gen_defaults.get("enable_chapter_plot_tracking", True),
                 "default_plot_check_mode": self.default_plot_check_mode if self.default_plot_check_mode is not None else gen_defaults.get("default_plot_check_mode", "1"),
                 "enable_streaming": self.enable_streaming if self.enable_streaming is not None else gen_defaults.get("enable_streaming", True)
@@ -549,6 +551,8 @@ class UserSettings(Base):
             self.use_extraction_llm_for_summary = gen.get("use_extraction_llm_for_summary", False)
         if self.separate_choice_generation is None:
             self.separate_choice_generation = gen.get("separate_choice_generation", False)
+        if self.use_cache_friendly_prompts is None:
+            self.use_cache_friendly_prompts = gen.get("use_cache_friendly_prompts", True)
         if self.enable_chapter_plot_tracking is None:
             self.enable_chapter_plot_tracking = gen.get("enable_chapter_plot_tracking", True)
         if self.default_plot_check_mode is None:

@@ -119,6 +119,21 @@ export default function ContextSettingsTab({
             </p>
           </div>
 
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={generationPrefs.use_cache_friendly_prompts !== false}
+                onChange={(e) => setGenerationPrefs({ ...generationPrefs, use_cache_friendly_prompts: e.target.checked })}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm text-white">Use cache-friendly prompts</span>
+            </label>
+            <p className="text-xs text-gray-400 mt-1 ml-6">
+              Preserves KV cache between LLM calls (recommended for local inference). Disable for cloud providers to reduce token costs.
+            </p>
+          </div>
+
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"

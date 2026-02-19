@@ -892,76 +892,11 @@ class EntityStateService:
                 db=db
             )
 
-        # === FALLBACK PATH: Original 2-message structure ===
-        logger.info("[RELATIONSHIP] Using fallback extraction (no scene context - cache may miss)")
-        extraction_service = self._get_extraction_service()
-
-        character_names_str = '\n'.join(f'- {name}' for name in name_list)
-        template_vars = {
-            'scene_content': scene_content[:4000],  # Limit content length
-            'characters': ', '.join(characters),
-            'character_names': character_names_str,
-            'previous_relationships': previous_relationships
-        }
-
-        try:
-            # Get prompts from template
-            system_prompt = prompt_manager.get_prompt(
-                "relationship_extraction", "system", **template_vars
-            )
-            user_prompt = prompt_manager.get_prompt(
-                "relationship_extraction", "user", **template_vars
-            )
-
-            if extraction_service:
-                response = await extraction_service.generate(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    max_tokens=1024
-                )
-            else:
-                # Check if fallback to main LLM is enabled
-                extraction_settings = self.user_settings.get('extraction_model_settings', {})
-                fallback_to_main = extraction_settings.get('fallback_to_main', True)
-
-                if fallback_to_main:
-                    # Use main LLM for extraction (uses module-level import)
-                    main_llm = UnifiedLLMService()
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                    response = await main_llm.generate_non_streaming(
-                        messages=messages,
-                        user_id=self.user_id,
-                        user_settings=self.user_settings,
-                        temperature=0.3,
-                        max_tokens=1024
-                    )
-                else:
-                    logger.info("[RELATIONSHIP] Extraction model disabled and fallback_to_main=false, skipping")
-                    return []
-
-            if not response:
-                return []
-
-            # Parse JSON response
-            response_text = response.strip()
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if json_match:
-                try:
-                    data = json.loads(json_match.group())
-                    return data.get('relationships', [])
-                except json.JSONDecodeError:
-                    cleaned = clean_llm_json(json_match.group())
-                    data = json.loads(cleaned)
-                    return data.get('relationships', [])
-
-            return []
-
-        except Exception as e:
-            logger.error(f"[RELATIONSHIP:EXTRACT:ERROR] error={e}")
-            return []
+        # === FALLBACK PATH: No scene generation context available ===
+        # Cache-friendly path requires scene_generation_context. Without it,
+        # relationship extraction is skipped (no standalone prompt template exists).
+        logger.info("[RELATIONSHIP] No scene generation context available, skipping relationship extraction")
+        return []
 
     def _store_relationship_event(
         self,
