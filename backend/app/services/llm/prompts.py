@@ -176,7 +176,6 @@ class PromptManager:
                         WritingStylePreset.user_id == user_id,
                         WritingStylePreset.is_active == True
                     ).first()
-                    
                     if active_preset:
                         # For story summaries, check if there's a specific override
                         if template_key == "story_summary" and active_preset.summary_system_prompt:
@@ -186,7 +185,9 @@ class PromptManager:
                             # Use universal system prompt for other enabled generations
                             style_prompt = active_preset.system_prompt
                             logger.debug(f"Using universal system prompt from preset '{active_preset.name}' for {template_key}")
-                        
+
+                        if not style_prompt:
+                            logger.warning(f"[GET_PROMPT] Preset '{active_preset.name}' (id={active_preset.id}) has EMPTY system_prompt! Falling back to YAML.")
                         if style_prompt:
                             # Get POV from preset if available
                             pov = getattr(active_preset, 'pov', None) if hasattr(active_preset, 'pov') else None
@@ -241,7 +242,7 @@ class PromptManager:
                                 logger.debug(f"Combined user preset style with prose_style={prose_style}, POV ({pov or 'third'}) (no technical requirements) for {template_key}")
                             
                             return self._substitute_variables(combined_prompt, **template_vars_with_pov)
-                            
+
                 except Exception as e:
                     logger.warning(f"Error querying writing style preset: {e}")
             else:

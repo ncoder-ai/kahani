@@ -410,7 +410,8 @@ scene_base:
     YOUR TASK: Write a scene showing exactly this:
     >>> {immediate_situation} <<<
 
-    Show these events in vivid detail. Start at the BEGINNING—don't skip ahead.
+    Show these events unfolding naturally. Start at the BEGINNING of THIS scene—don't skip ahead.
+    NEVER repeat or rephrase events that already happened in RECENT SCENES above. Those scenes are DONE. This is a NEW scene that picks up where they left off.
     Follow each character's DIALOGUE STYLE. Minimize adverbs/adjectives.
     If referencing past events, use ONLY details from RELATED PAST SCENES above — never invent memories.
     {prose_style_reminder}
@@ -421,6 +422,7 @@ scene_base:
   # Task instructions when no immediate_situation (first scene or "Generate Scene")
   task_without_immediate: |
     Write an engaging scene ({scene_length_description}) that continues naturally from the previous events. If this is the first scene, establish the story world and introduce the characters naturally.
+    NEVER repeat or rephrase events that already happened in RECENT SCENES above. Those scenes are DONE. This is a NEW scene that picks up where they left off.
 
     PACING: Let the scene unfold at its own natural pace. Chapter plot beats are goals spread across many scenes—you don't need to hit any specific beat in this scene. Focus on making THIS scene engaging and immersive.
 

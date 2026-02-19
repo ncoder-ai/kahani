@@ -350,6 +350,7 @@ class UnifiedLLMService:
             choices_count=choices_count,
             skip_choices=separate_choice_generation  # ALWAYS use user setting!
         )
+        logger.info(f"[PREFIX] Built system prompt: length={len(system_prompt)}")
 
         # 4. ALWAYS add POV reminder for cache consistency
         pov_reminder = prompt_manager.get_pov_reminder(pov)
@@ -1661,8 +1662,12 @@ Chapter Conclusion:"""
             # Simple variant: uses this as-is (100% identical prompt).
             # Everything else: strips last message, uses as prefix, appends own task.
             context['_prompt_prefix_snapshot'] = json.dumps({"v": 2, "messages": messages})
-            # Also save prefix for same-request reuse (choices generation after scene gen)
-            context['_saved_prompt_prefix'] = list(messages[:-1])
+
+        # Save prefix for same-request reuse (choices generation after scene gen).
+        # MUST be outside the if/else so it's saved for BOTH fast path (saved_full_prompt)
+        # and rebuild path. Without this, choice gen can't find the prefix and rebuilds
+        # from scratch — potentially getting a different system prompt (cache break).
+        context['_saved_prompt_prefix'] = list(messages[:-1])
 
         logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
 
@@ -1958,11 +1963,15 @@ Chapter Conclusion:"""
 
         messages.append({"role": "user", "content": task_content})
 
+        # Save prefix for same-request reuse (choices generation after variant gen).
+        # Guarantees choice gen uses the exact same system prompt + context prefix.
+        context['_saved_prompt_prefix'] = list(messages[:-1])
+
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
         max_tokens = base_max_tokens + choices_buffer_tokens
-        
+
         logger.info(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
 
         # Write debug output for debugging cache issues
@@ -2186,7 +2195,10 @@ Write approximately {scene_length_description} in length.
 {choices_reminder_text}"""
         
         messages.append({"role": "user", "content": final_message})
-        
+
+        # Save prefix for same-request reuse (choices generation after continuation).
+        context['_saved_prompt_prefix'] = list(messages[:-1])
+
         # Add buffer for choices section - dynamic based on choices_count
         base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
         choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
