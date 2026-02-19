@@ -38,6 +38,9 @@ from .story_helpers import (
 # Import background tasks
 from .story_tasks import (
     get_scene_generation_lock,
+    mark_scene_generation_start,
+    mark_scene_generation_end,
+    force_release_scene_generation_lock,
     run_extractions_in_background,
     run_plot_extraction_in_background,
     run_chronicle_extraction_in_background,
@@ -58,6 +61,24 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.post("/{story_id}/scenes/cancel-generation")
+async def cancel_scene_generation(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Cancel an in-progress scene generation by releasing the lock."""
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    if not story:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+
+    released = await force_release_scene_generation_lock(story_id)
+    return {"cancelled": released}
 
 
 @router.post("/{story_id}/scenes")
@@ -629,6 +650,7 @@ async def generate_scene_streaming_endpoint(
         nonlocal active_chapter  # Use outer scope's active_chapter variable
         # Acquire lock for the duration of scene generation
         async with generation_lock:
+            mark_scene_generation_start(story_id)
             full_content = ""
             thinking_content = ""
             is_thinking = False

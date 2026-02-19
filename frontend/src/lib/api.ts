@@ -1573,6 +1573,12 @@ class ApiClient {
   }
 
   // Delete scenes from sequence
+  async cancelSceneGeneration(storyId: number) {
+    return this.request<{ cancelled: boolean }>(`/api/stories/${storyId}/scenes/cancel-generation`, {
+      method: 'POST',
+    });
+  }
+
   async deleteScenesFromSequence(storyId: number, sequenceNumber: number) {
     return this.request<{ message: string }>(`/api/stories/${storyId}/scenes/from/${sequenceNumber}`, {
       method: 'DELETE',

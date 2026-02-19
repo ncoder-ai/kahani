@@ -2250,7 +2250,10 @@ export default function StoryPage() {
       continuationAbortControllerRef.current.abort();
       continuationAbortControllerRef.current = null;
     }
-    
+
+    // Tell backend to release the generation lock
+    apiClient.cancelSceneGeneration(storyId).catch(() => {});
+
     // Stop all streaming states
     setIsStreaming(false);
     setStreamingContent('');
@@ -2262,11 +2265,11 @@ export default function StoryPage() {
     setIsRegenerating(false);
     setStreamingVariantContent('');
     setStreamingVariantSceneId(null);
-    
+
     // Reset UI states
     setSelectedChoice(null);
     setShowChoicesDuringGeneration(true);
-    
+
   };
 
   const toggleDeleteMode = () => {

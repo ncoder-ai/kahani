@@ -15,6 +15,9 @@ from .background_tasks import (
     get_scene_variant_lock,
     get_variant_edit_lock,
     get_scene_generation_lock,
+    mark_scene_generation_start,
+    mark_scene_generation_end,
+    force_release_scene_generation_lock,
 
     # Background tasks
     run_interaction_extraction_background,
@@ -46,6 +49,9 @@ __all__ = [
     'get_scene_variant_lock',
     'get_variant_edit_lock',
     'get_scene_generation_lock',
+    'mark_scene_generation_start',
+    'mark_scene_generation_end',
+    'force_release_scene_generation_lock',
 
     # Background tasks
     'run_interaction_extraction_background',

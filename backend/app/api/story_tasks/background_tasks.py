@@ -47,6 +47,10 @@ _scene_variant_locks: Dict[int, asyncio.Lock] = {}
 _variant_edit_locks: Dict[int, asyncio.Lock] = {}
 # Per-scene generation locks to prevent concurrent scene generation
 _scene_generation_locks: Dict[int, asyncio.Lock] = {}
+# Timestamps for when scene generation locks were acquired (for stale lock detection)
+_scene_generation_lock_times: Dict[int, float] = {}
+# Max time a scene generation lock can be held before considered stale (60 seconds)
+_SCENE_GENERATION_LOCK_TIMEOUT = 60.0
 _lock_dict_lock = asyncio.Lock()
 
 
@@ -95,7 +99,44 @@ async def get_scene_generation_lock(story_id: int) -> asyncio.Lock:
     async with _lock_dict_lock:
         if story_id not in _scene_generation_locks:
             _scene_generation_locks[story_id] = asyncio.Lock()
-        return _scene_generation_locks[story_id]
+        lock = _scene_generation_locks[story_id]
+        # Check for stale lock (client disconnected mid-stream)
+        if lock.locked() and story_id in _scene_generation_lock_times:
+            elapsed = time.time() - _scene_generation_lock_times[story_id]
+            if elapsed > _SCENE_GENERATION_LOCK_TIMEOUT:
+                logger.warning(
+                    f"[SCENE LOCK] Force-releasing stale lock for story {story_id} "
+                    f"(held for {elapsed:.0f}s, timeout={_SCENE_GENERATION_LOCK_TIMEOUT}s)"
+                )
+                lock.release()
+                _scene_generation_lock_times.pop(story_id, None)
+        return lock
+
+
+def mark_scene_generation_start(story_id: int):
+    """Record when a scene generation lock was acquired."""
+    _scene_generation_lock_times[story_id] = time.time()
+
+
+def mark_scene_generation_end(story_id: int):
+    """Clear the scene generation lock timestamp."""
+    _scene_generation_lock_times.pop(story_id, None)
+
+
+async def force_release_scene_generation_lock(story_id: int) -> bool:
+    """Force-release a stuck scene generation lock. Returns True if a lock was released."""
+    async with _lock_dict_lock:
+        lock = _scene_generation_locks.get(story_id)
+        if lock and lock.locked():
+            try:
+                lock.release()
+            except RuntimeError:
+                pass  # Already released
+            _scene_generation_lock_times.pop(story_id, None)
+            logger.info(f"[SCENE LOCK] Force-released generation lock for story {story_id}")
+            return True
+        _scene_generation_lock_times.pop(story_id, None)
+        return False
 
 
 async def run_chapter_summary_background(
