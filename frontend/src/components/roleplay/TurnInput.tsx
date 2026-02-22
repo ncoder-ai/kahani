@@ -45,8 +45,6 @@ const TurnInput = forwardRef<TurnInputHandle, TurnInputProps>(function TurnInput
   useImperativeHandle(ref, () => ({
     setText: (newText: string) => {
       setText(newText);
-      // Focus the textarea after filling
-      requestAnimationFrame(() => textareaRef.current?.focus());
     },
   }), []);
 

@@ -310,12 +310,10 @@ export default function RoleplaySession({ roleplayId }: Props) {
     }
   }, [roleplayId, turns.length, isGenerating]);
 
-  // --- Auto-generate player turn (fills input as draft) ---
+  // --- Auto-generate player turn (streams directly into input box) ---
   const handleAutoPlayer = useCallback(async () => {
     if (isGenerating) return;
     setIsGenerating(true);
-    setStreamingContent('');
-    setStreamingMethod('auto_player');
     abortControllerRef.current = new AbortController();
 
     let draft = '';
@@ -325,11 +323,9 @@ export default function RoleplaySession({ roleplayId }: Props) {
         {
           onContent: (chunk) => {
             draft += chunk;
-            setStreamingContent(prev => prev + chunk);
+            turnInputRef.current?.setText(draft);
           },
           onComplete: () => {
-            // Fill the input area with the draft for user to review/edit
-            setStreamingContent('');
             turnInputRef.current?.setText(draft.trim());
           },
           onError: (msg) => setError(msg),
@@ -340,7 +336,7 @@ export default function RoleplaySession({ roleplayId }: Props) {
     } catch {
       setIsGenerating(false);
     }
-  }, [roleplayId, turns.length, isGenerating]);
+  }, [roleplayId, isGenerating]);
 
   // --- Stop generation ---
   const handleStop = useCallback(() => {
