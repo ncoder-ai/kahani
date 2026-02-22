@@ -25,6 +25,7 @@ import { AdminApi } from './admin';
 import { WritingPresetsApi } from './writing-presets';
 import { ImageGenerationApi } from './imageGeneration';
 import { WorldsApi } from './worlds';
+import { RoleplayApi } from './roleplay';
 import LegacyApiClient from '../api';
 
 // Create singleton instances of domain clients
@@ -36,6 +37,7 @@ const adminApiInstance = new AdminApi();
 const writingPresetsApiInstance = new WritingPresetsApi();
 const imageGenerationApiInstance = new ImageGenerationApi();
 const worldsApiInstance = new WorldsApi();
+const roleplayApiInstance = new RoleplayApi();
 
 // Re-export everything from the legacy api.ts for backward compatibility
 export * from '../api';
@@ -49,6 +51,19 @@ export { AdminApi } from './admin';
 export { WritingPresetsApi } from './writing-presets';
 export { ImageGenerationApi } from './imageGeneration';
 export { WorldsApi } from './worlds';
+export { RoleplayApi } from './roleplay';
+export type {
+  RoleplayCreateData,
+  RoleplayCreateResponse,
+  RoleplayListItem,
+  RoleplayDetail,
+  RoleplayCharacter,
+  RoleplayTurn,
+  RoleplaySettings,
+  RoleplayCharacterConfig,
+  CharacterStoryEntry,
+  StreamCallbacks as RoleplayStreamCallbacks,
+} from './roleplay';
 
 // Export types from imageGeneration
 export type {
@@ -76,6 +91,7 @@ export const adminApi = adminApiInstance;
 export const writingPresetsApi = writingPresetsApiInstance;
 export const imageGenerationApi = imageGenerationApiInstance;
 export const worldsApi = worldsApiInstance;
+export const roleplayApi = roleplayApiInstance;
 
 // Export legacy client
 export const apiClient = LegacyApiClient;

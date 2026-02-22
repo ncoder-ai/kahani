@@ -873,6 +873,87 @@ class TTSService:
         logger.info(f"Cleanup complete: {files_deleted} files, {entries_deleted} entries")
         return files_deleted, entries_deleted
     
+    async def generate_multi_voice_audio(
+        self,
+        text: str,
+        character_names: list[str],
+        voice_mapping: dict[str, dict],
+        tts_settings: TTSSettings,
+    ) -> AsyncIterator[bytes]:
+        """
+        Generate audio with different voices per character segment.
+
+        Splits text by speaker, then generates audio for each segment
+        using the mapped voice. Yields WAV chunks sequentially.
+
+        Args:
+            text: The roleplay turn content
+            character_names: List of character names to detect
+            voice_mapping: {char_name: {voice_id, speed}, "__narrator__": {voice_id, speed}}
+            tts_settings: User's TTS settings (for provider config)
+
+        Yields:
+            Audio data chunks (WAV format)
+        """
+        from app.services.roleplay.tts_splitter import split_by_speaker, map_voices
+
+        # Split text into per-character segments
+        segments = split_by_speaker(text, character_names)
+        if not segments:
+            logger.warning("No segments found in text for multi-voice TTS")
+            return
+
+        # Map to voice configs
+        default_voice = tts_settings.default_voice or "default"
+        default_speed = tts_settings.speech_speed or 1.0
+        voiced_segments = map_voices(segments, voice_mapping, default_voice, default_speed)
+
+        logger.info(
+            f"Multi-voice TTS: {len(voiced_segments)} segments, "
+            f"{len(set(v.voice_id for v in voiced_segments))} distinct voices"
+        )
+
+        # Create provider
+        provider = TTSProviderFactory.create_provider(
+            provider_type=tts_settings.tts_provider_type,
+            api_url=tts_settings.tts_api_url,
+            api_key=tts_settings.tts_api_key or "",
+            timeout=tts_settings.tts_timeout or 30,
+            extra_params=tts_settings.tts_extra_params or {},
+        )
+
+        # Generate audio for each segment sequentially
+        for i, seg in enumerate(voiced_segments):
+            if not seg.text.strip():
+                continue
+
+            logger.info(
+                f"Generating segment {i+1}/{len(voiced_segments)}: "
+                f"voice={seg.voice_id}, chars={len(seg.text)}, "
+                f"speaker={seg.character_name or 'narrator'}"
+            )
+
+            request = TTSRequest(
+                text=seg.text,
+                voice_id=seg.voice_id,
+                speed=seg.speed,
+                format=AudioFormat.WAV,
+                sample_rate=22050,
+            )
+
+            try:
+                response = await provider.synthesize(request)
+                yield response.audio_data
+            except Exception as e:
+                logger.error(f"Failed to generate segment {i+1}: {e}")
+                # Skip failed segment rather than aborting entire sequence
+                continue
+
+            # Small delay between requests to avoid rate limiting
+            await asyncio.sleep(0.05)
+
+        logger.info("Multi-voice TTS generation complete")
+
     async def _generate_remaining_chunks(
         self,
         scene_id: int,

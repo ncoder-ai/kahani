@@ -247,6 +247,7 @@ interface Story {
   description: string;
   genre: string;
   status: string;
+  story_mode?: string;
   content_rating?: string;  // "sfw" or "nsfw"
   plot_check_mode?: '1' | '3' | 'all';  // How many events to check
   creation_step: number;

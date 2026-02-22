@@ -7,7 +7,7 @@ import { audioContextManager } from '@/utils/audioContextManager';
 import { useState, useEffect, useCallback } from 'react';
 import {
   X, Settings, LogOut, User, Home, PlusCircle, BookOpen,
-  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package, Image, LayoutGrid
+  ChevronRight, ChevronDown, Film, Trash2, Shield, Edit, Bug, GitBranch, Volume2, Users, UserCog, Package, Image, LayoutGrid, MessageSquare
 } from 'lucide-react';
 import BranchSelector from './BranchSelector';
 
@@ -125,6 +125,11 @@ export default function UnifiedMenu({
   const handleCreateStory = () => {
     onClose();
     router.push('/create-story');
+  };
+
+  const handleRoleplay = () => {
+    onClose();
+    router.push('/roleplay');
   };
 
   const handleSettings = () => {
@@ -537,6 +542,20 @@ export default function UnifiedMenu({
               <div className="flex-1">
                 <div className="font-medium text-white">Create New Story</div>
                 <div className="text-xs text-gray-400">Start a new adventure</div>
+              </div>
+            </button>
+
+            {/* Roleplay */}
+            <button
+              onClick={handleRoleplay}
+              className="w-full flex items-center gap-3 p-3 hover:bg-white/10 rounded-lg transition-colors text-left group"
+            >
+              <div className="p-2 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
+                <MessageSquare className="w-5 h-5 theme-accent-primary" />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-white">Roleplay</div>
+                <div className="text-xs text-gray-400">Interactive character sessions</div>
               </div>
             </button>
 

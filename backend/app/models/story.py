@@ -19,6 +19,7 @@ class PrivacyLevel(str, enum.Enum):
 class StoryMode(str, enum.Enum):
     DYNAMIC = "dynamic"        # Freeform with auto chapter management
     STRUCTURED = "structured"  # Plot-driven with predefined chapters
+    ROLEPLAY = "roleplay"      # Interactive roleplay (1-on-1 or group)
 
 class Story(Base):
     __tablename__ = "stories"
@@ -63,7 +64,7 @@ class Story(Base):
     world = relationship("World", back_populates="stories")
     scenes = relationship("Scene", back_populates="story", cascade="all, delete-orphan", order_by="Scene.sequence_number")
     chapters = relationship("Chapter", back_populates="story", cascade="all, delete-orphan", order_by="Chapter.chapter_number")
-    story_characters = relationship("StoryCharacter", back_populates="story", cascade="all, delete-orphan")
+    story_characters = relationship("StoryCharacter", back_populates="story", cascade="all, delete-orphan", foreign_keys="StoryCharacter.story_id")
     story_flows = relationship("StoryFlow", back_populates="story", cascade="all, delete-orphan")
     
     # Semantic Memory Relationships

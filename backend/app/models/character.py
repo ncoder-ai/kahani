@@ -70,7 +70,12 @@ class StoryCharacter(Base):
     
     # Story-specific character properties
     role = Column(String(100))  # Role in this specific story (protagonist, antagonist, etc.)
-    
+
+    # Roleplay: character development stage source
+    source_story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)  # Load development from this story
+    source_branch_id = Column(Integer, ForeignKey("story_branches.id"), nullable=True)  # From this branch
+    is_player_character = Column(Boolean, default=False)  # User plays this character in RP
+
     # Story-specific voice style override
     # If set, overrides the character's default voice_style for this story
     # Same JSON structure as Character.voice_style
@@ -92,9 +97,10 @@ class StoryCharacter(Base):
     last_appearance = Column(DateTime(timezone=True))
     
     # Relationships
-    story = relationship("Story", back_populates="story_characters")
-    branch = relationship("StoryBranch", back_populates="story_characters")
+    story = relationship("Story", back_populates="story_characters", foreign_keys=[story_id])
+    branch = relationship("StoryBranch", back_populates="story_characters", foreign_keys=[branch_id])
     character = relationship("Character", back_populates="story_characters")
+    source_story = relationship("Story", foreign_keys=[source_story_id])  # Dev stage source
     
     def __repr__(self):
         return f"<StoryCharacter(story_id={self.story_id}, branch_id={self.branch_id}, character_id={self.character_id})>"

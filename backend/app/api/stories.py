@@ -150,6 +150,7 @@ async def get_stories(
             "description": story.description,
             "genre": story.genre,
             "status": story.status,
+            "story_mode": story.story_mode,
             "content_rating": story.content_rating or "sfw",
             "creation_step": story.creation_step,
             "created_at": story.created_at,

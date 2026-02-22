@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
-import { X, Trash2, CheckSquare, Square } from 'lucide-react';
+import { X, Trash2, CheckSquare, Square, MessageSquare, Users, Clock } from 'lucide-react';
 import apiClient, { getApiBaseUrl } from '@/lib/api';
+import { RoleplayApi } from '@/lib/api/roleplay';
+import type { RoleplayListItem } from '@/lib/api/roleplay';
 import RouteProtection from '@/components/RouteProtection';
 import { useUISettings } from '@/hooks/useUISettings';
 import StorySettingsModal from '@/components/StorySettingsModal';
@@ -27,21 +29,25 @@ function DashboardContent() {
   const [selectedBrainstormIds, setSelectedBrainstormIds] = useState<Set<number>>(new Set());
   const [isDeletingBrainstorms, setIsDeletingBrainstorms] = useState(false);
   const [brainstormSelectMode, setBrainstormSelectMode] = useState(false);
+  const [roleplays, setRoleplays] = useState<RoleplayListItem[]>([]);
+  const [loadingRoleplays, setLoadingRoleplays] = useState(false);
+  const roleplayApiRef = useState(() => new RoleplayApi())[0];
 
   // Apply UI settings (theme, font size, etc.)
   useUISettings(userSettings?.ui_preferences || null);
 
   useEffect(() => {
-    if (!hasHydrated) return; 
-    
+    if (!hasHydrated) return;
+
     if (!user) {
       router.push('/login');
       return;
     }
-    
+
     loadStories();
     loadUserSettings();
     loadBrainstormSessions();
+    loadRoleplays();
   }, [user, hasHydrated, router]);
 
   const loadBrainstormSessions = async () => {
@@ -54,6 +60,41 @@ function DashboardContent() {
     } finally {
       setLoadingSessions(false);
     }
+  };
+
+  const loadRoleplays = async () => {
+    try {
+      setLoadingRoleplays(true);
+      const data = await roleplayApiRef.listRoleplays();
+      setRoleplays(data);
+    } catch (error) {
+      console.error('Failed to load roleplays:', error);
+    } finally {
+      setLoadingRoleplays(false);
+    }
+  };
+
+  const handleDeleteRoleplay = async (id: number, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Delete roleplay "${title}"? This cannot be undone.`)) return;
+    try {
+      await roleplayApiRef.deleteRoleplay(id);
+      setRoleplays(prev => prev.filter(rp => rp.story_id !== id));
+    } catch (error) {
+      console.error('Failed to delete roleplay:', error);
+    }
+  };
+
+  const formatRelativeDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${Math.floor(diffHours)}h ago`;
+    const diffDays = diffHours / 24;
+    if (diffDays < 7) return `${Math.floor(diffDays)}d ago`;
+    return date.toLocaleDateString();
   };
 
   const toggleBrainstormSelection = (sessionId: number, e: React.MouseEvent) => {
@@ -168,26 +209,21 @@ function DashboardContent() {
   };
 
   const handleStoryClick = (storyId: number) => {
-    // Find the story in our local state to check its creation status
     const story = stories.find(s => s.id === storyId);
-    
-    console.log('[Dashboard] Story clicked:', {
-      id: storyId,
-      status: story?.status,
-      creation_step: story?.creation_step
-    });
-    
+
+    // Roleplay stories go to roleplay session page
+    if (story?.story_mode === 'roleplay') {
+      router.push(`/roleplay/${storyId}`);
+      return;
+    }
+
     // Only redirect to creation flow if story is explicitly a draft AND incomplete
-    // Stories with status='active' or creation_step=6 should always go to story view
-    if (story && 
-        story.status === 'draft' && 
-        story.creation_step !== undefined && 
-        story.creation_step < 6) {  // Changed from < 5 to < 6
-      console.log('[Dashboard] Redirecting to create-story (incomplete draft)');
+    if (story &&
+        story.status === 'draft' &&
+        story.creation_step !== undefined &&
+        story.creation_step < 6) {
       router.push(`/create-story?story_id=${storyId}`);
     } else {
-      // Story is fully created or from brainstorm, go to story view
-      console.log('[Dashboard] Redirecting to story view');
       router.push(`/story/${storyId}`);
     }
   };
@@ -353,6 +389,12 @@ function DashboardContent() {
               👥 Manage Characters
             </button>
             <button
+              onClick={() => router.push('/roleplay')}
+              className="bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg flex items-center gap-2"
+            >
+              <MessageSquare className="w-5 h-5" /> Roleplay
+            </button>
+            <button
               onClick={() => router.push('/worlds')}
               className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white px-8 py-4 rounded-2xl font-semibold text-lg transform hover:scale-105 transition-all duration-200 shadow-lg"
             >
@@ -479,13 +521,81 @@ function DashboardContent() {
           </div>
         )}
 
+        {/* Roleplay Sessions Section */}
+        {roleplays.length > 0 && (
+          <div className="mb-12">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Roleplay Sessions
+                <span className="text-sm font-normal text-white/60">
+                  ({roleplays.length} session{roleplays.length !== 1 ? 's' : ''})
+                </span>
+              </h3>
+              <button
+                onClick={() => router.push('/roleplay/create')}
+                className="text-white/70 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm"
+              >
+                + New Roleplay
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {roleplays.map((rp) => (
+                <div
+                  key={rp.story_id}
+                  onClick={() => router.push(`/roleplay/${rp.story_id}`)}
+                  className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 backdrop-blur-md border border-purple-500/30 rounded-xl p-4 cursor-pointer hover:from-purple-500/20 hover:to-pink-500/20 transition-all group"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="text-white font-semibold line-clamp-1 group-hover:text-purple-200 transition-colors">
+                      {rp.title}
+                    </h4>
+                    {rp.content_rating === 'nsfw' && (
+                      <span className="text-xs px-2 py-0.5 bg-red-500/30 text-red-300 rounded-full flex-shrink-0 ml-2">
+                        NSFW
+                      </span>
+                    )}
+                  </div>
+                  {rp.scenario && (
+                    <p className="text-white/50 text-sm line-clamp-2 mb-3">{rp.scenario}</p>
+                  )}
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="w-3.5 h-3.5 text-white/40 flex-shrink-0" />
+                    <span className="text-sm text-white/60 line-clamp-1">{rp.characters.join(', ')}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-3 text-xs text-white/40">
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {rp.turn_count} turns
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {formatRelativeDate(rp.updated_at || rp.created_at)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteRoleplay(rp.story_id, rp.title, e)}
+                      className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete roleplay"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Stories Grid */}
         {isLoading ? (
           <div className="text-center py-16">
             <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-white/80">Loading your stories...</p>
           </div>
-        ) : stories.length === 0 ? (
+        ) : stories.filter(s => s.story_mode !== 'roleplay').length === 0 ? (
           <div className="text-center py-16">
             <div className="bg-white/10 backdrop-blur-md rounded-3xl border border-white/20 p-12 max-w-md mx-auto">
               <div className="text-6xl mb-6">📚</div>
@@ -505,7 +615,7 @@ function DashboardContent() {
           <>
             {/* Stories Header */}
             <div className="flex justify-between items-center mb-8">
-              <h3 className="text-2xl font-bold text-white">Your Stories ({stories.length})</h3>
+              <h3 className="text-2xl font-bold text-white">Your Stories ({stories.filter((s: any) => s.story_mode !== 'roleplay').length})</h3>
               <div className="flex space-x-4">
                 <button className="text-white/80 hover:text-white px-4 py-2 rounded-lg hover:bg-white/10 transition-colors">
                   🔍 Search
@@ -518,7 +628,7 @@ function DashboardContent() {
 
             {/* Stories Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {stories.map((story) => (
+              {stories.filter((s: any) => s.story_mode !== 'roleplay').map((story) => (
                 <div
                   key={story.id}
                   onClick={() => handleStoryClick(story.id)}
@@ -643,17 +753,15 @@ function DashboardContent() {
         )}
 
         {/* Footer Stats */}
-        {stories.length > 0 && (
+        {(stories.length > 0 || roleplays.length > 0) && (
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">{stories.length}</div>
+              <div className="text-3xl font-bold text-white mb-2">{stories.filter(s => s.story_mode !== 'roleplay').length}</div>
               <div className="text-white/70">Stories Created</div>
             </div>
             <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">
-                {stories.filter(s => s.status === 'active').length}
-              </div>
-              <div className="text-white/70">Active Stories</div>
+              <div className="text-3xl font-bold text-white mb-2">{roleplays.length}</div>
+              <div className="text-white/70">Roleplay Sessions</div>
             </div>
             <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 text-center">
               <div className="text-3xl font-bold text-white mb-2">∞</div>

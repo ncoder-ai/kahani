@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, ClipboardIcon, XMarkIcon, FlagIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline';
-import { GitFork, Volume2, Image } from 'lucide-react';
-import SceneDisplay from './SceneDisplay';
+import { PlayIcon, ArrowPathIcon, PlusCircleIcon, StopIcon, SparklesIcon, TrashIcon, XMarkIcon, FlagIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline';
+import { Volume2 } from 'lucide-react';
+import SceneContentDisplay from './SceneContentDisplay';
 import SceneImageGenerator from './SceneImageGenerator';
-import { SceneTTSButton } from './SceneTTSButton';
 import MicrophoneButton from './MicrophoneButton';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import apiClient from '@/lib/api';
@@ -182,7 +181,6 @@ export default function SceneVariantDisplay({
   const sceneContentRef = useRef<HTMLDivElement>(null);
   const hasLoadedVariantsRef = useRef<Set<number>>(new Set());
   const lastTriggerRef = useRef<number>(0);
-  const [copySuccess, setCopySuccess] = useState(false);
   const [showFloatingMenu, setShowFloatingMenu] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
@@ -419,8 +417,8 @@ export default function SceneVariantDisplay({
     if (currentVariant?.choices && currentVariant.choices.length > 0) {
       return [...currentVariant.choices].sort((a, b) => a.order - b.order);
     }
-    // Use scene choices if no variant-specific choices
-    else if (scene.choices && scene.choices.length > 0) {
+    // Fall through to scene choices if variant has no choices
+    if (scene.choices && scene.choices.length > 0) {
       return [...scene.choices].sort((a, b) => a.order - b.order);
     }
     
@@ -491,7 +489,7 @@ export default function SceneVariantDisplay({
   useEffect(() => {
     // Load variants if scene has multiple variants and we haven't loaded yet
     // OR if has_multiple_variants is true but variants array is empty/outdated
-    if ((scene.has_multiple_variants || isLastScene) && !isLoadingVariants) {
+    if ((scene.has_multiple_variants || isLastScene) && !isLoadingVariants && !isSceneOperationInProgress) {
       // If has_multiple_variants is true but we have 1 or fewer variants, force reload
       if (scene.has_multiple_variants && variants.length <= 1) {
         hasLoadedVariantsRef.current.delete(scene.id);
@@ -505,7 +503,7 @@ export default function SceneVariantDisplay({
         loadVariants();
       }
     }
-  }, [scene.id, scene.has_multiple_variants, isLastScene, isLoadingVariants, variants.length]);
+  }, [scene.id, scene.has_multiple_variants, isLastScene, isLoadingVariants, isSceneOperationInProgress, variants.length]);
 
   // Set initial variant ID from scene and reload variants when variant_id changes
   useEffect(() => {
@@ -670,11 +668,8 @@ export default function SceneVariantDisplay({
       if (onCopySceneText) {
         onCopySceneText(textToCopy);
       } else {
-        // Fallback: use clipboard API directly
         await navigator.clipboard.writeText(textToCopy);
       }
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
     } catch (error) {
       console.error('Failed to copy text:', error);
     }
@@ -832,33 +827,30 @@ export default function SceneVariantDisplay({
 
   return (
     <div ref={sceneContentRef} className="scene-variant-container">
-      <div className={isStreamingVariant ? 'relative streaming-variant' : 'relative'} suppressHydrationWarning>
-        {isStreamingVariant && (
-          <div className="absolute top-0 right-0 bg-pink-600 text-white text-xs px-2 py-1 rounded-full animate-pulse z-10">
-            Generating...
-          </div>
-        )}
-        
-        <SceneDisplay
-          scene={getDisplayScene()}
-          sceneNumber={sceneNumber}
-          format={userSettings?.scene_display_format || 'default'}
-          containerStyle="lines"
-          showTitle={userSettings?.show_scene_titles === true}
-          isEditing={isEditing}
-          editContent={editContent}
-          onStartEdit={onStartEdit}
-          onSaveEdit={async (sceneId, content, variantId) => {
-            await onSaveEdit(sceneId, content, variantId);
-            // Reload variants after save to get updated user_edited flag
-            await loadVariants();
-          }}
+      <SceneContentDisplay
+        scene={getDisplayScene()}
+        sceneNumber={sceneNumber}
+        userSettings={userSettings}
+        isEditing={isEditing}
+        editContent={editContent}
+        onSaveEdit={async (sceneId, content, variantId) => {
+          await onSaveEdit(sceneId, content, variantId);
+          // Reload variants after save to get updated user_edited flag
+          await loadVariants();
+        }}
         onCancelEdit={onCancelEdit}
         onContentChange={onContentChange}
         streamingContinuation={streamingContinuation}
         isStreamingContinuation={isStreamingContinuation}
         isStreamingVariant={isStreamingVariant}
-        userSettings={userSettings}
+        onEdit={() => onStartEdit(scene)}
+        onCopy={handleCopyScene}
+        onDelete={handleDeleteClick}
+        onBranch={() => onCreateBranch?.(scene.sequence_number)}
+        onImage={() => setShowImageGenerator(!showImageGenerator)}
+        showTTS={true}
+        isInDeleteMode={isInDeleteMode}
+        isSceneSelectedForDeletion={isSceneSelectedForDeletion}
       />
 
       {/* Inline Contradiction Check Display */}
@@ -1019,89 +1011,6 @@ export default function SceneVariantDisplay({
         </div>
       )}
       
-      {/* Quick Action Buttons - Floating buttons in top-right */}
-      {isClient && (
-        <div className="absolute -top-4 -right-4 md:-top-2 md:-right-2 z-10 flex items-center gap-1">
-          {/* Edit Button */}
-          {!isEditing && (
-            <button
-              onClick={() => onStartEdit(scene)}
-              className="flex items-center justify-center transition-all duration-200 flex-shrink-0 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1"
-              title="Edit scene"
-            >
-              <PencilIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
-            </button>
-          )}
-
-          {/* Copy Button */}
-          <button
-            onClick={handleCopyScene}
-            className={
-              'flex items-center justify-center transition-all duration-200 flex-shrink-0 ' +
-              (copySuccess 
-                ? 'text-green-400 hover:text-green-300' 
-                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1')
-            }
-            title={copySuccess ? 'Copied!' : 'Copy scene text'}
-          >
-            {copySuccess ? (
-              <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <ClipboardIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
-            )}
-          </button>
-
-          {/* Delete Button - Always visible */}
-          <button
-            onClick={handleDeleteClick}
-            className={
-              'flex items-center justify-center transition-all duration-200 flex-shrink-0 ' +
-              (isInDeleteMode && isSceneSelectedForDeletion
-                ? 'text-red-400 hover:text-red-300'
-                : isInDeleteMode
-                ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1'
-                : 'text-gray-400 hover:text-red-400 hover:bg-gray-800/50 rounded p-1')
-            }
-            title={
-              isInDeleteMode 
-                ? (isSceneSelectedForDeletion 
-                    ? 'Cancel delete mode' 
-                    : 'Delete from this scene onwards instead')
-                : 'Delete from this scene onwards'
-            }
-          >
-            <TrashIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
-          </button>
-
-          {/* Create Branch Button */}
-          <button
-            onClick={() => onCreateBranch?.(scene.sequence_number)}
-            className="flex items-center justify-center transition-all duration-200 flex-shrink-0 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded p-1"
-            title="Create branch from this scene"
-          >
-            <GitFork className="w-3.5 h-3.5 md:w-4 md:h-4" />
-          </button>
-
-          {/* Generate Image Button */}
-          <button
-            onClick={() => setShowImageGenerator(!showImageGenerator)}
-            className={`flex items-center justify-center transition-all duration-200 flex-shrink-0 hover:bg-gray-800/50 rounded p-1 ${
-              showImageGenerator ? 'text-purple-400' : 'text-gray-400 hover:text-gray-300'
-            }`}
-            title={showImageGenerator ? 'Hide image generator' : 'Generate image for this scene'}
-          >
-            <Image className="w-3.5 h-3.5 md:w-4 md:h-4" />
-          </button>
-
-          {/* Audio Controls - Floating speaker button */}
-          <div className="flex-shrink-0">
-            <SceneTTSButton sceneId={scene.id} className="relative" />
-          </div>
-        </div>
-      )}
-      </div>
       
       {/* Scene Management - Only show for last scene */}
       {isLastScene && (

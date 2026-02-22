@@ -331,6 +331,35 @@ class RoleplayContextBuilder:
         )
 
     @staticmethod
+    def build_auto_player_task(
+        player_name: str,
+        rp_settings: dict,
+    ) -> str:
+        """Build task message for auto-generating the player character's turn."""
+        response_length = rp_settings.get("response_length", "concise")
+        length_key = "roleplay.length_concise" if response_length == "concise" else "roleplay.length_detailed"
+        length_instruction = prompt_manager.get_raw_prompt(length_key) or "Keep responses concise (150-300 words)."
+
+        narration_style = rp_settings.get("narration_style", "moderate")
+        narration_key = f"roleplay.narration_{narration_style}"
+        narration_instruction = prompt_manager.get_raw_prompt(narration_key) or ""
+
+        result = prompt_manager.get_raw_prompt(
+            "roleplay.task_auto_player",
+            player_name=player_name,
+            length_instruction=length_instruction,
+            narration_instruction=narration_instruction,
+        )
+        if result:
+            return result
+
+        return (
+            f"Write {player_name}'s next response in this conversation.\n"
+            f"Write ONLY {player_name} — no other characters.\n"
+            f"{length_instruction}\n{narration_instruction}"
+        )
+
+    @staticmethod
     def build_opening_task(
         character_names: list[str],
         player_name: str,
@@ -548,7 +577,7 @@ class RoleplayContextBuilder:
             method = variant.generation_method or "auto"
 
             # Format turn label
-            if method == "user_written":
+            if method in ("user_written", "auto_player"):
                 label = f"[Player Turn {flow.sequence_number}]"
             elif method == "direction":
                 label = f"[Direction {flow.sequence_number}]"
@@ -919,7 +948,7 @@ class RoleplayContextBuilder:
             ).first()
             if variant and variant.content:
                 method = variant.generation_method or "auto"
-                label = "Player" if method == "user_written" else "AI"
+                label = "Player" if method in ("user_written", "auto_player") else "AI"
                 turn_texts.append(f"[{label}] {variant.content[:300]}")
 
         text_to_summarize = "\n\n".join(turn_texts)

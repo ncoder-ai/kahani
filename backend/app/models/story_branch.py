@@ -47,7 +47,7 @@ class StoryBranch(Base):
     # Reverse relationships to branch-aware models
     scenes = relationship("Scene", back_populates="branch", cascade="all, delete-orphan")
     chapters = relationship("Chapter", back_populates="branch", cascade="all, delete-orphan")
-    story_characters = relationship("StoryCharacter", back_populates="branch", cascade="all, delete-orphan")
+    story_characters = relationship("StoryCharacter", back_populates="branch", cascade="all, delete-orphan", foreign_keys="StoryCharacter.branch_id")
     story_flows = relationship("StoryFlow", back_populates="branch", cascade="all, delete-orphan")
     
     # Entity states

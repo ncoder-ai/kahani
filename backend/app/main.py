@@ -225,7 +225,7 @@ async def health_check():
     }
 
 # Import and include routers
-from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches, brainstorm, entity_states, drafts, story_arc, interactions, story_generation, chapter_brainstorm, scene_endpoints, variant_endpoints, image_generation, contradictions, relationships, worlds, chronicles
+from .api import auth, stories, characters, summaries, chapters, websocket, semantic_search, admin, character_assistant, branches, brainstorm, entity_states, drafts, story_arc, interactions, story_generation, chapter_brainstorm, scene_endpoints, variant_endpoints, image_generation, contradictions, relationships, worlds, chronicles, roleplay
 from .api import settings as settings_router, stt_websocket, config
 from .routers import prompt_templates, writing_presets, tts
 
@@ -261,6 +261,7 @@ app.include_router(stt_websocket.router)  # STT WebSocket endpoints
 app.include_router(image_generation.router, prefix="/api/image-generation", tags=["image-generation"])
 app.include_router(worlds.router, prefix="/api/worlds", tags=["worlds"])
 app.include_router(chronicles.router, prefix="/api", tags=["chronicles"])
+app.include_router(roleplay.router, prefix="/api/roleplay", tags=["roleplay"])
 
 # Root endpoint
 @app.get("/")

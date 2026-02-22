@@ -147,7 +147,12 @@ function LoginForm() {
         ]);
         
         if (lastStoryResponse.auto_open_last_story && lastStoryResponse.last_accessed_story_id) {
-          router.push(`/story/${lastStoryResponse.last_accessed_story_id}`);
+          const storyMode = (lastStoryResponse as any).story_mode;
+          if (storyMode === 'roleplay') {
+            router.push(`/roleplay/${lastStoryResponse.last_accessed_story_id}`);
+          } else {
+            router.push(`/story/${lastStoryResponse.last_accessed_story_id}`);
+          }
         } else {
           router.push('/dashboard');
         }

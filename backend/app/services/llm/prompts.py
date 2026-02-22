@@ -91,14 +91,34 @@ class PromptManager:
             "pacing.progress_mid": ("pacing", "progress_mid"),
             "pacing.progress_high": ("pacing", "progress_high"),
             "pacing.progress_complete": ("pacing", "progress_complete"),
+            # Roleplay prompts
+            "roleplay.dialogue_styles_header": ("roleplay", "dialogue_styles_header"),
+            "roleplay.task_character": ("roleplay", "task_character"),
+            "roleplay.task_narration": ("roleplay", "task_narration"),
+            "roleplay.task_direction": ("roleplay", "task_direction"),
+            "roleplay.system_auto_player_override": ("roleplay", "system_auto_player_override"),
+            "roleplay.task_auto_player": ("roleplay", "task_auto_player"),
+            "roleplay.task_auto_continue": ("roleplay", "task_auto_continue"),
+            "roleplay.task_opening": ("roleplay", "task_opening"),
+            "roleplay.length_concise": ("roleplay", "length_concise"),
+            "roleplay.length_detailed": ("roleplay", "length_detailed"),
+            "roleplay.length_concise_auto": ("roleplay", "length_concise_auto"),
+            "roleplay.length_detailed_auto": ("roleplay", "length_detailed_auto"),
+            "roleplay.length_concise_opening": ("roleplay", "length_concise_opening"),
+            "roleplay.length_detailed_opening": ("roleplay", "length_detailed_opening"),
+            "roleplay.narration_minimal": ("roleplay", "narration_minimal"),
+            "roleplay.narration_moderate": ("roleplay", "narration_moderate"),
+            "roleplay.narration_rich": ("roleplay", "narration_rich"),
+            "roleplay.summary_system": ("roleplay", "summary_system"),
+            "roleplay.summary_prompt": ("roleplay", "summary_prompt"),
         }
-        
+
         if template_key not in yaml_mapping:
             logger.warning(f"[PROMPTS] Raw template key '{template_key}' not found")
             return ""
-        
+
         category, key = yaml_mapping[template_key]
-        
+
         try:
             prompt = self._prompts_cache.get(category, {}).get(key, "")
             if isinstance(prompt, str):
@@ -977,6 +997,8 @@ Chapter Conclusion:"""
             "chronicle_extraction": ("chronicle_extraction", ""),
             "chronicle_validation": ("chronicle_validation", ""),
             "character_snapshot_generation": ("character_snapshot_generation", ""),
+            # Roleplay prompts
+            "roleplay": ("roleplay", ""),
         }
         
         if template_key not in yaml_mapping:

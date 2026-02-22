@@ -791,6 +791,87 @@ async def generate_scene_audio(
         )
 
 
+class RoleplayTTSRequest(BaseModel):
+    """Request for multi-voice roleplay TTS generation."""
+    voice_mapping: dict = Field(..., description="Character name -> {voice_id, speed} mapping")
+    character_names: list[str] = Field(..., description="List of character names in the scene")
+
+
+@router.post("/generate-roleplay/{scene_id}")
+async def generate_roleplay_audio(
+    scene_id: int,
+    request: RoleplayTTSRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate multi-voice audio for a roleplay turn.
+
+    Splits the scene content by character, generates audio with
+    different voices per character, and streams the concatenated result.
+    """
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    from app.models.story import Story
+    story = db.query(Story).filter(Story.id == scene.story_id).first()
+    if not story or story.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    tts_settings = db.query(TTSSettings).filter(
+        TTSSettings.user_id == current_user.id
+    ).first()
+    if not tts_settings or not tts_settings.tts_provider_type:
+        raise HTTPException(status_code=400, detail="TTS not configured")
+
+    # Get active variant content
+    from app.models.story_flow import StoryFlow
+    from app.models.scene_variant import SceneVariant
+
+    branch_id = story.current_branch_id or scene.branch_id
+    flow_query = db.query(StoryFlow).filter(
+        StoryFlow.scene_id == scene.id,
+        StoryFlow.is_active == True,
+    )
+    if branch_id is not None:
+        flow_query = flow_query.filter(StoryFlow.branch_id == branch_id)
+    flow_entry = flow_query.first()
+
+    if not flow_entry or not flow_entry.scene_variant_id:
+        raise HTTPException(status_code=404, detail="No active variant found")
+
+    variant = db.query(SceneVariant).filter(
+        SceneVariant.id == flow_entry.scene_variant_id
+    ).first()
+    if not variant or not variant.content:
+        raise HTTPException(status_code=404, detail="Scene content not found")
+
+    tts_service = TTSService(db)
+
+    async def stream_multi_voice():
+        try:
+            async for chunk in tts_service.generate_multi_voice_audio(
+                text=variant.content,
+                character_names=request.character_names,
+                voice_mapping=request.voice_mapping,
+                tts_settings=tts_settings,
+            ):
+                yield chunk
+        except Exception as e:
+            logger.error(f"Multi-voice TTS failed for scene {scene_id}: {e}")
+
+    return StreamingResponse(
+        stream_multi_voice(),
+        media_type="audio/wav",
+        headers={
+            "X-Scene-ID": str(scene_id),
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post("/generate-ws/{scene_id}", response_model=TTSSessionResponse)
 async def generate_scene_audio_websocket(
     scene_id: int,

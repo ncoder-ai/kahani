@@ -1337,7 +1337,8 @@ async def get_last_accessed_story(
     
     return {
         "auto_open_last_story": user_settings.auto_open_last_story or False,
-        "last_accessed_story_id": user_settings.last_accessed_story_id
+        "last_accessed_story_id": user_settings.last_accessed_story_id,
+        "story_mode": story.story_mode or "dynamic",
     }
 
 # Extraction Model Endpoints

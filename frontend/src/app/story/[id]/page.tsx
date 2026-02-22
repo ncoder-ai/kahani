@@ -1302,6 +1302,8 @@ export default function StoryPage() {
     setError('');
     setIsStreaming(true);  // Always show loading state
     setIsSceneOperationInProgress(true); // Block variant loading operations
+    setIsGeneratingChoices(false);
+    setWaitingForChoicesSceneId(null);
     setStreamingContent('');
     // Clear thinking state for new generation
     setIsThinking(false);

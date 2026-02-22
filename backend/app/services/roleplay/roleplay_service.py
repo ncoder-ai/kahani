@@ -295,6 +295,57 @@ class RoleplayService:
             yield chunk
 
     @staticmethod
+    async def generate_player_turn(
+        db: Session,
+        story_id: int,
+        user_id: int,
+        user_settings: dict,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Auto-generate the player character's turn via LLM.
+        Yields streaming chunks of the player character's response.
+        """
+        from ..llm.prompts import prompt_manager
+
+        story = db.query(Story).filter(Story.id == story_id, Story.owner_id == user_id).first()
+        if not story:
+            raise ValueError(f"Roleplay {story_id} not found")
+
+        context = await RoleplayContextBuilder.build_context(db, story, user_settings)
+        player_character = context["player_character"]
+        if not player_character:
+            raise ValueError("No player character found in this roleplay")
+
+        player_name = player_character["name"]
+        rp_settings = context["rp_settings"]
+
+        # Build messages
+        messages = RoleplayContextBuilder.build_message_prefix(context, user_settings)
+
+        # Append system override to the system message
+        override = prompt_manager.get_raw_prompt("roleplay.system_auto_player_override") or ""
+        if override and messages and messages[0]["role"] == "system":
+            messages[0]["content"] += "\n\n" + override.strip()
+
+        # Append task message
+        task = RoleplayContextBuilder.build_auto_player_task(
+            player_name=player_name,
+            rp_settings=rp_settings,
+        )
+        messages.append({"role": "user", "content": task})
+
+        # Stream the response
+        max_tokens = user_settings.get("generation_preferences", {}).get("max_tokens", 2000)
+        async for chunk in _llm_service._generate_stream_with_messages(
+            messages=messages,
+            user_id=user_id,
+            user_settings=user_settings,
+            max_tokens=max_tokens,
+            skip_nsfw_filter=True,
+        ):
+            yield chunk
+
+    @staticmethod
     async def auto_continue(
         db: Session,
         story_id: int,

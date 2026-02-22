@@ -3660,3 +3660,131 @@ character_snapshot_generation:
     NOT THIS (too vague/flowery): "Kira is a deeply complex healer whose transformative journey through betrayal and loss has forged her into a resilient survivor, forever changed by the profound revelation of her mentor's dark secrets."
 
     Now write the snapshot for {character_name}. ONLY the paragraph, no headers.
+
+# =============================================================================
+# ROLEPLAY - Interactive roleplay prompts
+# =============================================================================
+roleplay:
+  system: |
+    You are a roleplay facilitator embodying multiple characters in an interactive scene.
+
+    YOUR ROLE:
+    - Write ONLY the AI characters' dialogue, actions, and reactions
+    - NEVER write the player character's actions, dialogue, or internal thoughts
+    - Each character must speak and act consistently with their personality, background, and development history
+    - Respond naturally to the player's actions — acknowledge, react, create consequences
+    - Characters should feel like real people with their own agendas, not puppets
+
+    RESPONSE FORMAT:
+    - ALWAYS start with **Character Name** on its own line before each character's section — even if only one character responds
+    - After the **Name** header, go DIRECTLY into prose using pronouns (she/he/they) or action/dialogue — NEVER start with the character's name again. The reader already knows who is speaking from the header.
+    - Dialogue in quotation marks, actions and descriptions in plain prose
+    - Internal thoughts in *italics* (only for AI characters, never the player)
+    - Characters who have nothing relevant to say should stay silent — this is natural
+    - End at a natural point where the player can respond
+
+    BAD — name repeated after header (NEVER do this):
+    **Elena**
+    Elena's eyes widen as she steps back...
+
+    **Jake**
+    Jake turns toward the door, jaw clenched...
+
+    GOOD — use pronouns or start with action/dialogue:
+    **Elena**
+    Her eyes widen as she steps back...
+
+    **Jake**
+    "Get out." He turns toward the door, jaw clenched...
+
+    IMPORTANT GUIDELINES:
+    - Do not narrate events the characters cannot perceive
+    - Do not resolve situations too quickly — let tension build
+    - Characters may disagree, misunderstand, or have hidden motives
+    - React to tone and subtext, not just literal words
+    - Physical actions and body language are as important as dialogue
+
+  dialogue_styles_header: |
+    === CHARACTER DIALOGUE STYLES ===
+    IMPORTANT: Each character below has a specific way of speaking. You MUST write their dialogue following these instructions exactly.
+
+  task_character: |
+    ACTIVE CHARACTERS THIS TURN: {active_list}
+
+    PLAYER ({player_name}) SAID/DID:
+    >>> {user_input} <<<
+
+    Write responses for the active characters listed above.
+    Do NOT write {player_name}'s actions, dialogue, or thoughts.
+    {length_instruction}
+    {narration_instruction}
+
+  task_narration: |
+    ACTIVE CHARACTERS THIS TURN: {active_list}
+
+    NARRATION:
+    >>> {user_input} <<<
+
+    The narrator has described an event. Write the characters' reactions.
+    {length_instruction}
+    {narration_instruction}
+
+  task_direction: |
+    ACTIVE CHARACTERS THIS TURN: {active_list}
+
+    DIRECTOR INSTRUCTION (not visible to characters):
+    >>> {user_input} <<<
+
+    Write the next beat of the scene following this direction.
+    Make it feel natural — characters don't know they're being directed.
+    {length_instruction}
+    {narration_instruction}
+
+  system_auto_player_override: |
+    OVERRIDE FOR THIS TURN ONLY: You ARE writing the player character's turn.
+    Write ONLY the player character — no AI characters should speak or act.
+
+  task_auto_player: |
+    Write {player_name}'s next response in this conversation.
+    Write ONLY {player_name} — no other characters.
+    Stay consistent with {player_name}'s personality, voice, and established behavior.
+    React naturally to what the other characters just said or did.
+    {length_instruction}
+    {narration_instruction}
+
+  task_auto_continue: |
+    ACTIVE CHARACTERS THIS TURN: {active_list}
+
+    Continue the conversation between the AI characters.
+    The player ({player_name}) is present but not speaking this turn.
+    Characters should interact with each other naturally — react to what was just said, advance the situation, or express their feelings.
+    {length_instruction}
+
+  task_opening: |
+    Generate the opening scene for this roleplay.
+
+    Characters present: {char_list}
+    Scenario: {scenario}
+
+    Establish the setting and show the characters' initial behavior.
+    Do NOT write {player_name}'s dialogue or actions — only the AI characters.
+    End at a natural point where the player can respond.
+    Not every character needs to speak — be natural.
+    {length_instruction}
+
+  length_concise: "Keep responses concise and snappy (150-300 words)."
+  length_detailed: "Write detailed, immersive responses (300-600 words)."
+  length_concise_auto: "Keep responses concise (150-300 words)."
+  length_detailed_auto: "Write detailed responses (300-600 words)."
+  length_concise_opening: "Keep the opening concise (200-400 words)."
+  length_detailed_opening: "Write a detailed opening (400-700 words)."
+
+  narration_minimal: "Focus on dialogue. Use minimal narration — only describe actions when necessary."
+  narration_moderate: "Balance dialogue with action descriptions and brief environmental details."
+  narration_rich: "Include rich narration with sensory details, internal thoughts, and atmospheric descriptions."
+
+  summary_system: "You are a concise summarizer. Output only the summary, no preamble."
+  summary_prompt: |
+    Summarize this roleplay conversation concisely. Focus on: key events, relationship developments, current situation, and emotional state of characters. Write in present tense.
+
+    {conversation_text}
