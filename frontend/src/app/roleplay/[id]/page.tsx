@@ -10,7 +10,7 @@ export default function RoleplaySessionPage() {
 
   return (
     <RouteProtection requireAuth={true} requireApproval={true}>
-      <RoleplaySession roleplayId={id} />
+      <RoleplaySession key={id} roleplayId={id} />
     </RouteProtection>
   );
 }

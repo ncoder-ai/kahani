@@ -7,5 +7,5 @@ export default function EditCharacterPage() {
   const params = useParams();
   const characterId = parseInt(params.id as string);
 
-  return <CharacterForm characterId={characterId} mode="edit" />;
+  return <CharacterForm key={characterId} characterId={characterId} mode="edit" />;
 }

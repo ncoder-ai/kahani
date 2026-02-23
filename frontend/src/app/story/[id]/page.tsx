@@ -169,10 +169,18 @@ interface Story {
 }
 
 export default function StoryPage() {
-  const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const storyId = parseInt(params.id as string);
+
+  // Key forces full unmount/remount when storyId changes.
+  // Without this, React reuses the component instance when navigating
+  // between /story/8 and /story/11, leaving stale state visible.
+  return <StoryPageContent key={storyId} storyId={storyId} />;
+}
+
+function StoryPageContent({ storyId }: { storyId: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   
   const { user, token } = useAuthStore();
   const hasHydrated = useHasHydrated();
@@ -354,7 +362,7 @@ export default function StoryPage() {
     loadStory();
     loadUserSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, hasHydrated, storyId]); // router intentionally excluded - it can be unstable and cause unwanted reloads
+  }, [user, hasHydrated]); // storyId comes via props+key (remount on change); router intentionally excluded - it can be unstable and cause unwanted reloads
 
   // Initialize showImages from user settings when they load
   useEffect(() => {
@@ -2863,7 +2871,7 @@ export default function StoryPage() {
       
       {/* Chapter Sidebar - Opens from main menu */}
       <ChapterSidebar
-        key={chapterSidebarRefreshKey}
+        key={`${storyId}-${chapterSidebarRefreshKey}`}
         storyId={storyId}
         isOpen={isChapterSidebarOpen}
         onToggle={() => setIsChapterSidebarOpen(!isChapterSidebarOpen)}

@@ -24,9 +24,14 @@ interface Character {
 
 export default function CharacterDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const characterId = parseInt(params.id as string);
-  
+
+  return <CharacterDetailContent key={characterId} characterId={characterId} />;
+}
+
+function CharacterDetailContent({ characterId }: { characterId: number }) {
+  const router = useRouter();
+
   const [character, setCharacter] = useState<Character | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -34,7 +39,8 @@ export default function CharacterDetailPage() {
     if (characterId) {
       loadCharacter();
     }
-  }, [characterId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // characterId changes via remount (key prop on parent)
 
   const loadCharacter = async () => {
     try {
