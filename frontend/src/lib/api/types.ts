@@ -215,6 +215,8 @@ export interface StoryCharacter {
   name: string;
   description?: string | null;
   gender?: string | null;
+  appearance?: string | null;
+  portrait_image_id?: number | null;
   default_voice_style?: VoiceStyle | null;
   // Legacy field for backwards compatibility
   character?: Character;

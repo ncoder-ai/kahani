@@ -201,6 +201,25 @@ export class CharactersApi extends BaseApiClient {
   }
 
   /**
+   * Enrich a character's empty fields using AI
+   */
+  async enrichCharacter(characterId: number, storyId?: number): Promise<Character> {
+    return this.request<Character>(`/api/characters/${characterId}/enrich`, {
+      method: 'POST',
+      body: JSON.stringify({ story_id: storyId || null }),
+    });
+  }
+
+  /**
+   * Get stories that a character is linked to
+   */
+  async getCharacterStories(characterId: number): Promise<Array<{ id: number; title: string }>> {
+    return this.request<Array<{ id: number; title: string }>>(
+      `/api/characters/${characterId}/stories`
+    );
+  }
+
+  /**
    * Generate a character using AI
    */
   async generateCharacterWithAI(

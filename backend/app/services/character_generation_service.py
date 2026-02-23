@@ -169,6 +169,131 @@ class CharacterGenerationService:
             logger.error(f"Raw response: {response_clean[:500] if 'response_clean' in locals() else 'No response'}")
             raise ValueError(f"Failed to generate character: {str(e)}")
     
+    async def enrich_character(
+        self,
+        character_data: Dict[str, Any],
+        story_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Fill in empty fields of an existing character profile using LLM.
+
+        Args:
+            character_data: Existing character fields from the Character model
+            story_context: Optional story context (genre, tone, world_setting, description)
+
+        Returns:
+            Dictionary with only the newly filled fields
+        """
+        # Fields that can be enriched
+        enrichable_fields = ['gender', 'background', 'goals', 'fears', 'appearance']
+
+        # Identify which fields are empty
+        empty_fields = []
+        for field in enrichable_fields:
+            value = character_data.get(field)
+            if not value or (isinstance(value, str) and not value.strip()):
+                empty_fields.append(field)
+
+        # Always suggest voice style if not set
+        has_voice_style = character_data.get('voice_style')
+        if not has_voice_style:
+            empty_fields.append('suggested_voice_style')
+
+        if not empty_fields:
+            logger.info("No empty fields to enrich")
+            return {}
+
+        # Build existing fields summary
+        existing_parts = []
+        if character_data.get('name'):
+            existing_parts.append(f"Name: {character_data['name']}")
+        if character_data.get('description'):
+            existing_parts.append(f"Description: {character_data['description']}")
+        if character_data.get('gender'):
+            existing_parts.append(f"Gender: {character_data['gender']}")
+        if character_data.get('personality_traits'):
+            traits = character_data['personality_traits']
+            if isinstance(traits, list):
+                existing_parts.append(f"Personality Traits: {', '.join(traits)}")
+        if character_data.get('background'):
+            existing_parts.append(f"Background: {character_data['background']}")
+        if character_data.get('goals'):
+            existing_parts.append(f"Goals: {character_data['goals']}")
+        if character_data.get('fears'):
+            existing_parts.append(f"Fears: {character_data['fears']}")
+        if character_data.get('appearance'):
+            existing_parts.append(f"Appearance: {character_data['appearance']}")
+        if character_data.get('voice_style'):
+            vs = character_data['voice_style']
+            if isinstance(vs, dict) and vs.get('preset'):
+                existing_parts.append(f"Voice Style: {vs['preset']}")
+
+        existing_fields_str = "\n".join(existing_parts)
+        empty_fields_str = ", ".join(empty_fields)
+
+        # Build story context string
+        story_context_str = ""
+        if story_context:
+            context_parts = []
+            if story_context.get('genre'):
+                context_parts.append(f"Genre: {story_context['genre']}")
+            if story_context.get('tone'):
+                context_parts.append(f"Tone: {story_context['tone']}")
+            if story_context.get('world_setting'):
+                context_parts.append(f"World Setting: {story_context['world_setting']}")
+            if story_context.get('description'):
+                context_parts.append(f"Story Description: {story_context['description']}")
+            if context_parts:
+                story_context_str = "\n\nStory Context:\n" + "\n".join(context_parts)
+
+        try:
+            system_prompt = prompt_manager.get_prompt("character_assistant.enrichment", "system")
+            user_prompt_template = prompt_manager.get_prompt("character_assistant.enrichment", "user")
+
+            formatted_user_prompt = user_prompt_template.format(
+                existing_fields=existing_fields_str,
+                empty_fields=empty_fields_str,
+                story_context=story_context_str
+            )
+
+            response = await self.llm_service.generate(
+                prompt=formatted_user_prompt,
+                user_id=self.user_id,
+                user_settings=self.user_settings,
+                system_prompt=system_prompt,
+                max_tokens=settings.service_defaults.get('character_generation', {}).get('max_tokens', 2000),
+                temperature=settings.service_defaults.get('character_generation', {}).get('temperature', 0.8)
+            )
+
+            response_clean = clean_llm_json(response.strip())
+
+            try:
+                enriched_fields = json.loads(response_clean)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse enrichment JSON: {e}")
+                raise ValueError(f"Failed to parse enrichment response: {str(e)}")
+
+            # Only return fields that were actually empty
+            result = {}
+            for field in empty_fields:
+                if field in enriched_fields and enriched_fields[field]:
+                    value = enriched_fields[field]
+                    if isinstance(value, str):
+                        result[field] = value.strip()
+                    else:
+                        result[field] = value
+
+            # Also pass through suggested_voice_style if present
+            if 'suggested_voice_style' in enriched_fields and enriched_fields['suggested_voice_style']:
+                result['suggested_voice_style'] = enriched_fields['suggested_voice_style']
+
+            logger.info(f"Enriched {len(result)} fields: {list(result.keys())}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to enrich character: {e}")
+            raise ValueError(f"Failed to enrich character: {str(e)}")
+
     def _validate_character_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate and normalize character data from LLM response.

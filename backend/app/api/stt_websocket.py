@@ -263,7 +263,7 @@ async def create_stt_session(
 
 
 @router.get("/stt/device-info")
-async def get_device_info():
+async def get_device_info(current_user: User = Depends(get_current_user)):
     """
     Get STT device and model information.
     

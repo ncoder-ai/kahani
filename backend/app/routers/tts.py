@@ -361,7 +361,7 @@ async def save_provider_config(
 
 
 @router.get("/providers", response_model=list[ProviderInfo])
-async def list_providers():
+async def list_providers(current_user: User = Depends(get_current_user)):
     """List available TTS providers"""
     providers = TTSProviderRegistry.list_providers()
     

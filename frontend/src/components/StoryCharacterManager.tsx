@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { X, Edit, Trash2, User, Image as ImageIcon } from 'lucide-react';
-import apiClient, { getApiBaseUrl } from '@/lib/api';
+import apiClient from '@/lib/api';
+import { imageGenerationApi } from '@/lib/api/index';
 import CharacterForm from './CharacterForm';
 
 interface StoryCharacter {
@@ -36,14 +37,16 @@ export default function StoryCharacterManager({
   const [error, setError] = useState<string | null>(null);
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null);
   const [removingCharacterId, setRemovingCharacterId] = useState<number | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState<string>('');
+  const [portraitUrls, setPortraitUrls] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (isOpen) {
       loadCharacters();
-      // Load API base URL for image URLs
-      getApiBaseUrl().then(url => setApiBaseUrl(url));
     }
+    // Revoke blob URLs on unmount/close
+    return () => {
+      Object.values(portraitUrls).forEach(url => URL.revokeObjectURL(url));
+    };
   }, [isOpen, storyId, branchId]);
 
   const loadCharacters = async () => {
@@ -68,6 +71,23 @@ export default function StoryCharacterManager({
       const storyCharacters = await apiClient.getStoryCharacters(storyId, effectiveBranchId);
       console.log('[StoryCharacterManager] Loaded characters:', storyCharacters);
       setCharacters(storyCharacters);
+
+      // Load portrait blob URLs for characters that have portraits
+      const urls: Record<number, string> = {};
+      await Promise.all(
+        storyCharacters
+          .filter((c: StoryCharacter) => c.portrait_image_id)
+          .map(async (c: StoryCharacter) => {
+            try {
+              urls[c.portrait_image_id!] = await imageGenerationApi.getImageFileAsBlob(c.portrait_image_id!);
+            } catch (err) {
+              console.warn(`Failed to load portrait for ${c.name}:`, err);
+            }
+          })
+      );
+      // Revoke old URLs before setting new ones
+      Object.values(portraitUrls).forEach(url => URL.revokeObjectURL(url));
+      setPortraitUrls(urls);
     } catch (err: any) {
       console.error('Failed to load story characters:', err);
       setError(err.message || 'Failed to load characters');
@@ -106,7 +126,7 @@ export default function StoryCharacterManager({
 
   const getPortraitUrl = (portraitImageId: number | null | undefined): string | undefined => {
     if (!portraitImageId) return undefined;
-    return `${apiBaseUrl}/api/image-generation/images/${portraitImageId}/file`;
+    return portraitUrls[portraitImageId];
   };
 
   if (!isOpen) return null;
@@ -134,6 +154,7 @@ export default function StoryCharacterManager({
               characterId={editingCharacterId}
               mode="edit"
               storyId={storyId}
+              storyCharacterRole={characters.find(c => c.character_id === editingCharacterId)?.role || undefined}
               onSave={handleSaveCharacter}
             />
           </div>

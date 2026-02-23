@@ -958,6 +958,7 @@ Chapter Conclusion:"""
             "character_assistant.extraction": ("character_assistant", "extraction"),
             "character_assistant.detection": ("character_assistant", "detection"),
             "character_assistant.generation": ("character_assistant", "generation"),
+            "character_assistant.enrichment": ("character_assistant", "enrichment"),
             "entity_state_extraction.single": ("entity_state_extraction", "single"),
             "entity_state_extraction.batch": ("entity_state_extraction", "batch"),
             "brainstorm.chat": ("brainstorm", "chat"),

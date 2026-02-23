@@ -130,7 +130,7 @@ export default function SceneImageGenerator({
           setCurrentIndex(0);
 
           // Load the first image
-          const fullUrl = await imageGenerationApi.getImageFileUrl(sorted[0].id);
+          const fullUrl = await imageGenerationApi.getImageFileAsBlob(sorted[0].id);
           setCurrentImageUrl(fullUrl);
         } else {
           setImages([]);
@@ -157,7 +157,7 @@ export default function SceneImageGenerator({
       }
 
       try {
-        const fullUrl = await imageGenerationApi.getImageFileUrl(images[currentIndex].id);
+        const fullUrl = await imageGenerationApi.getImageFileAsBlob(images[currentIndex].id);
         setCurrentImageUrl(fullUrl);
       } catch (err) {
         console.error('Failed to load image:', err);
@@ -211,7 +211,7 @@ export default function SceneImageGenerator({
         setImages(prev => [newImage, ...prev]);
         setCurrentIndex(0);
 
-        const fullUrl = await imageGenerationApi.getImageFileUrl(result.image_id);
+        const fullUrl = await imageGenerationApi.getImageFileAsBlob(result.image_id);
         setCurrentImageUrl(fullUrl);
         onImageGenerated?.(result.image_id);
         setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);
@@ -241,7 +241,7 @@ export default function SceneImageGenerator({
             setImages(prev => [newImage, ...prev]);
             setCurrentIndex(0);
 
-            const fullUrl = await imageGenerationApi.getImageFileUrl(status.image_id);
+            const fullUrl = await imageGenerationApi.getImageFileAsBlob(status.image_id);
             setCurrentImageUrl(fullUrl);
             onImageGenerated?.(status.image_id);
             setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);
@@ -269,7 +269,7 @@ export default function SceneImageGenerator({
             setImages(prev => [newImage, ...prev]);
             setCurrentIndex(0);
 
-            const fullUrl = await imageGenerationApi.getImageFileUrl(result.image_id);
+            const fullUrl = await imageGenerationApi.getImageFileAsBlob(result.image_id);
             setCurrentImageUrl(fullUrl);
             onImageGenerated?.(result.image_id);
             setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);

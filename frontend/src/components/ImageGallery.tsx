@@ -116,7 +116,7 @@ export default function ImageGallery({
       await Promise.all(
         imagesToLoad.map(async (id) => {
           try {
-            const url = await imageGenerationApi.getImageFileUrl(id);
+            const url = await imageGenerationApi.getImageFileAsBlob(id);
             urls[id] = url;
           } catch (err) {
             console.error(`Failed to load image ${id}:`, err);
@@ -145,7 +145,7 @@ export default function ImageGallery({
     await Promise.all(
       idsToLoad.map(async (id) => {
         try {
-          const url = await imageGenerationApi.getImageFileUrl(id);
+          const url = await imageGenerationApi.getImageFileAsBlob(id);
           newUrls[id] = url;
         } catch (err) {
           console.error(`Failed to load image ${id}:`, err);

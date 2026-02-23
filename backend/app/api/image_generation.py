@@ -1183,13 +1183,11 @@ async def get_image_details(
 @router.get("/images/{image_id}/file")
 async def get_image_file(
     image_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get an image file by ID.
-
-    Note: This endpoint does not require authentication to allow <img src> tags
-    to load images directly. Image IDs contain UUIDs making them hard to guess.
+    Get an image file by ID. Requires authentication.
     """
     # Get the image record
     image = db.query(GeneratedImage).filter(GeneratedImage.id == image_id).first()
@@ -1198,6 +1196,29 @@ async def get_image_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Image not found"
+        )
+
+    # Verify access - either through story ownership or character ownership
+    has_access = False
+
+    if image.story_id:
+        story = db.query(Story).filter(
+            Story.id == image.story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        has_access = story is not None
+
+    if not has_access and image.character_id:
+        character = db.query(Character).filter(
+            Character.id == image.character_id,
+            Character.creator_id == current_user.id
+        ).first()
+        has_access = character is not None
+
+    if not has_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
         )
 
     # Get the file path

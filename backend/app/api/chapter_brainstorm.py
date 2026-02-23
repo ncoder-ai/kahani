@@ -176,7 +176,7 @@ async def create_chapter_brainstorm_session(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
 
         # Fetch story to get content_rating for NSFW filtering
-        story = db.query(Story).filter(Story.id == story_id).first()
+        story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
 
@@ -350,7 +350,7 @@ async def send_chapter_brainstorm_message(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
 
         # Fetch story to get content_rating for NSFW filtering
-        story = db.query(Story).filter(Story.id == story_id).first()
+        story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
 
@@ -403,7 +403,7 @@ async def send_chapter_brainstorm_message_streaming(
     from ..services.chapter_brainstorm_service import ChapterBrainstormService
 
     # Fetch story to get content_rating for NSFW filtering
-    story = db.query(Story).filter(Story.id == story_id).first()
+    story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
@@ -457,7 +457,7 @@ async def extract_chapter_plot(
         from ..services.chapter_brainstorm_service import ChapterBrainstormService
 
         # Fetch story to get content_rating for NSFW filtering
-        story = db.query(Story).filter(Story.id == story_id).first()
+        story = db.query(Story).filter(Story.id == story_id, Story.owner_id == current_user.id).first()
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
 

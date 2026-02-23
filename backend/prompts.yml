@@ -1739,7 +1739,62 @@ character_assistant:
         }},
         "suggested_voice_style": "preset_name"
       }}
-      
+
+      Return ONLY the JSON object, no other text or markdown formatting.
+
+  enrichment:
+    system: |
+      You are a character enrichment assistant. Given an existing character profile with some fields filled
+      and others empty, fill in ONLY the missing fields. Preserve all existing data exactly as-is.
+      Create details that are consistent with the existing character information.
+      Return ONLY valid JSON, no other text.
+
+    user: |
+      Here is an existing character profile with some fields already filled in:
+
+      === EXISTING CHARACTER DATA ===
+      {existing_fields}
+
+      === FIELDS TO FILL ===
+      The following fields are currently empty and need to be generated:
+      {empty_fields}
+      {story_context}
+
+      Generate ONLY the missing fields listed above. Do NOT include fields that already have data.
+      Make the new content consistent with the existing character information.
+
+      For each missing field, generate rich, detailed content:
+      - gender: One of "male", "female", "non-binary", or "other"
+      - background: 2-3 sentences about the character's history and origins
+      - goals: 2-3 sentences about what drives and motivates them
+      - fears: 2-3 sentences about their fears, weaknesses, and vulnerabilities
+      - appearance: 2-3 sentences describing how they look physically
+      - suggested_voice_style: Choose the BEST matching preset for how this character would speak
+
+      Voice Style Preset Options (choose the BEST match based on character personality):
+      - "neutral" - Standard, neutral speech (default if unclear)
+      - "formal_noble" - Formal, sophisticated, refined speech
+      - "street_smart" - Casual, street-wise, urban slang
+      - "academic" - Intellectual, technical vocabulary
+      - "gruff_veteran" - Rough, tough, military-style speech
+      - "cheerful_optimist" - Upbeat, positive, enthusiastic
+      - "sarcastic_wit" - Dry humor, ironic, witty
+      - "nervous_anxious" - Hesitant, uncertain, worried
+      - "mysterious_cryptic" - Enigmatic, vague, mysterious
+      - "indian_english" - Indian English patterns with Hindi influences
+      - "southern_us" - Southern US dialect and expressions
+      - "british_proper" - British English, proper and polite
+      - "medieval_knight" - Archaic, chivalric speech
+      - "wise_elder" - Sage, measured, wisdom-filled speech
+      - "child_innocent" - Simple, innocent, childlike speech
+      - "villain_menacing" - Threatening, sinister, dramatic
+
+      Return valid JSON containing ONLY the fields you are filling in:
+      {{
+        "field_name": "generated value",
+        "suggested_voice_style": "preset_name"
+      }}
+
       Return ONLY the JSON object, no other text or markdown formatting.
 
 # =============================================================================
@@ -2002,7 +2057,12 @@ brainstorm:
             "name": "Character name",
             "role": "protagonist/antagonist/ally/mentor/love_interest/comic_relief/mysterious/other",
             "description": "Brief character description",
+            "gender": "male/female/non-binary/other",
             "personality_traits": ["trait1", "trait2"],
+            "background": "Character backstory and history (2-3 sentences)",
+            "goals": "Character goals and motivations (1-2 sentences)",
+            "fears": "Character fears and weaknesses (1-2 sentences)",
+            "appearance": "Physical appearance description (1-2 sentences)",
             "suggested_voice_style": "voice preset (see options below)"
           }}
         ],
@@ -2041,7 +2101,7 @@ brainstorm:
       
       EXTRACTION GUIDELINES:
       - If genre/tone unclear, make best inference from conversation context
-      - Characters: Extract any named or described characters with their roles
+      - Characters: Extract any named or described characters with their roles. Fill in ALL character fields (gender, background, goals, fears, appearance) by inferring from context if not explicitly discussed.
       - Scenario: Synthesize opening situation from discussion
       - Titles: Generate creative, genre-appropriate titles (3-5 suggestions)
       - Plot points: Only if specific story beats were discussed

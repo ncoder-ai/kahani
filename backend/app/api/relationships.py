@@ -13,12 +13,23 @@ from typing import Optional, List
 import logging
 
 from ..database import get_db
-from ..models import CharacterRelationship, RelationshipSummary
+from ..models import CharacterRelationship, RelationshipSummary, Story
 from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/stories/{story_id}/relationships", tags=["relationships"])
+
+
+def _verify_story_ownership(story_id: int, current_user, db: Session):
+    """Verify the current user owns the story. Raises 404 if not found or not owned."""
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return story
 
 
 def _format_summary(s: RelationshipSummary) -> dict:
@@ -62,6 +73,7 @@ async def get_relationships(
     current_user = Depends(get_current_user)
 ):
     """Get all relationship summaries for a story."""
+    _verify_story_ownership(story_id, current_user, db)
     query = db.query(RelationshipSummary).filter(
         RelationshipSummary.story_id == story_id
     )
@@ -100,6 +112,7 @@ async def get_relationship_history(
     current_user = Depends(get_current_user)
 ):
     """Get full history of a specific relationship."""
+    _verify_story_ownership(story_id, current_user, db)
     # Normalize order (alphabetical)
     char_a, char_b = sorted([character_a, character_b])
 
@@ -143,6 +156,7 @@ async def get_relationship_graph(
     current_user = Depends(get_current_user)
 ):
     """Get relationship data formatted for graph visualization."""
+    _verify_story_ownership(story_id, current_user, db)
     query = db.query(RelationshipSummary).filter(
         RelationshipSummary.story_id == story_id
     )
@@ -193,6 +207,7 @@ async def get_neglected_relationships(
     current_user = Depends(get_current_user)
 ):
     """Get relationships that haven't had recent interaction."""
+    _verify_story_ownership(story_id, current_user, db)
     query = db.query(RelationshipSummary).filter(
         RelationshipSummary.story_id == story_id
     )

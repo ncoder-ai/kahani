@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import apiClient, { VoiceStyle, VoiceStylePreset, VoiceStylePresetsResponse } from '@/lib/api';
+import { charactersApi } from '@/lib/api/index';
 import { useRouter } from 'next/navigation';
 import RoleSelector, { CHARACTER_ROLES, isCustomRole, parseRoleValue, getFinalRoleValue } from '@/components/RoleSelector';
 import CharacterPortrait from '@/components/CharacterPortrait';
@@ -56,6 +57,13 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   const [newTrait, setNewTrait] = useState('');
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [portraitImageId, setPortraitImageId] = useState<number | null>(null);
+
+  // Enrich with AI state
+  const [enriching, setEnriching] = useState(false);
+  const [characterStories, setCharacterStories] = useState<Array<{ id: number; title: string }>>([]);
+  const [enrichStoryId, setEnrichStoryId] = useState<number | undefined>(undefined);
+  const [showEnrichStoryPicker, setShowEnrichStoryPicker] = useState(false);
+  const [loadingStories, setLoadingStories] = useState(false);
   
   // Voice style state
   const [voicePresets, setVoicePresets] = useState<VoiceStylePresetsResponse | null>(null);
@@ -366,6 +374,71 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     }
   };
 
+  // Check if there are empty enrichable fields
+  const hasEmptyEnrichableFields = () => {
+    const enrichableFields = ['gender', 'background', 'goals', 'fears', 'appearance'] as const;
+    return enrichableFields.some(field => {
+      const value = formData[field];
+      return !value || (typeof value === 'string' && !value.trim());
+    });
+  };
+
+  const handleEnrichClick = async () => {
+    if (!characterId) return;
+
+    // Fetch stories for this character to offer context picker
+    try {
+      setLoadingStories(true);
+      const stories = await charactersApi.getCharacterStories(characterId);
+      setCharacterStories(stories);
+      if (stories.length > 0) {
+        setShowEnrichStoryPicker(true);
+      } else {
+        // No stories — enrich without context
+        await doEnrich(undefined);
+      }
+    } catch (error) {
+      console.error('Failed to fetch character stories:', error);
+      // Enrich without story context on error
+      await doEnrich(undefined);
+    } finally {
+      setLoadingStories(false);
+    }
+  };
+
+  const doEnrich = async (storyId?: number) => {
+    if (!characterId) return;
+
+    try {
+      setEnriching(true);
+      setShowEnrichStoryPicker(false);
+      const updatedCharacter = await charactersApi.enrichCharacter(characterId, storyId);
+
+      // Update form with enriched data — only fill previously-empty fields
+      setFormData(prev => {
+        const updated = { ...prev };
+        const enrichableFields = ['gender', 'background', 'goals', 'fears', 'appearance'] as const;
+        for (const field of enrichableFields) {
+          const prevValue = prev[field];
+          const newValue = (updatedCharacter as any)[field];
+          if ((!prevValue || (typeof prevValue === 'string' && !prevValue.trim())) && newValue) {
+            (updated as any)[field] = newValue;
+          }
+        }
+        // Apply voice style if character didn't have one and enrichment set it
+        if (!prev.voice_style && updatedCharacter.voice_style) {
+          updated.voice_style = updatedCharacter.voice_style;
+        }
+        return updated;
+      });
+    } catch (error) {
+      console.error('Failed to enrich character:', error);
+      alert('Failed to enrich character with AI. Please try again.');
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -665,6 +738,69 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
         {/* Manual Mode Form */}
         {(mode === 'edit' || creationMode === 'manual') && (
           <form onSubmit={handleSubmit} className="bg-white/10 rounded-xl p-8 space-y-6">
+            {/* Enrich with AI — shown in edit mode when there are empty fields */}
+            {mode === 'edit' && characterId && hasEmptyEnrichableFields() && (
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-white">Fill empty fields with AI</h4>
+                    <p className="text-xs text-white/50 mt-0.5">
+                      AI will generate content for empty fields based on existing character data
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {showEnrichStoryPicker && characterStories.length > 0 && (
+                      <>
+                        <select
+                          value={enrichStoryId || ''}
+                          onChange={(e) => setEnrichStoryId(e.target.value ? Number(e.target.value) : undefined)}
+                          className="p-2 bg-gray-800 border border-white/20 rounded-lg text-white text-sm [&>option]:bg-gray-800 [&>option]:text-white"
+                        >
+                          <option value="">No story context</option>
+                          {characterStories.map(s => (
+                            <option key={s.id} value={s.id}>{s.title}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => doEnrich(enrichStoryId)}
+                          disabled={enriching}
+                          className="px-4 py-2 theme-btn-primary rounded-lg text-sm font-medium disabled:opacity-50"
+                        >
+                          {enriching ? 'Enriching...' : 'Go'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowEnrichStoryPicker(false)}
+                          className="px-3 py-2 text-white/60 hover:text-white text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                    {!showEnrichStoryPicker && (
+                      <button
+                        type="button"
+                        onClick={handleEnrichClick}
+                        disabled={enriching || loadingStories}
+                        className="px-4 py-2 theme-btn-primary rounded-lg text-sm font-medium disabled:opacity-50"
+                      >
+                        {enriching ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            Enriching...
+                          </span>
+                        ) : loadingStories ? 'Loading...' : 'Enrich with AI'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Basic Info */}
             <div className="space-y-4">
               <h3 className="text-xl font-semibold text-white">Basic Information</h3>

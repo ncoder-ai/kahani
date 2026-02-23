@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user_websocket
+from app.utils.security import verify_token
 from app.services.tts_session_manager import tts_session_manager
 from app.models.user import User
 import json
@@ -185,16 +186,25 @@ async def websocket_tts_stream_authenticated(
                 return
             
             token = auth_message.get("token", "").replace("Bearer ", "")
-            
-            # Verify token (implement your auth logic here)
-            # user = verify_token(token, db)
-            # if not user:
-            #     await websocket.send_json({
-            #         "type": "error",
-            #         "message": "Invalid authentication token"
-            #     })
-            #     await websocket.close()
-            #     return
+
+            # Verify token
+            payload = verify_token(token)
+            if not payload:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Invalid authentication token"
+                })
+                await websocket.close()
+                return
+
+            user_id = payload.get("sub")
+            if not user_id:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Invalid token payload"
+                })
+                await websocket.close()
+                return
             
         except json.JSONDecodeError:
             await websocket.send_json({
@@ -215,13 +225,13 @@ async def websocket_tts_stream_authenticated(
             return
         
         # Verify user owns this session
-        # if session.user_id != user.id:
-        #     await websocket.send_json({
-        #         "type": "error",
-        #         "message": "Unauthorized access to session"
-        #     })
-        #     await websocket.close()
-        #     return
+        if hasattr(session, 'user_id') and session.user_id and str(session.user_id) != str(user_id):
+            await websocket.send_json({
+                "type": "error",
+                "message": "Unauthorized access to session"
+            })
+            await websocket.close()
+            return
         
         # Attach WebSocket and continue
         tts_session_manager.attach_websocket(session_id, websocket)

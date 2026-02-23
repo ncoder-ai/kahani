@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { imageGenerationApi } from '@/lib/api/index';
+import { imageGenerationApi, settingsApi } from '@/lib/api/index';
 import type { ImageGenServerStatus, ImageGenAvailableModels, StylePreset } from '@/lib/api/index';
 
 interface CharacterPortraitProps {
@@ -41,23 +41,36 @@ export default function CharacterPortrait({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load server status and available models
+  // Load server status, available models, and user's saved preferences
   useEffect(() => {
     const loadServerInfo = async () => {
       try {
-        const [status, models, presetsResponse] = await Promise.all([
+        const [status, models, presetsResponse, userSettings] = await Promise.all([
           imageGenerationApi.getServerStatus().catch(() => null),
           imageGenerationApi.getAvailableModels().catch(() => null),
-          imageGenerationApi.getStylePresets().catch(() => ({ presets: {} }))
+          imageGenerationApi.getStylePresets().catch(() => ({ presets: {} })),
+          settingsApi.getUserSettings().catch(() => null)
         ]);
 
         setServerStatus(status);
         setAvailableModels(models);
         setStylePresets(presetsResponse?.presets || {});
 
-        // Set default checkpoint if available
-        if (models?.checkpoints && models.checkpoints.length > 0) {
+        // Use user's saved image generation preferences if available
+        const imgSettings = (userSettings as any)?.settings?.image_generation_settings;
+        const savedCheckpoint = imgSettings?.comfyui_checkpoint;
+        const savedStyle = imgSettings?.default_style;
+
+        // Set checkpoint: prefer user's saved preference, fall back to first available
+        if (savedCheckpoint && models?.checkpoints?.includes(savedCheckpoint)) {
+          setSelectedCheckpoint(savedCheckpoint);
+        } else if (models?.checkpoints && models.checkpoints.length > 0) {
           setSelectedCheckpoint(models.checkpoints[0]);
+        }
+
+        // Set style: prefer user's saved preference
+        if (savedStyle) {
+          setSelectedStyle(savedStyle);
         }
       } catch (err) {
         console.error('Failed to load image generation info:', err);
@@ -79,12 +92,8 @@ export default function CharacterPortrait({
   const loadPortraitImage = async (imageId: number) => {
     try {
       setLoading(true);
-      const image = await imageGenerationApi.getImage(imageId);
-      if (image.file_path) {
-        // Get full URL including backend base URL for <img src>
-        const fullUrl = await imageGenerationApi.getImageFileUrl(imageId);
-        setImageUrl(fullUrl);
-      }
+      const blobUrl = await imageGenerationApi.getImageFileAsBlob(imageId);
+      setImageUrl(blobUrl);
     } catch (err) {
       console.error('Failed to load portrait image:', err);
       setError('Failed to load portrait');
@@ -121,7 +130,7 @@ export default function CharacterPortrait({
       // Check if generation completed synchronously (current backend behavior)
       if (result.status === 'completed' && result.image_id) {
         setGenerationProgress({ status: 'complete', message: 'Portrait generated!' });
-        const fullUrl = await imageGenerationApi.getImageFileUrl(result.image_id);
+        const fullUrl = await imageGenerationApi.getImageFileAsBlob(result.image_id);
         setImageUrl(fullUrl);
         onPortraitChange?.(result.image_id);
         setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);
@@ -142,7 +151,7 @@ export default function CharacterPortrait({
 
           if (status.status === 'completed' && status.image_id) {
             setGenerationProgress({ status: 'complete', message: 'Portrait generated!' });
-            const fullUrl = await imageGenerationApi.getImageFileUrl(status.image_id);
+            const fullUrl = await imageGenerationApi.getImageFileAsBlob(status.image_id);
             setImageUrl(fullUrl);
             onPortraitChange?.(status.image_id);
             setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);
@@ -165,7 +174,7 @@ export default function CharacterPortrait({
             // Re-check the original result in case it completed
             if (result.image_id) {
               setGenerationProgress({ status: 'complete', message: 'Portrait generated!' });
-              const fullUrl = await imageGenerationApi.getImageFileUrl(result.image_id);
+              const fullUrl = await imageGenerationApi.getImageFileAsBlob(result.image_id);
               setImageUrl(fullUrl);
               onPortraitChange?.(result.image_id);
               setTimeout(() => setGenerationProgress({ status: 'idle' }), 2000);
@@ -215,7 +224,7 @@ export default function CharacterPortrait({
       const result = await imageGenerationApi.uploadCharacterPortrait(characterId, file);
 
       if (result.id) {
-        const fullUrl = await imageGenerationApi.getImageFileUrl(result.id);
+        const fullUrl = await imageGenerationApi.getImageFileAsBlob(result.id);
         setImageUrl(fullUrl);
         onPortraitChange?.(result.id);
       }

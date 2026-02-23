@@ -63,6 +63,7 @@ class CharacterResponse(BaseModel):
     is_template: bool
     is_public: bool
     voice_style: Optional[Dict[str, Any]] = None  # Voice/speech style settings
+    portrait_image_id: Optional[int] = None
     creator_id: int
     created_at: str
     updated_at: Optional[str]
@@ -74,6 +75,9 @@ class CharacterResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class CharacterEnrichRequest(BaseModel):
+    story_id: Optional[int] = None
 
 class CharacterGenerationRequest(BaseModel):
     prompt: str
@@ -152,6 +156,7 @@ async def get_characters(
             is_template=char.is_template if char.is_template is not None else True,
             is_public=char.is_public if char.is_public is not None else False,
             voice_style=char.voice_style,
+            portrait_image_id=char.portrait_image_id,
             creator_id=char.creator_id,
             created_at=char.created_at.isoformat(),
             updated_at=char.updated_at.isoformat() if char.updated_at else None
@@ -199,6 +204,7 @@ async def create_character(
         is_template=character.is_template if character.is_template is not None else True,
         is_public=character.is_public if character.is_public is not None else False,
         voice_style=character.voice_style,
+        portrait_image_id=character.portrait_image_id,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None
@@ -236,6 +242,7 @@ async def get_character(
         is_template=character.is_template if character.is_template is not None else True,
         is_public=character.is_public if character.is_public is not None else False,
         voice_style=character.voice_style,
+        portrait_image_id=character.portrait_image_id,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None
@@ -282,6 +289,7 @@ async def update_character(
         is_template=character.is_template if character.is_template is not None else True,
         is_public=character.is_public if character.is_public is not None else False,
         voice_style=character.voice_style,
+        portrait_image_id=character.portrait_image_id,
         creator_id=character.creator_id,
         created_at=character.created_at.isoformat(),
         updated_at=character.updated_at.isoformat() if character.updated_at else None
@@ -428,6 +436,146 @@ async def generate_character_with_ai(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while generating the character"
         )
+
+
+@router.post("/{character_id}/enrich", response_model=CharacterResponse)
+async def enrich_character(
+    character_id: int,
+    request: CharacterEnrichRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Enrich a character's empty fields using AI, optionally with story context"""
+
+    # Load character (verify ownership)
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.creator_id == current_user.id
+    ).first()
+
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found or you don't have permission to edit it"
+        )
+
+    # Build story context if story_id provided
+    story_context = None
+    if request.story_id:
+        story = db.query(Story).filter(
+            Story.id == request.story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        if story:
+            story_context = {
+                'genre': story.genre,
+                'tone': story.tone,
+                'world_setting': story.world_setting,
+                'description': story.description
+            }
+
+    # Build character data dict
+    character_data = {
+        'name': character.name,
+        'description': character.description or '',
+        'gender': character.gender or '',
+        'personality_traits': character.personality_traits or [],
+        'background': character.background or '',
+        'goals': character.goals or '',
+        'fears': character.fears or '',
+        'appearance': character.appearance or '',
+        'voice_style': character.voice_style,
+    }
+
+    try:
+        user_settings_dict = get_or_create_user_settings(current_user.id, db, current_user)
+        service = CharacterGenerationService(current_user.id, user_settings_dict)
+        enriched_fields = await service.enrich_character(character_data, story_context)
+
+        if not enriched_fields:
+            # No empty fields to enrich
+            pass
+        else:
+            # Update only the fields that were empty and got filled
+            for field, value in enriched_fields.items():
+                if field == 'suggested_voice_style':
+                    # Apply voice style if character doesn't have one
+                    if not character.voice_style and value:
+                        character.voice_style = {'preset': value}
+                    continue
+                current_value = getattr(character, field, None)
+                if not current_value or (isinstance(current_value, str) and not current_value.strip()):
+                    setattr(character, field, value)
+
+            db.commit()
+            db.refresh(character)
+
+        return CharacterResponse(
+            id=character.id,
+            name=character.name,
+            description=character.description or "",
+            gender=character.gender,
+            personality_traits=character.personality_traits or [],
+            background=character.background or "",
+            goals=character.goals or "",
+            fears=character.fears or "",
+            appearance=character.appearance or "",
+            is_template=character.is_template if character.is_template is not None else True,
+            is_public=character.is_public if character.is_public is not None else False,
+            voice_style=character.voice_style,
+            portrait_image_id=character.portrait_image_id,
+            creator_id=character.creator_id,
+            created_at=character.created_at.isoformat(),
+            updated_at=character.updated_at.isoformat() if character.updated_at else None
+        )
+
+    except ValueError as e:
+        logger.error(f"Character enrichment failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to enrich character"
+        )
+
+
+@router.get("/{character_id}/stories")
+async def get_character_stories(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get stories that a character is linked to"""
+
+    # Verify character access
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        (Character.creator_id == current_user.id) | (Character.is_public == True)
+    ).first()
+
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found"
+        )
+
+    # Query StoryCharacter joined with Story
+    story_characters = db.query(StoryCharacter).filter(
+        StoryCharacter.character_id == character_id
+    ).all()
+
+    stories = []
+    seen_story_ids = set()
+    for sc in story_characters:
+        if sc.story_id in seen_story_ids:
+            continue
+        story = db.query(Story).filter(
+            Story.id == sc.story_id,
+            Story.owner_id == current_user.id
+        ).first()
+        if story:
+            stories.append({"id": story.id, "title": story.title})
+            seen_story_ids.add(story.id)
+
+    return stories
 
 
 # ============================================================================

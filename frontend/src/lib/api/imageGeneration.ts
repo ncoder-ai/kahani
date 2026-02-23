@@ -269,26 +269,27 @@ export class ImageGenerationApi extends BaseApiClient {
   }
 
   /**
-   * Get the full URL for an image file (for use in <img src>)
-   * This returns the complete URL including the backend base URL
+   * Fetch an image file as a blob URL (authenticated).
+   * Returns an object URL that can be used in <img src>.
+   * Caller should revoke the URL when done via URL.revokeObjectURL().
    */
-  async getImageFileUrl(imageId: number): Promise<string> {
+  async getImageFileAsBlob(imageId: number): Promise<string> {
     if (!this.baseURL) {
       await this.initialize();
     }
-    return `${this.baseURL}/api/image-generation/images/${imageId}/file`;
-  }
-
-  /**
-   * Get the full URL for an image file synchronously
-   * Falls back to relative URL if base URL not available
-   */
-  getImageFileUrlSync(imageId: number): string {
-    if (this.baseURL) {
-      return `${this.baseURL}/api/image-generation/images/${imageId}/file`;
+    const response = await fetch(
+      `${this.baseURL}/api/image-generation/images/${imageId}/file`,
+      {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+        },
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
     }
-    // Fallback - this may not work if frontend and backend are on different ports
-    return `/api/image-generation/images/${imageId}/file`;
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
   }
 
   /**
