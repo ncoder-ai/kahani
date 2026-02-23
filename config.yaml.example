@@ -11,7 +11,6 @@ application:
   app_name: "Kahani"
   app_version: "1.0"
   debug: true
-  environment: "development"  # development, production
 
 # ----------------------------------------------------------------------------
 # SERVER & NETWORKING
@@ -27,44 +26,21 @@ cors:
   origins: "*"  # Restrict to your domain in production (e.g., "https://kahani.example.com")
 
 # ----------------------------------------------------------------------------
-# DATABASE
+# DATABASE (PostgreSQL)
 # ----------------------------------------------------------------------------
-# Supports SQLite (default) and PostgreSQL
-# DATABASE_URL environment variable takes priority over this setting
+# DATABASE_URL environment variable takes priority over this setting.
+# For Docker: set DATABASE_URL in .env file (see .env.example)
+# For baremetal: set below or via DATABASE_URL env var
 #
-# OPTION 1: SQLite (Default - No setup needed)
-#   database_url: "sqlite:///./data/kahani.db"
-#   - Works out of the box
-#   - No additional configuration needed
-#
-# OPTION 2: PostgreSQL (Recommended for production)
-#   For Docker Compose:
-#     1. Copy .env.example to .env (if not already done)
-#     2. Edit .env and set PostgreSQL credentials (see .env.example)
-#     3. Uncomment postgres service in docker-compose.yml
-#     4. Uncomment depends_on in backend service in docker-compose.yml
-#     5. Uncomment volumes section in docker-compose.yml
-#     6. Set DATABASE_URL in .env file (see .env.example)
-#
-#   For local/baremetal:
-#     database_url: "postgresql://user:password@localhost:5432/kahani"
-#     Or set DATABASE_URL environment variable
-#
-# NOTE: DATABASE_URL environment variable always takes priority!
-#       This config.yaml value is only used if DATABASE_URL is not set
-#
-# Connection Pool Settings (PostgreSQL only):
-#   pool_size: Base number of connections to keep open (default: 10)
-#   max_overflow: Additional connections allowed when pool is exhausted (default: 20)
-#   pool_timeout: Seconds to wait for a connection before failing (default: 30)
-#
+# Connection Pool Settings:
+#   pool_size: Base number of connections to keep open
+#   max_overflow: Additional connections allowed when pool is exhausted
+#   pool_timeout: Seconds to wait for a connection before failing
 #   Total max connections = pool_size + max_overflow
 #   For 20+ concurrent users, recommended: pool_size=20, max_overflow=40
-#   Note: Ensure PostgreSQL max_connections >= total across all app instances
 # ----------------------------------------------------------------------------
 database:
-  database_url: "sqlite:///./data/kahani.db"
-  # PostgreSQL connection pool settings (ignored for SQLite)
+  database_url: "postgresql://kahani:kahani@localhost:5432/kahani"
   pool_size: 20
   max_overflow: 40
   pool_timeout: 30
@@ -151,8 +127,8 @@ semantic_memory:
 # EXTRACTION & NPC TRACKING
 # ----------------------------------------------------------------------------
 extraction:
-  auto_extract_character_moments: false  # Replaced by scene events
-  auto_extract_plot_events: false        # Replaced by scene events
+  auto_extract_character_moments: false  # Extract character memories into pgvector (adds extraction LLM call per scene)
+  auto_extract_plot_events: false        # Extract plot threads into pgvector (adds extraction LLM call per scene)
   confidence_threshold: 70
 
 extraction_model:
@@ -317,8 +293,8 @@ user_defaults:
     semantic_scenes_in_context: 5
     semantic_context_weight: 0.4
     character_moments_in_context: 3
-    auto_extract_character_moments: false  # Replaced by scene events
-    auto_extract_plot_events: false        # Replaced by scene events
+    auto_extract_character_moments: false  # Extract character memories into pgvector
+    auto_extract_plot_events: false        # Extract plot threads into pgvector
     extraction_confidence_threshold: 70
     plot_event_extraction_threshold: 5
     fill_remaining_context: true  # Fill remaining context window with older scenes (disable for weaker LLMs)

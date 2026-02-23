@@ -217,7 +217,7 @@ SECRET_KEY=your-generated-secret-here
 JWT_SECRET_KEY=your-generated-jwt-secret-here
 
 # Database (REQUIRED)
-DATABASE_URL=sqlite:///./data/kahani.db
+DATABASE_URL=postgresql://kahani:kahani@localhost:5432/kahani
 ```
 
 ### Optional Variables
@@ -274,7 +274,7 @@ Internet → Router → Reverse Proxy (HTTPS) → Kahani (HTTP localhost)
 # .env
 SECRET_KEY=<generated>
 JWT_SECRET_KEY=<generated>
-DATABASE_URL=sqlite:///./data/kahani.db
+DATABASE_URL=postgresql://kahani:kahani@localhost:5432/kahani
 CORS_ORIGINS=["https://kahani.yourdomain.com"]
 DEBUG=false
 ```
@@ -311,7 +311,7 @@ Local Network → Kahani (HTTP)
 # .env
 SECRET_KEY=<generated>
 JWT_SECRET_KEY=<generated>
-DATABASE_URL=sqlite:///./data/kahani.db
+DATABASE_URL=postgresql://kahani:kahani@localhost:5432/kahani
 CORS_ORIGINS=["http://192.168.1.100", "http://192.168.1.100:6789"]
 DEBUG=false
 ```
@@ -353,7 +353,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30  # Shorter for security
 ```
 
 **Additional Security:**
-- Use PostgreSQL instead of SQLite
 - Regular backups
 - Monitoring and alerts
 - Fail2ban for brute force protection

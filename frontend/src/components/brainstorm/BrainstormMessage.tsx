@@ -168,36 +168,58 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
       if (ideas.length >= 2) return ideas;
     }
     
-    // FORMAT A: "Option N:" followed by prose
-    // Use first sentence or ~60 chars as title, rest as synopsis
-    const optionPattern = /Option (\d+):\s*([\s\S]*?)(?=Option \d+:|Which|$)/g;
+    // FORMAT A: "**Option N: Bold Title**\nDescription" or "Option N: prose" or "**Option N:**\n- bullets"
+    const optionPattern = /\*?\*?Option (\d+):\s*([\s\S]*?)(?=\n\n\*?\*?Option \d+:|Which|$)/g;
     const optionMatches = Array.from(content.matchAll(optionPattern));
-    
+
     if (optionMatches.length >= 2) {
       optionMatches.forEach(match => {
-        const fullText = match[2].trim();
+        // Strip leading/trailing ** from the captured text after "Option N:"
+        const fullText = match[2].replace(/^\*\*\s*/, '').replace(/\*\*\s*$/, '').trim();
+        if (!fullText) return;
+
+        // Try to extract bold title: "The Reluctant Hero**\nDescription..."
+        const boldTitleMatch = fullText.match(/^([^*\n]+)\*\*\s*\n([\s\S]*)/);
+        if (boldTitleMatch) {
+          const title = boldTitleMatch[1].trim();
+          const synopsis = boldTitleMatch[2].replace(/^[-*•]\s*/gm, '').trim();
+          if (title && synopsis.length > 10) {
+            ideas.push({ title, synopsis });
+            return;
+          }
+        }
+
         // Try to extract title from "In "Title"" pattern
         const quotedTitleMatch = fullText.match(/In\s+"([^"]+)"/);
-        
         if (quotedTitleMatch) {
           const title = quotedTitleMatch[1];
           const synopsis = fullText.replace(/In\s+"[^"]+",?\s*/, '').trim();
           if (title && synopsis.length > 20) {
             ideas.push({ title, synopsis });
+            return;
+          }
+        }
+
+        // Fallback: first line as title, rest as synopsis
+        // If the first line is empty or just bullets, use "Option N" as title
+        const lines = fullText.split('\n').filter(l => l.trim());
+        const firstLine = lines[0]?.replace(/\*\*/g, '').trim() || '';
+        const isBulletOnly = firstLine.match(/^[-*•]\s/);
+
+        if (isBulletOnly || !firstLine) {
+          // No explicit title — content is bullet list (chapter brainstorm format)
+          const synopsis = lines.map(l => l.replace(/^[-*•]\s+/, '').trim()).join('\n');
+          if (synopsis.length > 10) {
+            ideas.push({ title: `Option ${match[1]}`, synopsis });
           }
         } else {
-          // No quoted title - use first sentence as title
-          const sentences = fullText.split(/[.!?]\s+/);
-          if (sentences.length >= 2) {
-            const title = sentences[0].substring(0, 60).trim();
-            const synopsis = sentences.slice(1).join('. ').trim();
-            if (title && synopsis.length > 20) {
-              ideas.push({ title, synopsis });
-            }
+          const synopsis = lines.slice(1).join('\n').trim();
+          if (firstLine && synopsis.length > 20) {
+            ideas.push({ title: firstLine, synopsis });
           }
         }
       });
-      
+
       if (ideas.length >= 2) return ideas;
     }
     
@@ -234,7 +256,7 @@ export default function BrainstormMessage({ role, content, timestamp, onSelectId
     // Try to find where the ideas start
     const patterns = [
       /\*?\*?\d+\.\s+.+?:/,  // Numbered titles
-      /Option \d+:/,          // Option format
+      /\*?\*?Option \d+:/,    // Option format (with optional bold markers)
       /\*\*Idea \d+:/         // Idea format
     ];
     

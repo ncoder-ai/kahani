@@ -8,7 +8,12 @@ interface BrainstormCharacter {
   name: string;
   role: string;
   description: string;
+  gender?: string;
   personality_traits?: string[];
+  background?: string;
+  goals?: string;
+  fears?: string;
+  appearance?: string;
   suggested_voice_style?: string;
 }
 
@@ -179,7 +184,12 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
       const newChar = await apiClient.createCharacter({
         name: char.name,
         description: char.description,
+        gender: char.gender || undefined,
         personality_traits: char.personality_traits || [],
+        background: char.background || undefined,
+        goals: char.goals || undefined,
+        fears: char.fears || undefined,
+        appearance: char.appearance || undefined,
         is_template: false,
         is_public: false,
         voice_style: char.suggested_voice_style ? { preset: char.suggested_voice_style } : undefined
@@ -226,7 +236,12 @@ export default function CharacterReview({ characters, preSelectedCharacterIds = 
           const newChar = await apiClient.createCharacter({
             name: char.name,
             description: char.description,
+            gender: char.gender || undefined,
             personality_traits: char.personality_traits || [],
+            background: char.background || undefined,
+            goals: char.goals || undefined,
+            fears: char.fears || undefined,
+            appearance: char.appearance || undefined,
             is_template: false,
             is_public: false,
             voice_style: char.suggested_voice_style ? { preset: char.suggested_voice_style } : undefined

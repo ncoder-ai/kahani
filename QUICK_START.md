@@ -90,18 +90,9 @@ The install script will:
 
 ## Database Options
 
-**PostgreSQL (Default for Docker)**
+**PostgreSQL**
 
-Docker Compose uses PostgreSQL by default. Data is stored in `./postgres_data/`.
-
-**SQLite (Simpler Alternative)**
-
-To use SQLite instead, set in `.env`:
-```bash
-DATABASE_URL=sqlite:///./data/kahani.db
-```
-
-And comment out the postgres service in `docker-compose.yml`.
+Docker Compose uses PostgreSQL with pgvector. Data is stored in `./postgres_data/`.
 
 ---
 

@@ -19,7 +19,7 @@ chapter_characters = Table(
     Column('story_character_id', Integer, ForeignKey('story_characters.id', ondelete='CASCADE'), nullable=False),
     Column('perspective', String(50), nullable=True),  # For future use (POV, main, supporting)
     # Unique constraint to prevent duplicate associations
-    # Note: SQLite doesn't support named constraints in Table(), so we'll handle this in migration
+    # Named constraints are handled in migration
 )
 
 def _chapter_filter(query, fork_seq, story_id, branch_id):

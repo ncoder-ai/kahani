@@ -5,13 +5,19 @@ import apiClient, { StoryArc, ArcPhase, ChapterPlot, StructuredElements, Charact
 import StoryArcViewer from './StoryArcViewer';
 import ThinkingBox from './ThinkingBox';
 import CharacterReview from './brainstorm/CharacterReview';
+import BrainstormMessage from './brainstorm/BrainstormMessage';
 
 // Types for CharacterReview integration
 interface BrainstormCharacter {
   name: string;
   role: string;
   description: string;
+  gender?: string;
   personality_traits?: string[];
+  background?: string;
+  goals?: string;
+  fears?: string;
+  appearance?: string;
   suggested_voice_style?: string;
 }
 
@@ -248,6 +254,8 @@ export default function ChapterBrainstormModal({
   });
   const [extractedPlot, setExtractedPlot] = useState<ChapterPlot | null>(existingPlot || null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionStep, setExtractionStep] = useState(0);
+  const [extractionElapsed, setExtractionElapsed] = useState(0);
   const [phase, setPhase] = useState<'session_select' | 'select_phase' | 'prior_context' | 'chat' | 'review' | 'character_review'>(
     existingPlot ? 'review' : 'session_select'
   );
@@ -305,6 +313,32 @@ export default function ChapterBrainstormModal({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Cycle through extraction status messages while extracting
+  const extractionMessages = [
+    'Reading your brainstorm conversation...',
+    'Identifying key plot elements...',
+    'Structuring chapter events...',
+    'Building character arcs...',
+    'Refining chapter outline...',
+    'Almost there...',
+  ];
+
+  useEffect(() => {
+    if (!isExtracting) {
+      setExtractionStep(0);
+      setExtractionElapsed(0);
+      return;
+    }
+    const stepInterval = setInterval(() => {
+      setExtractionStep(prev => (prev + 1) % extractionMessages.length);
+    }, 3000);
+    const timerInterval = setInterval(() => {
+      setExtractionElapsed(prev => prev + 1);
+    }, 1000);
+    return () => { clearInterval(stepInterval); clearInterval(timerInterval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExtracting]);
 
   // Load previous sessions when modal opens
   useEffect(() => {
@@ -980,7 +1014,7 @@ export default function ChapterBrainstormModal({
         )}
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Desktop Header */}
           <div className="hidden md:flex p-4 border-b border-white/10 items-center justify-between">
             <div>
@@ -1271,22 +1305,39 @@ export default function ChapterBrainstormModal({
           {/* Chat Interface */}
           {phase === 'chat' && (
             <>
-              <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4">
-                {messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[85%] md:max-w-[80%] p-3 rounded-xl text-sm md:text-base ${
-                        message.role === 'user'
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-white/10 text-white/90'
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+              {/* Extraction overlay */}
+              {isExtracting && (
+                <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm flex items-center justify-center rounded-xl">
+                  <div className="text-center p-6 max-w-sm">
+                    <div className="inline-block mb-4">
+                      <div className="w-10 h-10 border-3 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <div className="text-white font-medium text-base mb-2">Extracting Chapter Plot</div>
+                    <div className="text-white/70 text-sm transition-opacity duration-500">
+                      {extractionMessages[extractionStep]}
+                    </div>
+                    <div className="text-white/40 text-xs mt-3">
+                      {extractionElapsed}s elapsed
+                    </div>
+                    <div className="mt-2 w-48 mx-auto h-1 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-purple-500 rounded-full transition-all duration-[3000ms] ease-linear"
+                        style={{ width: `${((extractionStep + 1) / extractionMessages.length) * 100}%` }}
+                      />
                     </div>
                   </div>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4">
+                {messages.map((message, index) => (
+                  <BrainstormMessage
+                    key={index}
+                    role={message.role}
+                    content={message.content}
+                    onSelectIdea={(idea) => {
+                      setInputValue(idea);
+                    }}
+                  />
                 ))}
                 
                 {/* Thinking Display */}
@@ -1518,7 +1569,7 @@ export default function ChapterBrainstormModal({
                       className="px-3 md:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 active:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs touch-manipulation min-h-[44px]"
                       title={getElementCount() < 5 ? `Confirm all 5 elements first (${getElementCount()}/5 confirmed)` : 'Extract chapter plot'}
                     >
-                      {isExtracting ? '...' : `Extract (${getElementCount()}/5)`}
+                      {isExtracting ? 'Extracting...' : `Extract (${getElementCount()}/5)`}
                     </button>
                   </div>
                 </div>

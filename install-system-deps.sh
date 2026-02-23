@@ -95,14 +95,12 @@ install_system_deps() {
         # - PyTorch compilation (build-essential)
         # - cryptography library (libssl-dev, libffi-dev)
         # - Python packages (zlib1g-dev for compression)
-        # - SQLite support (libsqlite3-dev)
         # - Basic build tools (build-essential includes gcc, g++, make)
         sudo apt install -y --no-upgrade \
             build-essential \
             libssl-dev \
             libffi-dev \
-            zlib1g-dev \
-            libsqlite3-dev
+            zlib1g-dev
         
     elif [[ "$OS" == "macos" ]]; then
         # Check if Homebrew is installed
@@ -316,7 +314,7 @@ main() {
     echo "   ✓ Python 3.11+ with pip and venv"
     echo "   ✓ Node.js 20.9.0+ with npm 10+"
     echo "   ✓ Git"
-    echo "   ✓ Essential build tools (build-essential, libssl-dev, libffi-dev, zlib1g-dev, libsqlite3-dev)"
+    echo "   ✓ Essential build tools (build-essential, libssl-dev, libffi-dev, zlib1g-dev)"
     echo ""
     echo "🚀 Next steps:"
     echo "   1. Run './install.sh' to set up the Kahani application"

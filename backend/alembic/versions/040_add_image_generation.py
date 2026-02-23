@@ -23,18 +23,20 @@ def _table_exists(table_name):
     """Check if a table exists in the database."""
     conn = op.get_bind()
     result = conn.execute(
-        sa.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :name)"),
         {"name": table_name}
     )
-    return result.fetchone() is not None
+    return result.scalar()
 
 
 def _column_exists(table_name, column_name):
     """Check if a column exists in a table."""
     conn = op.get_bind()
-    result = conn.execute(sa.text(f"PRAGMA table_info({table_name})"))
-    columns = [row[1] for row in result.fetchall()]
-    return column_name in columns
+    result = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = :table AND column_name = :col)"),
+        {"table": table_name, "col": column_name}
+    )
+    return result.scalar()
 
 
 def upgrade():
@@ -116,7 +118,7 @@ def downgrade():
     op.drop_column('user_settings', 'comfyui_server_url')
     op.drop_column('user_settings', 'image_gen_enabled')
 
-    # Remove portrait_image_id from characters (use batch mode for SQLite compatibility)
+    # Remove portrait_image_id from characters
     with op.batch_alter_table('characters') as batch_op:
         batch_op.drop_constraint('fk_characters_portrait_image_id', type_='foreignkey')
         batch_op.drop_column('portrait_image_id')

@@ -334,3 +334,7 @@ backend/data/chromadb_backup*/
 
 # Database dumps
 *.dump
+
+# AI assistant instruction files (user-specific)
+CLAUDE.md
+.github/copilot-instructions.md

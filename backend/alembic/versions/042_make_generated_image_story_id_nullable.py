@@ -18,7 +18,6 @@ depends_on = None
 
 def upgrade():
     # Make story_id nullable to support character portraits without a story
-    # Use batch mode for SQLite compatibility
     with op.batch_alter_table('generated_images') as batch_op:
         batch_op.alter_column('story_id',
                               existing_type=sa.Integer(),

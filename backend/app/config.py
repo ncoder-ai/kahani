@@ -60,7 +60,6 @@ def flatten_yaml_config(yaml_config: dict) -> dict:
     
     # Database
     # DATABASE_URL environment variable takes priority over YAML config
-    # This allows easy switching between SQLite and PostgreSQL via environment
     db = yaml_config.get('database', {})
     env_database_url = os.environ.get('DATABASE_URL')
     if env_database_url:

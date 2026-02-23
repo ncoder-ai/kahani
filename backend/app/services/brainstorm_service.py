@@ -450,12 +450,19 @@ class BrainstormService:
         normalized_characters = []
         for char in normalized["characters"]:
             if isinstance(char, dict):
-                normalized_characters.append({
+                char_data = {
                     "name": char.get("name", ""),
                     "role": char.get("role", "other"),
                     "description": char.get("description", ""),
-                    "personality_traits": char.get("personality_traits", [])
-                })
+                    "gender": char.get("gender", ""),
+                    "personality_traits": char.get("personality_traits", []),
+                    "background": char.get("background", ""),
+                    "goals": char.get("goals", ""),
+                    "fears": char.get("fears", ""),
+                    "appearance": char.get("appearance", ""),
+                    "suggested_voice_style": char.get("suggested_voice_style", ""),
+                }
+                normalized_characters.append(char_data)
         normalized["characters"] = normalized_characters
         
         # Ensure lists are actually lists

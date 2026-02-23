@@ -67,7 +67,7 @@ else
     chmod -R 777 /app/root_logs 2>/dev/null && echo "✅ Set root_logs directory permissions" || echo "⚠️  Could not set root_logs directory permissions"
 fi
 
-# Ensure data directory is writable by the application (critical for SQLite)
+# Ensure data directory is writable by the application
 echo "🗄️  Ensuring data directory is writable..."
 touch /app/data/.test_write 2>/dev/null && rm -f /app/data/.test_write && echo "✅ Data directory is writable" || echo "❌ Data directory is not writable - database will fail!"
 
@@ -92,55 +92,7 @@ if [[ "$DATABASE_URL" == postgresql* ]]; then
     sleep 2
 fi
 
-# Initialize database if needed (must run BEFORE Alembic migrations)
-if [[ "$DATABASE_URL" == sqlite* ]]; then
-    echo "🗄️ Checking SQLite database..."
-    cd /app
-    
-    # Check if database exists and is valid
-    if [ ! -f "/app/data/kahani.db" ]; then
-        echo "🗄️ Database does not exist - initializing..."
-    else
-        echo "🔍 Database exists - checking integrity..."
-        # Test if database is accessible and has tables
-        python -c "
-import sqlite3
-try:
-    conn = sqlite3.connect('/app/data/kahani.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT name FROM sqlite_master WHERE type=\"table\"')
-    tables = cursor.fetchall()
-    conn.close()
-    if not tables:
-        print('⚠️  Database exists but is empty - will reinitialize')
-        import os
-        os.remove('/app/data/kahani.db')
-        exit(1)
-    else:
-        print('✅ Database is valid and contains tables')
-except Exception as e:
-    print(f'⚠️  Database is corrupted: {e} - will reinitialize')
-    import os
-    os.remove('/app/data/kahani.db')
-    exit(1)
-" || {
-            echo "🗄️ Reinitializing database..."
-        }
-    fi
-    
-    # Run database initialization (creates tables if DB is new)
-    if [ -f "init_database.py" ]; then
-        echo "Running database initialization..."
-        python init_database.py || echo "⚠️  Database initialization warning"
-    fi
-    
-    echo "✅ Database initialization complete"
-    echo "🔐 First user to register will become admin automatically"
-else
-    echo "✅ Using non-SQLite database - skipping initialization"
-fi
-
-# Run Alembic migrations AFTER database initialization
+# Run Alembic migrations
 echo "🗄️ Running Alembic migrations to upgrade schema..."
 alembic upgrade head || echo "⚠️ Alembic migration failed"
 

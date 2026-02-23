@@ -176,17 +176,13 @@ download_ai_models() {
 # Setup database
 setup_database() {
     log_info "Setting up database..."
-    
+
     source .venv/bin/activate
-    
+
     # Create required directories with proper permissions
     mkdir -p backend/data backend/backups backend/logs exports backend/data/audio
     chmod -R 755 backend/data backend/backups backend/logs exports
-    
-    # Debug: Check directory permissions
-    log_info "Checking directory permissions..."
-    ls -la backend/ | grep data
-    
+
     # Find the best available Python version
     local python_cmd=""
     for version in 3.13 3.12 3.11; do
@@ -195,77 +191,58 @@ setup_database() {
             break
         fi
     done
-    
+
     if [[ -z "$python_cmd" ]]; then
         log_error "No suitable Python version found (3.11+)"
         exit 1
     fi
-    
-    log_info "Using Python command: $python_cmd"
-    
-    # Run Alembic migrations to create/upgrade database schema
-    # This is the ONLY way database schema should be modified
-    log_info "Setting up database schema using Alembic..."
-    source .venv/bin/activate
-    cd backend
-    
-    # Check if database file exists
-    if [[ -f data/kahani.db ]]; then
-        log_info "Database file exists, checking Alembic version..."
-        
-        # Check if alembic_version table exists
-        # If it doesn't, the database was created by old init_database.py
-        # We need to stamp it with the initial revision before upgrading
-        if ! $python_cmd -c "
-import sqlite3
-from pathlib import Path
 
-db_path = Path('data/kahani.db')
-if db_path.exists():
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'\")
-    result = cursor.fetchone()
-    conn.close()
-    exit(0 if result else 1)
-else:
-    exit(1)
+    # Verify PostgreSQL is reachable
+    log_info "Checking PostgreSQL connection..."
+    if ! $python_cmd -c "
+from sqlalchemy import create_engine, text
+import os, yaml
+# Load DATABASE_URL from .env or config.yaml
+db_url = os.environ.get('DATABASE_URL')
+if not db_url:
+    with open('config.yaml') as f:
+        cfg = yaml.safe_load(f)
+    db_url = cfg.get('database', {}).get('database_url', '')
+engine = create_engine(db_url)
+with engine.connect() as conn:
+    conn.execute(text('SELECT 1'))
+print('PostgreSQL connection OK')
 " 2>/dev/null; then
-            log_warning "Database exists but alembic_version table not found"
-            log_info "This database was likely created by the old init_database.py"
-            log_info "Stamping with initial revision (001) before upgrading..."
-            alembic stamp 001 || {
-                log_error "Failed to stamp database. You may need to recreate it."
-                log_info "To recreate: rm backend/data/kahani.db && ./install.sh"
-                cd ..
-                deactivate
-                exit 1
-            }
-        fi
-    else
-        log_info "Database file does not exist, Alembic will create it..."
+        log_error "Cannot connect to PostgreSQL. Please ensure:"
+        log_info "  1. PostgreSQL is running"
+        log_info "  2. DATABASE_URL in .env points to a valid PostgreSQL database"
+        log_info "  3. The database exists (create with: createdb kahani)"
+        cd ..
+        deactivate
+        exit 1
     fi
-    
-    # Run Alembic migrations - this creates/updates all tables
-    log_info "Running Alembic migrations to create/upgrade schema..."
+
+    # Run Alembic migrations to create/upgrade database schema
+    log_info "Running Alembic migrations..."
+    cd backend
+
     alembic upgrade head || {
         log_error "Alembic migration failed"
         cd ..
         deactivate
         exit 1
     }
-    
+
     # Seed initial data (system settings, etc.)
-    # This does NOT modify schema, only adds default data
     log_info "Seeding initial data..."
     $python_cmd init_database_data.py || {
         log_warning "Failed to seed initial data (database will still work)"
         log_info "You can run this manually later: cd backend && python init_database_data.py"
     }
-    
+
     cd ..
     deactivate
-    
+
     log_success "Database setup complete"
 }
 
@@ -296,9 +273,6 @@ create_env_files() {
         log_info "Created docker-compose.yml from docker-compose.yml.example"
     fi
     
-    # Get absolute path for database
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    ABSOLUTE_DB_PATH="${SCRIPT_DIR}/backend/data/kahani.db"
     # Find the best available Python version
     local python_cmd=""
     for version in 3.13 3.12 3.11; do
@@ -312,18 +286,16 @@ create_env_files() {
     SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
     JWT_SECRET_KEY=$($python_cmd -c "import secrets; print(secrets.token_urlsafe(32))")
 
-    # Update secrets and paths in .env file
+    # Update secrets in .env file
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
         sed -i '' "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
-        sed -i '' "s|DATABASE_URL=.*|DATABASE_URL=sqlite:///${ABSOLUTE_DB_PATH}|g" .env
     else
         sed -i "s|SECRET_KEY=.*|SECRET_KEY=\"$SECRET_KEY\"|g" .env
         sed -i "s|JWT_SECRET_KEY=.*|JWT_SECRET_KEY=\"$JWT_SECRET_KEY\"|g" .env
-        sed -i "s|DATABASE_URL=.*|DATABASE_URL=sqlite:///${ABSOLUTE_DB_PATH}|g" .env
     fi
 
-    log_info "✓ Database URL: sqlite:///${ABSOLUTE_DB_PATH}"
+    log_info "✓ Set DATABASE_URL in .env to point to your PostgreSQL database"
     
     log_success "Environment configuration created"
 }
@@ -340,14 +312,6 @@ verify_installation() {
         ((errors++))
     else
         log_success "Virtual environment: OK"
-    fi
-    
-    # Check database
-    if [[ ! -f "backend/data/kahani.db" ]]; then
-        log_error "Database not found"
-        ((errors++))
-    else
-        log_success "Database: OK"
     fi
     
     # Check configuration
@@ -391,6 +355,7 @@ main() {
     echo "⚠️  This script assumes you already have:"
     echo "   • Python 3.11+ installed"
     echo "   • Node.js 18+ installed"
+    echo "   • PostgreSQL with pgvector extension installed"
     echo "   • Git installed"
     echo ""
     echo "💡 If you need to install system dependencies first, run:"

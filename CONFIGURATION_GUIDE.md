@@ -29,11 +29,10 @@ cors:
   origins: "*"  # Use specific origins in production
 ```
 
-### Database
+### Database (PostgreSQL)
 ```yaml
 database:
-  database_url: "sqlite:///./data/kahani.db"
-  # PostgreSQL connection pool (ignored for SQLite)
+  database_url: "postgresql://kahani:kahani@localhost:5432/kahani"
   pool_size: 20
   max_overflow: 40
   pool_timeout: 30

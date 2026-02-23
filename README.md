@@ -127,7 +127,7 @@ See [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) for details.
 
 **Frontend:** Next.js 16, React 19, Tailwind CSS, Zustand
 
-**Database:** PostgreSQL (default) or SQLite
+**Database:** PostgreSQL with pgvector
 
 ## License
 
