@@ -15,7 +15,11 @@ export default function RoleplayCard({ roleplay, formatRelativeDate, onDelete }:
 
   return (
     <div
-      onClick={() => router.push(`/roleplay/${roleplay.story_id}`)}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-actions]')) return;
+        router.push(`/roleplay/${roleplay.story_id}`);
+      }}
       className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 backdrop-blur-md border border-purple-500/30 rounded-xl p-4 cursor-pointer hover:from-purple-500/20 hover:to-pink-500/20 transition-all group"
     >
       <div className="flex items-start justify-between mb-2">
@@ -47,6 +51,7 @@ export default function RoleplayCard({ roleplay, formatRelativeDate, onDelete }:
           </span>
         </div>
         <button
+          data-actions
           onClick={(e) => onDelete(roleplay.story_id, roleplay.title, e)}
           className="p-2 hover:bg-red-500/20 active:bg-red-500/30 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100"
           title="Delete roleplay"
