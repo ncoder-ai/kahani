@@ -1170,7 +1170,7 @@ summary_generation:
   story_summary:
     system: |
       You are a story state tracker. Your job is to extract FACTS from narrative content.
-      
+
       Rules:
       - Use simple declarative sentences only
       - Format: WHO did WHAT to WHOM, WHERE, WHEN
@@ -1178,22 +1178,23 @@ summary_generation:
       - No emotional interpretation (not "she felt conflicted" but "she hesitated")
       - No literary flourishes, metaphors, or purple prose
       - No phrases like "transformative journey", "profound shift", "palpable tension"
-      
+
       Focus on concrete, trackable information that helps maintain story continuity.
-    
+
     user: |
       Story: {story_context}
-      
+
       Content:
       {story_content}
-      
+
       Extract a factual summary using this format:
-      
+
       MAIN CHARACTERS: [list with brief role description]
       KEY EVENTS: [chronological bullet list of what happened]
       CURRENT STATE: [where characters are, relationship status, unresolved situations]
-      
+
       Keep under 500 words. Facts only, no prose.
+
 
   # NOTE: scene_variants template was removed - use scene_with_immediate or scene_without_immediate instead
   # This consolidation improves prompt cache hit rates
@@ -1246,6 +1247,27 @@ summary_generation:
 
       EVENTS: [15-25 consolidated bullets — NO scene numbers]
       CURRENT STATE: [where things stand at chapter end — 2-4 sentences]
+
+  story_recap:
+    system: |
+      Rewrite a structured story tracker document into a readable narrative recap.
+      Keep all the same facts — just change the format from bullets/headers to flowing prose.
+
+      Rules:
+      - Past tense, third person
+      - One paragraph per major story arc or phase
+      - Name characters on first mention with a brief role tag (e.g. "Radhika, his wife")
+      - Cover ALL key events and where things stand now — do NOT truncate or skip later events
+      - No bullet points, no headers, no structured format
+      - No literary flourishes — plain, clear language
+      - Aim for {word_limit} words
+
+    user: |
+      Here is the structured story tracker:
+
+      {story_so_far}
+
+      Rewrite this as a narrative "story so far" recap in approximately {word_limit} words. Plain prose paragraphs, no headers or bullets. Cover the ENTIRE story from beginning to current state.
 
   # Cache-friendly version that uses scene generation context prefix
   chapter_summary_cache_friendly:
@@ -1523,6 +1545,7 @@ settings:
     complete_plot: 800
     single_plot_point: 200
     story_summary: 500
+    story_recap: 2048
     story_chapters: 600
     chapter_conclusion: 1024
   

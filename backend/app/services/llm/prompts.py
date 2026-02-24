@@ -942,6 +942,7 @@ Chapter Conclusion:"""
             "scene_without_immediate": ("story_generation", "scene_without_immediate"),
             "scene_guided_enhancement": ("story_generation", "scene_guided_enhancement"),
             "story_summary": ("summary_generation", "story_summary"),
+            "story_recap": ("summary_generation", "story_recap"),
             "chapter_summary": ("summary_generation", "chapter_summary"),
             "chapter_summary_incremental": ("summary_generation", "chapter_summary_incremental"),
             "chapter_summary_initial": ("summary_generation", "chapter_summary_initial"),
@@ -1276,6 +1277,7 @@ Chapter Conclusion:"""
                 "scene_with_immediate": "scene",
                 "scene_without_immediate": "scene",
                 "story_summary": "story_summary",
+                "story_recap": "story_recap",
                 "choice_generation": "choices",
                 "title_generation": "titles",
                 "scenario_generation": "scenario",
@@ -1317,12 +1319,13 @@ Chapter Conclusion:"""
         return {
             "yaml_prompts": self._prompts_cache or {},
             "supported_template_keys": [
-                "scene_with_immediate", "scene_without_immediate", "story_summary", 
+                "scene_with_immediate", "scene_without_immediate", "story_summary",
                 "choice_generation", "title_generation", "scenario_generation", 
                 "scene_continuation", "scene_guided_enhancement",
                 "complete_plot", "single_plot_point", "story_chapters",
                 "chapter_conclusion", "character_assistant.extraction", 
-                "character_assistant.detection", "character_assistant.generation"
+                "character_assistant.detection", "character_assistant.generation",
+                "story_recap"
                 # NOTE: scene_variants removed - now uses scene_with/without_immediate
             ]
         }

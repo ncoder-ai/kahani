@@ -134,6 +134,7 @@ async def get_stories(
     db: Session = Depends(get_db)
 ):
     """Get user's stories (excluding archived by default)"""
+    from ..models import Chapter
     query = db.query(Story).filter(Story.owner_id == current_user.id)
 
     # Exclude archived stories unless explicitly requested
@@ -142,6 +143,38 @@ async def get_stories(
 
     # Order by most recently updated first
     stories = query.order_by(Story.updated_at.desc()).offset(skip).limit(limit).all()
+
+    # Batch-fetch latest chapter's story_so_far for each story
+    story_ids = [s.id for s in stories]
+    story_recaps: dict[int, str | None] = {}
+    if story_ids:
+        from sqlalchemy import func
+        # Subquery: latest chapter number per story
+        latest_ch = (
+            db.query(Chapter.story_id, func.max(Chapter.chapter_number).label("max_ch"))
+            .filter(Chapter.story_id.in_(story_ids))
+            .group_by(Chapter.story_id)
+            .subquery()
+        )
+        rows = (
+            db.query(
+                Chapter.story_id, Chapter.story_so_far, Chapter.auto_summary,
+                Chapter.chapter_number, Chapter.title, Chapter.description
+            )
+            .join(latest_ch, (Chapter.story_id == latest_ch.c.story_id) & (Chapter.chapter_number == latest_ch.c.max_ch))
+            .all()
+        )
+        current_chapter_info: dict[int, str] = {}
+        for sid, story_so_far, auto_summary, ch_num, ch_title, ch_desc in rows:
+            recap = story_so_far or auto_summary or ""
+            story_recaps[sid] = recap if recap else None
+            # Build current chapter overview string
+            current_ch = f"\n\nCURRENT CHAPTER: Chapter {ch_num}"
+            if ch_title:
+                current_ch += f" — {ch_title}"
+            if ch_desc:
+                current_ch += f"\n{ch_desc}"
+            current_chapter_info[sid] = current_ch
 
     return [
         {
@@ -153,7 +186,9 @@ async def get_stories(
             "story_mode": story.story_mode,
             "content_rating": story.content_rating or "sfw",
             "creation_step": story.creation_step,
-            "summary": story.summary,
+            # Prefer narrative recap (story.summary) over structured story_so_far
+            # Always append current chapter info
+            "summary": ((story.summary or story_recaps.get(story.id) or "") + current_chapter_info.get(story.id, "")).strip() or None,
             "created_at": story.created_at,
             "updated_at": story.updated_at
         }
@@ -940,82 +975,6 @@ async def update_choice(
         }
     }
 
-@router.get("/{story_id}/summary")
-async def get_story_summary(
-    story_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get a summary of the story including context information"""
-
-    story = db.query(Story).filter(
-        Story.id == story_id,
-        Story.owner_id == current_user.id
-    ).first()
-
-    if not story:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found"
-        )
-
-    # Get story flow for scene count
-    service = SceneVariantService(db)
-    flow = service.get_active_story_flow(story_id)
-
-    # Get user settings for context information
-    user_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == current_user.id
-    ).first()
-
-    user_defaults = settings.user_defaults.get('context_settings', {})
-    context_budget = user_settings.context_max_tokens if user_settings else user_defaults.get('max_tokens', 4000)
-    keep_recent = user_settings.context_keep_recent_scenes if user_settings else user_defaults.get('keep_recent_scenes', 3)
-    summary_threshold = user_settings.context_summary_threshold if user_settings else user_defaults.get('summary_threshold', 5)
-    summarization_enabled = user_settings.enable_context_summarization if user_settings else True
-
-    # Calculate context usage
-    total_scenes = len(flow)
-    recent_scenes = min(keep_recent, total_scenes)
-    summarized_scenes = max(0, total_scenes - recent_scenes) if total_scenes > summary_threshold else 0
-
-    # Estimate token usage (rough calculation)
-    estimated_tokens = 0
-    for scene_data in flow:
-        content = scene_data['variant']['content']
-        estimated_tokens += len(content.split()) * 1.3  # Rough token estimate
-
-    # Generate a basic summary from the story content
-    story_summary = f"'{story.title}' is a {story.genre or 'story'} with {total_scenes} scenes."
-    if story.description:
-        story_summary += f" {story.description}"
-
-    if total_scenes > 0:
-        first_scene = flow[0]['variant']['content'][:200] + "..." if len(flow[0]['variant']['content']) > 200 else flow[0]['variant']['content']
-        story_summary += f" The story begins: {first_scene}"
-
-    summary_data = {
-        "story": {
-            "id": story.id,
-            "title": story.title,
-            "description": story.description,
-            "genre": story.genre,
-            "total_scenes": total_scenes
-        },
-        "context_info": {
-            "total_scenes": total_scenes,
-            "recent_scenes": recent_scenes,
-            "summarized_scenes": summarized_scenes,
-            "context_budget": context_budget,
-            "estimated_tokens": int(estimated_tokens),
-            "usage_percentage": min(100, (estimated_tokens / context_budget) * 100) if context_budget > 0 else 0,
-            "summarization_enabled": summarization_enabled,
-            "summary_threshold": summary_threshold
-        },
-        "summary": story_summary
-    }
-
-    return summary_data
 
 @router.delete("/{story_id}/scenes/from/{sequence_number}")
 async def delete_scenes_from_sequence(
