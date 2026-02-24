@@ -118,7 +118,8 @@ export default function RegisterPage() {
     <div className="min-h-screen theme-bg-primary flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">✨ Kahani</h1>
+        <img src="/kahanilogo.png" alt="Make My Story" className="h-40 w-40 md:h-36 md:w-36 object-contain mx-auto mb-4" />
+        <h1 className="text-4xl font-bold text-white mb-2">Make My Story</h1>
         <p className="text-white/80 text-lg">Interactive Storytelling Platform</p>
       </div>
 

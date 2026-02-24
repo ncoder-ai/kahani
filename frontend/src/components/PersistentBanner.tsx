@@ -130,8 +130,8 @@ export default function PersistentBanner() {
                 onClick={handleHome}
                 className="flex items-center text-white hover:text-purple-200 transition-colors flex-shrink-0 leading-none"
               >
-                <span className="text-sm leading-none">✨</span>
-                <span className="hidden md:inline text-sm font-bold leading-none ml-1">Kahani</span>
+                <img src="/kahanilogo.png" alt="Make My Story" className="h-10 w-10 md:h-8 md:w-8 object-contain" />
+                <span className="hidden md:inline text-sm font-bold leading-none ml-1">Make My Story</span>
               </button>
               
               {/* Story title - smaller on mobile */}

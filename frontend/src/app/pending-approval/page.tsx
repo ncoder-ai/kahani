@@ -68,7 +68,7 @@ export default function PendingApprovalPage() {
               <p className="text-blue-100 text-sm">
                 💡 <strong>What happens next?</strong>
                 <br />
-                An administrator will review your account shortly. Once approved, you'll be able to access all features of Kahani.
+                An administrator will review your account shortly. Once approved, you'll be able to access all features of Make My Story.
               </p>
             </div>
           </div>
@@ -91,7 +91,7 @@ export default function PendingApprovalPage() {
         {/* Footer */}
         <div className="mt-6 text-center">
           <p className="text-white/40 text-sm">
-            ✨ Kahani - Interactive Storytelling Platform
+            <span className="inline-flex items-center gap-1"><img src="/kahanilogo.png" alt="" className="h-4 w-4 object-contain inline" /> Make My Story - Interactive Storytelling Platform</span>
           </p>
         </div>
       </div>

@@ -91,7 +91,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              <h1 className="text-2xl font-bold text-white flex items-center gap-2"><img src="/kahanilogo.png" alt="" className="h-14 w-14 md:h-12 md:w-12 object-contain" /> Kahani</h1>
+              <h1 className="text-2xl font-bold text-white flex items-center gap-2"><img src="/kahanilogo.png" alt="" className="h-14 w-14 md:h-12 md:w-12 object-contain" /> Make My Story</h1>
               <span className="text-white/60">•</span>
               <span className="text-white/80">Interactive Storytelling</span>
             </div>
@@ -124,7 +124,7 @@ export default function HomePage() {
             </span>
           </h2>
           <p className="text-xl text-white/80 mb-12 max-w-3xl mx-auto">
-            Kahani is an interactive storytelling platform that combines your creativity with AI assistance
+            Make My Story is an interactive storytelling platform that combines your creativity with AI assistance
             to create immersive, branching narratives that engage and captivate readers.
           </p>
 
@@ -278,7 +278,7 @@ export default function HomePage() {
         <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-12 text-center">
           <h3 className="text-3xl font-bold text-white mb-4">Ready to Begin Your Story?</h3>
           <p className="text-white/80 text-lg mb-8">
-            Join thousands of creators who are bringing their imagination to life with Kahani
+            Join thousands of creators who are bringing their imagination to life with Make My Story
           </p>
           <Link
             href="/register"
@@ -293,7 +293,7 @@ export default function HomePage() {
       <footer className="relative z-10 bg-white/5 backdrop-blur-md border-t border-white/20 mt-20">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="text-center text-white/60">
-            <p>&copy; 2025 Kahani. Unleashing creativity through interactive storytelling.</p>
+            <p>&copy; 2025 Make My Story. Unleashing creativity through interactive storytelling.</p>
           </div>
         </div>
       </footer>
