@@ -221,10 +221,10 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
   const canProceed = characters.length > 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-white mb-4">Create Your Characters</h2>
-        <p className="text-white/80 text-lg">
+        <h2 className="text-xl sm:text-3xl font-bold text-white mb-2 sm:mb-4">Create Your Characters</h2>
+        <p className="text-white/80 text-sm sm:text-lg">
           Add the key characters that will drive your story forward
         </p>
         <div className="mt-3 text-sm text-white/60">
@@ -240,7 +240,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
             return (
               <div
                 key={index}
-                className="bg-white/10 border border-white/30 rounded-xl p-6 relative group"
+                className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6 relative group"
               >
                 <button
                   onClick={() => handleRemoveCharacter(index)}
@@ -248,12 +248,12 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
                 >
                   ✕
                 </button>
-                <div className="flex items-start space-x-4">
-                  <div className={`w-12 h-12 rounded-full bg-gradient-to-r ${roleInfo.color} flex items-center justify-center text-white text-xl`}>
+                <div className="flex items-start space-x-3 sm:space-x-4">
+                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-r ${roleInfo.color} flex items-center justify-center text-white text-base sm:text-xl`}>
                     {roleInfo.icon}
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-semibold text-white">{character.name}</h3>
+                    <h3 className="text-base sm:text-xl font-semibold text-white">{character.name}</h3>
                     <p className="text-purple-300 font-medium">{roleInfo.name}</p>
                     {character.description && (
                       <p className="text-white/70 mt-2">{character.description}</p>
@@ -268,8 +268,8 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
 
       {/* Add Character Form */}
       {isAdding ? (
-        <div className="bg-white/10 border border-white/30 rounded-xl p-6 space-y-4">
-          <h3 className="text-xl font-semibold text-white">Add New Character</h3>
+        <div className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6 space-y-4">
+          <h3 className="text-base sm:text-xl font-semibold text-white">Add New Character</h3>
           
           <div>
             <label className="block text-white/80 mb-2">Character Name</label>
@@ -348,9 +348,9 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       {showLibrary && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="theme-bg-secondary rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden border theme-border-accent">
-            <div className="p-6 border-b border-white/20">
+            <div className="p-4 sm:p-6 border-b border-white/20">
               <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-bold text-white">Choose Character from Library</h3>
+                <h3 className="text-xl sm:text-2xl font-bold text-white">Choose Character from Library</h3>
                 <button
                   onClick={() => setShowLibrary(false)}
                   className="text-white/60 hover:text-white text-xl"
@@ -361,7 +361,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
               <p className="text-white/80 mt-2">Select a character and assign them a role in your story</p>
             </div>
             
-            <div className="p-6 overflow-y-auto max-h-96">
+            <div className="p-4 sm:p-6 overflow-y-auto max-h-96">
               {loadingLibrary ? (
                 <div className="text-center py-8">
                   <div className="text-white">Loading characters...</div>
@@ -383,7 +383,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {persistentCharacters.map((char) => (
                     <div key={char.id} className="bg-white/5 rounded-lg p-4 border border-white/10">
-                      <h4 className="text-lg font-semibold text-white mb-2">{char.name}</h4>
+                      <h4 className="text-base sm:text-lg font-semibold text-white mb-2">{char.name}</h4>
                       <p className="text-white/70 text-sm mb-3 line-clamp-2">{char.description}</p>
                       
                       {char.personality_traits.length > 0 && (
@@ -408,7 +408,7 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
               )}
             </div>
             
-            <div className="p-6 border-t border-white/20">
+            <div className="p-4 sm:p-6 border-t border-white/20">
               <button
                 onClick={() => {
                   setShowLibrary(false);
@@ -427,16 +427,21 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="theme-bg-secondary rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden border theme-border-accent">
-            <div className="p-6 border-b border-white/20">
-              <h3 className="text-2xl font-bold text-white">Create New Character</h3>
+            <div className="p-4 sm:p-6 border-b border-white/20">
+              <h3 className="text-xl sm:text-2xl font-bold text-white">Create New Character</h3>
               <p className="text-white/80 mt-2">This character will be saved to your library for reuse</p>
             </div>
             
             <div className="overflow-y-auto max-h-[70vh]">
               <div className="p-6">
-                <CharacterForm 
+                <CharacterForm
                   mode="inline"
                   onSave={handleCreateNewCharacter}
+                  storyContext={{
+                    genre: storyData.genre || undefined,
+                    tone: storyData.tone || undefined,
+                    world_setting: storyData.world_setting || undefined,
+                  }}
                 />
               </div>
             </div>
@@ -445,17 +450,17 @@ export default function CharacterSetup({ storyData, onUpdate, onNext, onBack }: 
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between pt-6">
+      <div className="flex justify-between pt-4 sm:pt-6">
         <button
           onClick={onBack}
-          className="px-8 py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
+          className="px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
         >
           ← Back
         </button>
         <button
           onClick={onNext}
           disabled={!canProceed}
-          className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
+          className={`px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
               ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'

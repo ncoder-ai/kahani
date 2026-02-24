@@ -96,7 +96,10 @@ class Story(Base):
     current_branch = relationship("StoryBranch", foreign_keys=[current_branch_id], post_update=True)
     
     # Brainstorm Session (if story was created from brainstorm)
-    brainstorm_session = relationship("BrainstormSession", back_populates="story", uselist=False)
+    brainstorm_session = relationship("BrainstormSession", back_populates="story", uselist=False, cascade="all, delete-orphan")
+
+    # Chapter Brainstorm Sessions
+    chapter_brainstorm_sessions = relationship("ChapterBrainstormSession", back_populates="story", cascade="all, delete-orphan")
 
     # Generated Images
     generated_images = relationship("GeneratedImage", back_populates="story", cascade="all, delete-orphan")
@@ -106,6 +109,10 @@ class Story(Base):
 
     # Contradictions (continuity error tracking)
     contradictions = relationship("Contradiction", back_populates="story", cascade="all, delete-orphan")
+
+    # Chronicle entries (lorebook)
+    character_chronicles = relationship("CharacterChronicle", back_populates="story", cascade="all, delete-orphan")
+    location_lorebooks = relationship("LocationLorebook", back_populates="story", cascade="all, delete-orphan")
 
     # Relationship Graph (character relationship tracking)
     character_relationships = relationship("CharacterRelationship", back_populates="story", cascade="all, delete-orphan")

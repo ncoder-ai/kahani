@@ -35,6 +35,7 @@ interface CharacterQuickAddProps {
   storyId?: number;
   chapterId?: number;
   onOpenCharacterWizard?: () => void;
+  storyContext?: { genre?: string; tone?: string; world_setting?: string; world_description?: string; existing_characters?: string[] };
 }
 
 // Inline role selector for library - supports custom roles
@@ -117,7 +118,7 @@ function QuickAddRoleSelector({ onRoleSelect }: { onRoleSelect: (role: string) =
   );
 }
 
-export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters, storyId, chapterId, onOpenCharacterWizard }: CharacterQuickAddProps) {
+export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCharacters, storyId, chapterId, onOpenCharacterWizard, storyContext }: CharacterQuickAddProps) {
   const [activeTab, setActiveTab] = useState<'library' | 'create' | 'discover'>('library');
   const [persistentCharacters, setPersistentCharacters] = useState<PersistentCharacter[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
@@ -270,9 +271,10 @@ export default function CharacterQuickAdd({ onCharacterAdd, onClose, existingCha
 
             {activeTab === 'create' && (
               <div>
-                <CharacterForm 
+                <CharacterForm
                   mode="inline"
                   onSave={handleCreateNewCharacter}
+                  storyContext={storyContext}
                 />
               </div>
             )}

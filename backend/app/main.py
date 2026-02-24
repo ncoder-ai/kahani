@@ -151,6 +151,26 @@ async def startup_event():
     else:
         logger.info("Semantic memory disabled in configuration")
 
+    # Validate cascade relationships — catch missing cascades that would break story/scene deletion
+    try:
+        from .models.cascade_validator import validate_cascade_relationships
+        cascade_errors = validate_cascade_relationships()
+        if cascade_errors:
+            for err in cascade_errors:
+                logger.error(f"CASCADE VALIDATOR: {err}")
+            raise RuntimeError(
+                f"CASCADE VALIDATOR: {len(cascade_errors)} table(s) have NOT NULL FKs to "
+                f"stories/scenes/chapters without cascade relationships. "
+                f"This WILL break deletion. Fix the parent model relationships. "
+                f"Errors: {cascade_errors}"
+            )
+        else:
+            logger.info("Cascade validator passed: all NOT NULL FKs have cascade coverage")
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to run cascade validator: {e}")
+
     # Validate branch-aware registry to catch missing registrations
     try:
         from .models import BranchCloneRegistry

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import apiClient from '@/lib/api';
 import Link from 'next/link';
+import RouteProtection from '@/components/RouteProtection';
 
 interface Character {
   id: number;
@@ -26,7 +27,11 @@ export default function CharacterDetailPage() {
   const params = useParams();
   const characterId = parseInt(params.id as string);
 
-  return <CharacterDetailContent key={characterId} characterId={characterId} />;
+  return (
+    <RouteProtection requireAuth={true} requireApproval={true}>
+      <CharacterDetailContent key={characterId} characterId={characterId} />
+    </RouteProtection>
+  );
 }
 
 function CharacterDetailContent({ characterId }: { characterId: number }) {

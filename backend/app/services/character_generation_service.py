@@ -97,7 +97,13 @@ class CharacterGenerationService:
                     context_parts.append(f"Tone: {story_context['tone']}")
                 if story_context.get('world_setting'):
                     context_parts.append(f"World Setting: {story_context['world_setting']}")
-                
+                if story_context.get('world_description'):
+                    context_parts.append(f"World Description: {story_context['world_description']}")
+                if story_context.get('existing_characters'):
+                    chars = story_context['existing_characters']
+                    if isinstance(chars, list) and chars:
+                        context_parts.append(f"Existing Characters in Story: {', '.join(chars)}")
+
                 if context_parts:
                     story_context_str = "\n\nStory Context:\n" + "\n".join(context_parts)
             

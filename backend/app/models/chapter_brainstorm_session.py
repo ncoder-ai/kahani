@@ -53,7 +53,7 @@ class ChapterBrainstormSession(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    story = relationship("Story", backref="chapter_brainstorm_sessions")
+    story = relationship("Story", back_populates="chapter_brainstorm_sessions")
     chapter = relationship("Chapter", backref="brainstorm_session", foreign_keys=[chapter_id])
     user = relationship("User", backref="chapter_brainstorm_sessions")
     

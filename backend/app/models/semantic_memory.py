@@ -81,8 +81,8 @@ class CharacterMemory(Base):
 
     # Relationships
     character = relationship("Character")
-    scene = relationship("Scene")
-    story = relationship("Story")
+    scene = relationship("Scene", back_populates="character_memories")
+    story = relationship("Story", back_populates="character_memories")
     branch = relationship("StoryBranch", back_populates="character_memories")
     chapter = relationship("Chapter")
 
@@ -148,9 +148,9 @@ class PlotEvent(Base):
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
-    story = relationship("Story")
+    story = relationship("Story", back_populates="plot_events")
     branch = relationship("StoryBranch", back_populates="plot_events")
-    scene = relationship("Scene", foreign_keys=[scene_id])
+    scene = relationship("Scene", foreign_keys=[scene_id], back_populates="plot_events")
     resolution_scene = relationship("Scene", foreign_keys=[resolution_scene_id])
     chapter = relationship("Chapter")
     
@@ -209,9 +209,9 @@ class SceneEmbedding(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    story = relationship("Story")
+    story = relationship("Story", back_populates="scene_embeddings")
     branch = relationship("StoryBranch", back_populates="scene_embeddings")
-    scene = relationship("Scene")
+    scene = relationship("Scene", back_populates="scene_embeddings")
     variant = relationship("SceneVariant")
     chapter = relationship("Chapter")
     

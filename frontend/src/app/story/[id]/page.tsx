@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useAuthStore, useStoryStore, useHasHydrated } from '@/store';
+import RouteProtection from '@/components/RouteProtection';
 import { useGlobalTTS } from '@/contexts/GlobalTTSContext';
 import { useStoryActions, StoryActions } from '@/contexts/StoryContext';
 import { useUISettings } from '@/hooks/useUISettings';
@@ -175,7 +176,11 @@ export default function StoryPage() {
   // Key forces full unmount/remount when storyId changes.
   // Without this, React reuses the component instance when navigating
   // between /story/8 and /story/11, leaving stale state visible.
-  return <StoryPageContent key={storyId} storyId={storyId} />;
+  return (
+    <RouteProtection requireAuth={true} requireApproval={true}>
+      <StoryPageContent key={storyId} storyId={storyId} />
+    </RouteProtection>
+  );
 }
 
 function StoryPageContent({ storyId }: { storyId: number }) {

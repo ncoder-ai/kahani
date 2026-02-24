@@ -107,8 +107,8 @@ export default function WorldSelection({ storyData, onUpdate, onNext, onBack }: 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-bold mb-3 text-white">Choose a Universe</h2>
+      <div className="text-center mb-4 sm:mb-8">
+        <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 text-white">Choose a Universe</h2>
         <p className="text-white/70">
           Place your story in an existing world or create a fresh one
         </p>
@@ -122,11 +122,11 @@ export default function WorldSelection({ storyData, onUpdate, onNext, onBack }: 
       ) : (
         <>
           {/* World Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
             {/* New Universe Card */}
             <button
               onClick={() => handleSelectWorld(undefined)}
-              className={`relative p-6 rounded-2xl border-2 border-dashed transition-all text-left hover:scale-[1.02] ${
+              className={`relative p-4 sm:p-6 rounded-2xl border-2 border-dashed transition-all text-left hover:scale-[1.02] ${
                 isNewUniverse
                   ? 'border-indigo-500/60 bg-indigo-500/10 shadow-lg shadow-indigo-500/20'
                   : 'border-white/30 hover:border-white/50 bg-white/5'
@@ -151,7 +151,7 @@ export default function WorldSelection({ storyData, onUpdate, onNext, onBack }: 
               <button
                 key={world.id}
                 onClick={() => handleSelectWorld(world.id)}
-                className={`relative p-6 rounded-2xl border transition-all text-left hover:scale-[1.02] bg-white/10 backdrop-blur-md ${
+                className={`relative p-4 sm:p-6 rounded-2xl border transition-all text-left hover:scale-[1.02] bg-white/10 backdrop-blur-md ${
                   selectedWorldId === world.id
                     ? 'border-indigo-500/40 bg-indigo-500/10 shadow-lg shadow-indigo-500/20'
                     : 'border-white/20 hover:border-white/40'
@@ -488,7 +488,7 @@ function StoryPreview({
   onClose: () => void;
 }) {
   return (
-    <div className="bg-white/5 backdrop-blur border border-white/15 rounded-2xl p-6 relative animate-in slide-in-from-top-2 duration-200">
+    <div className="bg-white/5 backdrop-blur border border-white/15 rounded-2xl p-4 sm:p-6 relative animate-in slide-in-from-top-2 duration-200">
       <button
         onClick={onClose}
         className="absolute top-3 right-3 p-1.5 hover:bg-white/10 rounded-lg transition-colors"

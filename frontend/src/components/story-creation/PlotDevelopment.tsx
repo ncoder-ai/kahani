@@ -179,10 +179,10 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
   const canProceed = filledPlotPoints >= 3; // At least 3 plot points required
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-white mb-4">Develop Your Plot</h2>
-        <p className="text-white/80 text-lg mb-6">
+        <h2 className="text-xl sm:text-3xl font-bold text-white mb-2 sm:mb-4">Develop Your Plot</h2>
+        <p className="text-white/80 text-sm sm:text-lg mb-3 sm:mb-6">
           Create a compelling story arc tailored to your characters and scenario
         </p>
       </div>
@@ -191,15 +191,15 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
       <CharacterDisplay characters={storyData.characters} />
         
       {/* AI Plot Generation */}
-      <div className="bg-white/10 rounded-xl p-6">
-        <h3 className="text-xl font-semibold text-white mb-3">✨ AI-Powered Plot Generation</h3>
-        <p className="text-white/70 mb-4">
+      <div className="bg-white/10 rounded-xl p-4 sm:p-6">
+        <h3 className="text-base sm:text-xl font-semibold text-white mb-2 sm:mb-3">AI-Powered Plot Generation</h3>
+        <p className="text-white/70 text-sm sm:text-base mb-3 sm:mb-4">
           Let AI create a complete plot structure based on your characters and scenario
         </p>
         <button
           onClick={generateCompletePlot}
           disabled={isGeneratingComplete || !storyData.scenario}
-          className="px-8 py-3 theme-btn-primary rounded-xl transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-5 sm:px-8 py-2.5 sm:py-3 theme-btn-primary rounded-xl transition-colors font-semibold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGeneratingComplete ? (
             <>
@@ -218,16 +218,16 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
       </div>
 
       {/* Plot Structure */}
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {PLOT_STRUCTURE.map((element, index) => (
-          <div key={element.id} className="bg-white/10 border border-white/30 rounded-xl p-6">
-            <div className="flex items-center mb-4">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xl mr-4"
+          <div key={element.id} className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6">
+            <div className="flex items-center mb-3 sm:mb-4">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white text-base sm:text-xl mr-3 sm:mr-4"
                    style={{ background: 'linear-gradient(to right, var(--color-accentPrimary), var(--color-accentSecondary))' } as React.CSSProperties}>
                 {element.icon}
               </div>
               <div>
-                <h3 className="text-xl font-semibold text-white">{element.title}</h3>
+                <h3 className="text-base sm:text-xl font-semibold text-white">{element.title}</h3>
                 <p className="text-white/70 text-sm">{element.description}</p>
               </div>
             </div>
@@ -268,9 +268,9 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
       </div>
 
       {/* World Setting */}
-      <div className="bg-white/10 border border-white/30 rounded-xl p-6">
-        <h3 className="text-xl font-semibold text-white mb-4">🌍 World Setting</h3>
-        <p className="text-white/70 mb-4">
+      <div className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6">
+        <h3 className="text-base sm:text-xl font-semibold text-white mb-3 sm:mb-4">World Setting</h3>
+        <p className="text-white/70 text-sm sm:text-base mb-3 sm:mb-4">
           Describe the world where your story takes place
         </p>
         <textarea
@@ -301,17 +301,17 @@ export default function PlotDevelopment({ storyData, onUpdate, onNext, onBack }:
       </div>
 
       {/* Navigation */}
-      <div className="flex justify-between pt-6">
+      <div className="flex justify-between pt-4 sm:pt-6">
         <button
           onClick={onBack}
-          className="px-8 py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
+          className="px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
         >
           ← Back
         </button>
         <button
           onClick={onNext}
           disabled={!canProceed}
-          className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
+          className={`px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
               ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'

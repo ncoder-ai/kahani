@@ -57,7 +57,7 @@ class CharacterChronicle(Base):
     # Relationships
     world = relationship("World")
     character = relationship("Character")
-    story = relationship("Story")
+    story = relationship("Story", back_populates="character_chronicles")
 
     def __repr__(self):
         return f"<CharacterChronicle(id={self.id}, character_id={self.character_id}, entry_type={self.entry_type})>"
@@ -95,7 +95,7 @@ class LocationLorebook(Base):
 
     # Relationships
     world = relationship("World")
-    story = relationship("Story")
+    story = relationship("Story", back_populates="location_lorebooks")
 
     def __repr__(self):
         return f"<LocationLorebook(id={self.id}, location='{self.location_name}')>"

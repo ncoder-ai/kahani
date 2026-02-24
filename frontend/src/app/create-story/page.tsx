@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store';
+import RouteProtection from '@/components/RouteProtection';
 import { useUISettings } from '@/hooks/useUISettings';
 import apiClient from '@/lib/api';
 import CharacterQuickAdd from '@/components/CharacterQuickAdd';
@@ -399,14 +400,15 @@ function CreateStoryContent() {
     <div className="min-h-screen theme-bg-primary pt-16">
       {/* Header */}
       <div className="bg-white/10 backdrop-blur-md border-b border-white/20">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-white">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          {/* Top row: title + actions */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-bold text-white truncate">
                 {draftStoryId ? 'Continue Your Story' : 'Create Your Story'}
               </h1>
-              <div className="flex items-center space-x-4 mt-1">
-                <span className="text-sm text-white/60">
+              <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap">
+                <span className="text-xs sm:text-sm text-white/60">
                   Step {currentStep + 1} of {STEPS.length}
                 </span>
                 {isSavingDraft && (
@@ -416,51 +418,50 @@ function CreateStoryContent() {
                   </div>
                 )}
                 {draftStoryId && !isSavingDraft && (
-                  <span className="text-green-400 text-xs">✓ Draft Saved</span>
-                )}
-                {currentStep <= 2 && !storyData.genre && (
-                  <a
-                    href="/brainstorm"
-                    className="text-sm text-white/60 hover:text-white/80 flex items-center gap-1 transition-colors"
-                  >
-                    <span>Need help getting started?</span>
-                    <span className="theme-accent-primary">Try AI Brainstorming</span>
-                  </a>
+                  <span className="text-green-400 text-xs">Draft saved</span>
                 )}
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {draftStoryId && (
                 <button
                   onClick={handleDeleteDraft}
-                  className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs border border-red-400/30"
+                  className="hidden sm:block px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs border border-red-400/30"
                 >
                   Start Over
                 </button>
               )}
               <button
                 onClick={() => setShowCharacterQuickAdd(true)}
-                className="px-4 py-2 theme-btn-primary rounded-lg transition-colors text-sm font-medium"
+                className="px-3 py-2 theme-btn-primary rounded-lg transition-colors text-xs sm:text-sm font-medium"
               >
-                + Add Character
+                + Character
               </button>
               <button
                 onClick={() => router.push('/characters')}
-                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm font-medium border border-white/30"
+                className="hidden sm:block px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm font-medium border border-white/30"
               >
-                📚 Manage Characters
+                Character Library
               </button>
-              <div className="text-white/80">
-                Step {currentStep + 1} of {STEPS.length}
-              </div>
             </div>
           </div>
-          
+
+          {/* Brainstorm hint — only on desktop, early steps */}
+          {currentStep <= 2 && !storyData.genre && (
+            <a
+              href="/brainstorm"
+              className="hidden sm:flex items-center gap-1 mt-2 text-sm text-white/60 hover:text-white/80 transition-colors"
+            >
+              <span>Need help getting started?</span>
+              <span className="theme-accent-primary">Try AI Brainstorming</span>
+            </a>
+          )}
+
           {/* Character Count Display */}
           {storyData.characters && storyData.characters.length > 0 && (
-            <div className="mt-3 flex items-center justify-center">
-              <div className="bg-white/10 rounded-full px-4 py-2 text-white/80 text-sm">
-                {storyData.characters.length} character{storyData.characters.length !== 1 ? 's' : ''} added: {' '}
+            <div className="mt-2 sm:mt-3 flex items-center justify-center">
+              <div className="bg-white/10 rounded-full px-3 sm:px-4 py-1.5 text-white/80 text-xs sm:text-sm truncate max-w-full">
+                {storyData.characters.length} character{storyData.characters.length !== 1 ? 's' : ''}: {' '}
                 {storyData.characters.map(char => char.name).join(', ')}
               </div>
             </div>
@@ -468,42 +469,49 @@ function CreateStoryContent() {
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="max-w-4xl mx-auto px-6 py-6">
-        <div className="bg-white/10 rounded-full h-2 mb-8">
+      {/* Progress Bar + Step Indicators */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        <div className="bg-white/10 rounded-full h-2 mb-4 sm:mb-8">
           <div
             className="theme-accent-primary h-2 rounded-full transition-all duration-500"
             style={{ width: `${((currentStep + 1) / STEPS.length) * 100}%` }}
           />
         </div>
 
-        {/* Step Indicators */}
-        <div className="flex justify-between mb-12">
-          {STEPS.map((step, index) => (
-            <div
-              key={step.id}
-              className={`flex flex-col items-center ${
-                index <= currentStep ? 'text-white' : 'text-white/40'
-              }`}
-            >
+        {/* Step Indicators — compact circles on mobile, circles + labels on desktop */}
+        <div className="flex justify-between items-start mb-6 sm:mb-12">
+          {STEPS.map((step, index) => {
+            // On mobile, show connecting lines between circles
+            const isCompleted = index < currentStep;
+            const isCurrent = index === currentStep;
+            return (
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium mb-2 ${
-                  index <= currentStep
-                    ? 'theme-accent-primary text-white'
-                    : 'bg-white/20 text-white/60'
+                key={step.id}
+                className={`flex flex-col items-center flex-1 ${
+                  index <= currentStep ? 'text-white' : 'text-white/40'
                 }`}
               >
-                {index + 1}
+                <div
+                  className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-sm font-medium ${
+                    isCurrent
+                      ? 'theme-accent-primary text-white ring-2 ring-white/30'
+                      : isCompleted
+                        ? 'theme-accent-primary text-white'
+                        : 'bg-white/20 text-white/60'
+                  }`}
+                >
+                  {isCompleted ? '✓' : index + 1}
+                </div>
+                <span className="hidden sm:block text-xs font-medium text-center mt-2">{step.title}</span>
               </div>
-              <span className="text-xs font-medium">{step.title}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-6 pb-12">
-        <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 sm:p-8">
           {STEPS[currentStep].id === 'mode' && (
             <StoryModeSelection
               selected={storyData.story_mode}
@@ -580,6 +588,12 @@ function CreateStoryContent() {
           onCharacterAdd={handleCharacterAdd}
           onClose={() => setShowCharacterQuickAdd(false)}
           existingCharacters={storyData.characters}
+          storyContext={{
+            genre: storyData.genre || undefined,
+            tone: storyData.tone || undefined,
+            world_setting: storyData.world_setting || undefined,
+            existing_characters: storyData.characters.map(c => c.name).filter(Boolean),
+          }}
         />
       )}
     </div>
@@ -588,15 +602,17 @@ function CreateStoryContent() {
 
 export default function CreateStoryPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen theme-bg-primary flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/80">Loading...</p>
+    <RouteProtection requireAuth={true} requireApproval={true}>
+      <Suspense fallback={
+        <div className="min-h-screen theme-bg-primary flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-white/80">Loading...</p>
+          </div>
         </div>
-      </div>
-    }>
-      <CreateStoryContent />
-    </Suspense>
+      }>
+        <CreateStoryContent />
+      </Suspense>
+    </RouteProtection>
   );
 }

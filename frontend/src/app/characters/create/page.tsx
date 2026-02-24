@@ -1,5 +1,10 @@
 import CharacterForm from '@/components/CharacterForm';
+import RouteProtection from '@/components/RouteProtection';
 
 export default function CreateCharacterPage() {
-  return <CharacterForm mode="create" />;
+  return (
+    <RouteProtection requireAuth={true} requireApproval={true}>
+      <CharacterForm mode="create" />
+    </RouteProtection>
+  );
 }

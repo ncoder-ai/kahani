@@ -18,23 +18,23 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-white mb-4">Review Your Story</h2>
-        <p className="text-white/80 text-lg">
+        <h2 className="text-xl sm:text-3xl font-bold text-white mb-2 sm:mb-4">Review Your Story</h2>
+        <p className="text-white/80 text-sm sm:text-lg">
           Take a final look at your story setup before creating it
         </p>
       </div>
 
       {/* Story Overview */}
-      <div className="bg-white/10 border border-white/30 rounded-xl p-6">
-        <h3 className="text-2xl font-bold text-white mb-4 text-center">{storyData.title}</h3>
-        
-        <div className="grid md:grid-cols-2 gap-6">
+      <div className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6">
+        <h3 className="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4 text-center">{storyData.title}</h3>
+
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
           {/* Basic Info */}
           <div className="space-y-4">
             <div>
-              <h4 className="text-lg font-semibold text-white mb-2">Genre & Tone</h4>
+              <h4 className="text-base sm:text-lg font-semibold text-white mb-2">Genre & Tone</h4>
               <div className="flex space-x-3">
                 <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1 rounded-lg text-sm font-medium">
                   {storyData.genre?.charAt(0).toUpperCase() + storyData.genre?.slice(1)}
@@ -47,14 +47,14 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
 
             {storyData.description && (
               <div>
-                <h4 className="text-lg font-semibold text-white mb-2">Description</h4>
+                <h4 className="text-base sm:text-lg font-semibold text-white mb-2">Description</h4>
                 <p className="text-white/80 bg-white/5 p-3 rounded-lg">{storyData.description}</p>
               </div>
             )}
 
             {storyData.world_setting && (
               <div>
-                <h4 className="text-lg font-semibold text-white mb-2">World Setting</h4>
+                <h4 className="text-base sm:text-lg font-semibold text-white mb-2">World Setting</h4>
                 <p className="text-white/80 bg-white/5 p-3 rounded-lg">{storyData.world_setting}</p>
               </div>
             )}
@@ -62,7 +62,7 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
 
           {/* Characters */}
           <div>
-            <h4 className="text-lg font-semibold text-white mb-3">Characters ({storyData.characters?.length || 0})</h4>
+            <h4 className="text-base sm:text-lg font-semibold text-white mb-3">Characters ({storyData.characters?.length || 0})</h4>
             <div className="space-y-2 max-h-48 overflow-y-auto">
               {storyData.characters?.map((character, index) => (
                 <div key={index} className="bg-white/5 p-3 rounded-lg">
@@ -84,16 +84,16 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
 
       {/* Scenario */}
       {storyData.scenario && (
-        <div className="bg-white/10 border border-white/30 rounded-xl p-6">
-          <h4 className="text-lg font-semibold text-white mb-3">📖 Scenario</h4>
+        <div className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6">
+          <h4 className="text-base sm:text-lg font-semibold text-white mb-3">Scenario</h4>
           <p className="text-white/80 bg-white/5 p-4 rounded-lg">{storyData.scenario}</p>
         </div>
       )}
 
       {/* Plot Points */}
       {storyData.plot_points && storyData.plot_points.some(point => point.trim()) && (
-        <div className="bg-white/10 border border-white/30 rounded-xl p-6">
-          <h4 className="text-lg font-semibold text-white mb-3">📈 Plot Points</h4>
+        <div className="bg-white/10 border border-white/30 rounded-xl p-4 sm:p-6">
+          <h4 className="text-base sm:text-lg font-semibold text-white mb-3">Plot Points</h4>
           <div className="space-y-3">
             {storyData.plot_points.map((point, index) => {
               if (!point.trim()) return null;
@@ -108,8 +108,8 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
       )}
 
       {/* Ready to Create */}
-      <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-300/30 rounded-xl p-6 text-center">
-        <h4 className="text-xl font-semibold text-white mb-2">🎉 Ready to Create!</h4>
+      <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-300/30 rounded-xl p-4 sm:p-6 text-center">
+        <h4 className="text-base sm:text-xl font-semibold text-white mb-2">Ready to Create!</h4>
         <p className="text-white/80 mb-4">
           Your story framework is complete. Click below to create your story and start writing!
         </p>
@@ -125,7 +125,7 @@ export default function FinalReview({ storyData, onFinish, onBack, isLoading }: 
           <button
             onClick={handleCreateStory}
             disabled={isLoading}
-            className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
+            className={`px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-200 ${
               isLoading
                 ? 'bg-white/20 text-white/50 cursor-not-allowed'
                 : 'theme-btn-primary transform hover:scale-105'

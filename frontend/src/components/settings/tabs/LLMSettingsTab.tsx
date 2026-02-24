@@ -709,8 +709,9 @@ export default function LLMSettingsTab({
                   <label className="block text-sm font-medium text-white mb-2">Max Tokens</label>
                   <input
                     type="number"
-                    value={llmSettings.max_tokens}
-                    onChange={(e) => setLlmSettings({ ...llmSettings, max_tokens: parseInt(e.target.value) || 2048 })}
+                    value={llmSettings.max_tokens ?? ''}
+                    onChange={(e) => setLlmSettings({ ...llmSettings, max_tokens: e.target.value === '' ? '' as any : parseInt(e.target.value) })}
+                    onBlur={(e) => { const v = parseInt(e.target.value); if (isNaN(v)) setLlmSettings({ ...llmSettings, max_tokens: 2048 }); }}
                     className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                     min="256"
                     max="32000"
@@ -722,8 +723,9 @@ export default function LLMSettingsTab({
                   <label className="block text-sm font-medium text-white mb-2">Timeout (seconds)</label>
                   <input
                     type="number"
-                    value={llmSettings.timeout_total || 120}
-                    onChange={(e) => setLlmSettings({ ...llmSettings, timeout_total: parseInt(e.target.value) || 120 })}
+                    value={llmSettings.timeout_total ?? ''}
+                    onChange={(e) => setLlmSettings({ ...llmSettings, timeout_total: e.target.value === '' ? '' as any : parseInt(e.target.value) })}
+                    onBlur={(e) => { const v = parseInt(e.target.value); if (isNaN(v)) setLlmSettings({ ...llmSettings, timeout_total: 120 }); }}
                     className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                     min="30"
                     max="600"
@@ -828,8 +830,9 @@ export default function LLMSettingsTab({
                       <label className="block text-sm font-medium text-white mb-2">Max Tokens</label>
                       <input
                         type="number"
-                        value={extractionModelSettings.max_tokens}
-                        onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, max_tokens: parseInt(e.target.value) || 1000 })}
+                        value={extractionModelSettings.max_tokens ?? ''}
+                        onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, max_tokens: e.target.value === '' ? '' as any : parseInt(e.target.value) })}
+                        onBlur={(e) => { const v = parseInt(e.target.value); if (isNaN(v)) setExtractionModelSettings({ ...extractionModelSettings, max_tokens: 1000 }); }}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                         min="256"
                         max="4000"

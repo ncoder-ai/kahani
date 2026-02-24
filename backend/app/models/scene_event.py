@@ -57,7 +57,7 @@ class SceneEvent(Base):
     # Relationships
     story = relationship("Story", back_populates="scene_events")
     branch = relationship("StoryBranch", back_populates="scene_events")
-    scene = relationship("Scene")
+    scene = relationship("Scene", back_populates="scene_events")
 
     # Composite indexes for efficient lookups
     __table_args__ = (

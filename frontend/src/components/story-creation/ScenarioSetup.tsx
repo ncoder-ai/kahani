@@ -125,10 +125,10 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
   const canProceed = customScenario.trim().length > 10;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-white mb-4">Set Your Story Scenario</h2>
-        <p className="text-white/80 text-lg">
+        <h2 className="text-xl sm:text-3xl font-bold text-white mb-2 sm:mb-4">Set Your Story Scenario</h2>
+        <p className="text-white/80 text-sm sm:text-lg">
           Choose elements to build your story's foundation, or write your own
         </p>
       </div>
@@ -137,18 +137,18 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
       <CharacterDisplay characters={storyData.characters} />
 
       {/* Scenario Builder */}
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {SCENARIO_PROMPTS.map((prompt) => (
-          <div key={prompt.id} className="space-y-3">
-            <h3 className="text-xl font-semibold text-white">{prompt.title}</h3>
-            
+          <div key={prompt.id} className="space-y-2 sm:space-y-3">
+            <h3 className="text-base sm:text-xl font-semibold text-white">{prompt.title}</h3>
+
             {/* Predefined Options */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3">
               {prompt.options.map((option) => (
                 <button
                   key={option}
                   onClick={() => handleOptionSelect(prompt.id, option)}
-                  className={`p-3 rounded-lg text-left transition-all duration-200 ${
+                  className={`p-2.5 sm:p-3 rounded-lg text-left text-sm sm:text-base transition-all duration-200 ${
                     selectedOptions[prompt.id] === option && !customInputs[prompt.id]
                       ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
                       : 'bg-white/10 border border-white/30 text-white hover:bg-white/20'
@@ -179,7 +179,7 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
           <button
             onClick={generateScenario}
             disabled={isGenerating}
-            className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+            className="px-5 sm:px-8 py-2.5 sm:py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm sm:text-base"
           >
             {isGenerating ? '🤖 Creating Scenario...' : '✨ Generate Creative Scenario'}
           </button>
@@ -190,8 +190,8 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
       )}
 
       {/* Custom Scenario Input */}
-      <div className="space-y-3">
-        <h3 className="text-xl font-semibold text-white">Your Scenario</h3>
+      <div className="space-y-2 sm:space-y-3">
+        <h3 className="text-base sm:text-xl font-semibold text-white">Your Scenario</h3>
         <textarea
           value={customScenario}
           onChange={(e) => handleCustomScenarioChange(e.target.value)}
@@ -205,17 +205,17 @@ export default function ScenarioSetup({ storyData, onUpdate, onNext, onBack }: S
       </div>
 
       {/* Navigation */}
-      <div className="flex justify-between pt-6">
+      <div className="flex justify-between pt-4 sm:pt-6">
         <button
           onClick={onBack}
-          className="px-8 py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
+          className="px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors"
         >
           ← Back
         </button>
         <button
           onClick={onNext}
           disabled={!canProceed}
-          className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
+          className={`px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
               ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
               : 'bg-white/20 text-white/50 cursor-not-allowed'

@@ -57,7 +57,7 @@ class NPCMention(Base):
     # Relationships
     story = relationship("Story", back_populates="npc_mentions")
     branch = relationship("StoryBranch", back_populates="npc_mentions")
-    scene = relationship("Scene")
+    scene = relationship("Scene", back_populates="npc_mentions")
     
     # Index for efficient queries
     __table_args__ = (
@@ -235,8 +235,8 @@ class NPCTrackingSnapshot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
-    scene = relationship("Scene")
-    story = relationship("Story")
+    scene = relationship("Scene", back_populates="npc_tracking_snapshots")
+    story = relationship("Story", back_populates="npc_tracking_snapshots")
     branch = relationship("StoryBranch", back_populates="npc_tracking_snapshots")
     
     # Index for efficient queries

@@ -64,10 +64,21 @@ class Scene(Base):
     choices = relationship("SceneChoice", back_populates="scene", foreign_keys="SceneChoice.scene_id", cascade="all, delete-orphan")
 
     # Generated images for this scene
-    generated_images = relationship("GeneratedImage", back_populates="scene")
+    generated_images = relationship("GeneratedImage", back_populates="scene", cascade="all, delete-orphan")
 
     # Relationship events extracted from this scene
-    character_relationships = relationship("CharacterRelationship", back_populates="scene")
+    character_relationships = relationship("CharacterRelationship", back_populates="scene", cascade="all, delete-orphan")
+
+    # Semantic memory records linked to this scene
+    scene_embeddings = relationship("SceneEmbedding", back_populates="scene", cascade="all, delete-orphan")
+    character_memories = relationship("CharacterMemory", back_populates="scene", cascade="all, delete-orphan")
+    plot_events = relationship("PlotEvent", back_populates="scene", cascade="all, delete-orphan", foreign_keys="PlotEvent.scene_id")
+    scene_events = relationship("SceneEvent", back_populates="scene", cascade="all, delete-orphan")
+    scene_audio = relationship("SceneAudio", back_populates="scene", cascade="all, delete-orphan")
+
+    # NPC tracking
+    npc_mentions = relationship("NPCMention", back_populates="scene", cascade="all, delete-orphan")
+    npc_tracking_snapshots = relationship("NPCTrackingSnapshot", back_populates="scene", cascade="all, delete-orphan")
 
     @property
     def active_variant(self):

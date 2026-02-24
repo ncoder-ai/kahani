@@ -133,61 +133,61 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
   const canProceed = storyData.genre && storyData.tone;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-white mb-4">Choose Your Story's Genre</h2>
-        <p className="text-white/80 text-lg">
+        <h2 className="text-xl sm:text-3xl font-bold text-white mb-2 sm:mb-4">Choose Your Story's Genre</h2>
+        <p className="text-white/80 text-sm sm:text-lg">
           Select the genre that best fits your vision
         </p>
       </div>
 
       {/* Genre Selection */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         {GENRES.map((genre) => (
           <button
             key={genre.id}
             onClick={() => handleGenreSelect(genre.id)}
-            className={`p-6 rounded-2xl border transition-all duration-200 text-left group hover:scale-105 ${
+            className={`p-3 sm:p-6 rounded-xl sm:rounded-2xl border transition-all duration-200 text-left group hover:scale-105 ${
               storyData.genre === genre.id
                 ? 'border-white bg-white/20 scale-105'
                 : 'border-white/30 bg-white/10 hover:bg-white/15'
             }`}
           >
-            <div className={`text-3xl mb-3 bg-gradient-to-r ${genre.gradient} bg-clip-text text-transparent`}>
+            <div className={`text-xl sm:text-3xl mb-2 sm:mb-3 bg-gradient-to-r ${genre.gradient} bg-clip-text text-transparent`}>
               {genre.icon}
             </div>
-            <h3 className="text-white font-semibold mb-2">{genre.name}</h3>
-            <p className="text-white/70 text-sm">{genre.description}</p>
+            <h3 className="text-white font-semibold text-sm sm:text-base mb-1 sm:mb-2">{genre.name}</h3>
+            <p className="text-white/70 text-xs sm:text-sm hidden sm:block">{genre.description}</p>
           </button>
         ))}
       </div>
 
       {/* NSFW Genres - Show directly if user has permission */}
       {canAccessNSFW && (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <div className="text-center">
-            <h3 className="text-2xl font-bold text-white mb-2">Mature Content</h3>
-            <p className="text-white/70 text-sm">
+            <h3 className="text-lg sm:text-2xl font-bold text-white mb-1 sm:mb-2">Mature Content</h3>
+            <p className="text-white/70 text-xs sm:text-sm">
               Genres with mature themes and adult content
             </p>
           </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
             {NSFW_GENRES.map((genre) => (
               <button
                 key={genre.id}
                 onClick={() => handleGenreSelect(genre.id)}
-                className={`p-6 rounded-2xl border transition-all duration-200 text-left group hover:scale-105 ${
+                className={`p-3 sm:p-6 rounded-xl sm:rounded-2xl border transition-all duration-200 text-left group hover:scale-105 ${
                   storyData.genre === genre.id
                     ? 'border-white bg-white/20 scale-105'
                     : 'border-white/30 bg-white/10 hover:bg-white/15'
                 }`}
               >
-                <div className={`text-3xl mb-3 bg-gradient-to-r ${genre.gradient} bg-clip-text text-transparent`}>
+                <div className={`text-xl sm:text-3xl mb-2 sm:mb-3 bg-gradient-to-r ${genre.gradient} bg-clip-text text-transparent`}>
                   {genre.icon}
                 </div>
-                <h3 className="text-white font-semibold mb-2">{genre.name}</h3>
-                <p className="text-white/70 text-sm">{genre.description}</p>
+                <h3 className="text-white font-semibold text-sm sm:text-base mb-1 sm:mb-2">{genre.name}</h3>
+                <p className="text-white/70 text-xs sm:text-sm hidden sm:block">{genre.description}</p>
               </button>
             ))}
           </div>
@@ -196,21 +196,21 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
 
       {/* Tone Selection */}
       {storyData.genre && (
-        <div className="space-y-4">
-          <h3 className="text-2xl font-bold text-white text-center">Select the Tone</h3>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        <div className="space-y-3 sm:space-y-4">
+          <h3 className="text-lg sm:text-2xl font-bold text-white text-center">Select the Tone</h3>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
             {TONES.map((tone) => (
               <button
                 key={tone.id}
                 onClick={() => handleToneSelect(tone.id)}
-                className={`p-4 rounded-xl border transition-all duration-200 text-center ${
+                className={`p-2.5 sm:p-4 rounded-lg sm:rounded-xl border transition-all duration-200 text-center ${
                   storyData.tone === tone.id
                     ? 'border-white bg-white/20'
                     : 'border-white/30 bg-white/10 hover:bg-white/15'
                 }`}
               >
-                <div className="text-2xl mb-2">{tone.icon}</div>
-                <span className="text-white text-sm font-medium">{tone.name}</span>
+                <div className="text-lg sm:text-2xl mb-1 sm:mb-2">{tone.icon}</div>
+                <span className="text-white text-xs sm:text-sm font-medium">{tone.name}</span>
               </button>
             ))}
           </div>
@@ -218,11 +218,11 @@ export default function GenreSelection({ storyData, onUpdate, onNext, isFirstSte
       )}
 
       {/* Navigation */}
-      <div className="flex justify-end pt-6">
+      <div className="flex justify-end pt-4 sm:pt-6">
         <button
           onClick={onNext}
           disabled={!canProceed}
-          className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
+          className={`px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-200 ${
             canProceed
               ? 'theme-btn-primary'
               : 'bg-white/20 text-white/50 cursor-not-allowed'

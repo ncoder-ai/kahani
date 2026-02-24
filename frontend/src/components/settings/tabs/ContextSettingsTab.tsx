@@ -163,17 +163,16 @@ export default function ContextSettingsTab({
               min="1000"
               max="1000000"
               step="8"
-              value={contextSettings.max_tokens || 4000}
+              value={contextSettings.max_tokens ?? ''}
               onChange={(e) => {
-                const value = parseInt(e.target.value) || 4000;
-                setContextSettings({ ...contextSettings, max_tokens: value });
+                const raw = e.target.value;
+                setContextSettings({ ...contextSettings, max_tokens: raw === '' ? '' as any : parseInt(raw) });
               }}
               onBlur={(e) => {
-                const value = parseInt(e.target.value) || 4000;
+                const parsed = parseInt(e.target.value);
+                const value = isNaN(parsed) || parsed < 1000 ? 4000 : parsed;
                 const rounded = Math.round(value / 8) * 8;
-                if (value !== rounded) {
-                  setContextSettings({ ...contextSettings, max_tokens: rounded });
-                }
+                setContextSettings({ ...contextSettings, max_tokens: rounded });
               }}
               className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white mb-2"
             />
@@ -324,17 +323,16 @@ export default function ContextSettingsTab({
                   min="1000"
                   max="50000"
                   step="8"
-                  value={contextSettings.summary_threshold_tokens || 8000}
+                  value={contextSettings.summary_threshold_tokens ?? ''}
                   onChange={(e) => {
-                    const value = parseInt(e.target.value) || 8000;
-                    setContextSettings({ ...contextSettings, summary_threshold_tokens: value });
+                    const raw = e.target.value;
+                    setContextSettings({ ...contextSettings, summary_threshold_tokens: raw === '' ? '' as any : parseInt(raw) });
                   }}
                   onBlur={(e) => {
-                    const value = parseInt(e.target.value) || 8000;
+                    const parsed = parseInt(e.target.value);
+                    const value = isNaN(parsed) || parsed < 1000 ? 8000 : parsed;
                     const rounded = Math.round(value / 8) * 8;
-                    if (value !== rounded) {
-                      setContextSettings({ ...contextSettings, summary_threshold_tokens: rounded });
-                    }
+                    setContextSettings({ ...contextSettings, summary_threshold_tokens: rounded });
                   }}
                   className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white mb-2"
                 />

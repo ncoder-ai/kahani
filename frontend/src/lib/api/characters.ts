@@ -224,7 +224,7 @@ export class CharactersApi extends BaseApiClient {
    */
   async generateCharacterWithAI(
     prompt: string,
-    storyContext?: { genre?: string; tone?: string; world_setting?: string },
+    storyContext?: { genre?: string; tone?: string; world_setting?: string; world_description?: string; existing_characters?: string[] },
     previousGeneration?: any
   ): Promise<{
     character: CharacterAnalysis;

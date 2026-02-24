@@ -1199,15 +1199,18 @@ async def delete_story(
     scene_count = len(story.scenes)
     logger.info(f"[DELETE] Story has {scene_count} scenes")
 
-    # Delete the story - cascades will handle:
-    # - StoryFlow entries (ON DELETE CASCADE)
-    # - Scene entries (ON DELETE CASCADE) which cascade to:
-    #   - SceneVariant entries (ON DELETE CASCADE) which cascade to:
-    #     - SceneChoice entries (ON DELETE CASCADE)
+    # Delete the story - ORM cascades handle related records.
     # Characters are NOT deleted (as per requirement)
-
-    db.delete(story)
-    db.commit()
+    try:
+        db.delete(story)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[DELETE] Failed to delete story {story_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete story: {str(e)}"
+        )
 
     logger.info(f"[DELETE] Successfully deleted story {story_id}")
 

@@ -357,8 +357,9 @@ export default function ImageGenSettingsTab({
                 <label className="block text-sm font-medium text-white mb-2">Width</label>
                 <input
                   type="number"
-                  value={imageGenSettings.width}
-                  onChange={(e) => setImageGenSettings(prev => ({ ...prev, width: parseInt(e.target.value) || 1024 }))}
+                  value={imageGenSettings.width ?? ''}
+                  onChange={(e) => setImageGenSettings(prev => ({ ...prev, width: e.target.value === '' ? '' as any : parseInt(e.target.value) }))}
+                  onBlur={(e) => { const v = parseInt(e.target.value); if (isNaN(v)) setImageGenSettings(prev => ({ ...prev, width: 1024 })); }}
                   min={256}
                   max={2048}
                   step={64}
@@ -369,8 +370,9 @@ export default function ImageGenSettingsTab({
                 <label className="block text-sm font-medium text-white mb-2">Height</label>
                 <input
                   type="number"
-                  value={imageGenSettings.height}
-                  onChange={(e) => setImageGenSettings(prev => ({ ...prev, height: parseInt(e.target.value) || 1024 }))}
+                  value={imageGenSettings.height ?? ''}
+                  onChange={(e) => setImageGenSettings(prev => ({ ...prev, height: e.target.value === '' ? '' as any : parseInt(e.target.value) }))}
+                  onBlur={(e) => { const v = parseInt(e.target.value); if (isNaN(v)) setImageGenSettings(prev => ({ ...prev, height: 1024 })); }}
                   min={256}
                   max={2048}
                   step={64}

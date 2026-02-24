@@ -118,7 +118,7 @@ class SceneAudio(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
-    scene = relationship("Scene")
+    scene = relationship("Scene", back_populates="scene_audio")
     user = relationship("User")
     
     def to_dict(self):
