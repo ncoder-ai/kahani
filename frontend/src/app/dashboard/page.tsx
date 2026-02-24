@@ -227,15 +227,15 @@ function DashboardContent() {
   };
 
   // --- Roleplay handlers ---
-  const handleDeleteRoleplay = async (id: number, title: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm(`Delete roleplay "${title}"? This cannot be undone.`)) return;
-    try {
-      await roleplayApiRef.deleteRoleplay(id);
-      setRoleplays(prev => prev.filter(rp => rp.story_id !== id));
-    } catch (error) {
-      console.error('Failed to delete roleplay:', error);
-    }
+  const handleDeleteRoleplay = async (id: number, _title: string) => {
+    const response = await roleplayApiRef.deleteRoleplay(id);
+    setRoleplays(prev => prev.filter(rp => rp.story_id !== id));
+  };
+
+  // --- Brainstorm individual delete handler ---
+  const handleDeleteBrainstorm = async (id: number, _summary: string) => {
+    await apiClient.deleteBrainstormSessions([id]);
+    await loadBrainstormSessions();
   };
 
   // --- Loading state ---
@@ -278,6 +278,7 @@ function DashboardContent() {
           onDeleteSelectedBrainstorms={handleDeleteSelectedBrainstorms}
           onCancelBrainstormSelectMode={() => { setBrainstormSelectMode(false); setSelectedBrainstormIds(new Set()); }}
           onDeleteRoleplay={handleDeleteRoleplay}
+          onDeleteBrainstorm={handleDeleteBrainstorm}
           formatRelativeDate={formatRelativeDate}
         />
 

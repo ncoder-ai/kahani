@@ -1,17 +1,34 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2, MessageSquare, Users, Clock } from 'lucide-react';
+import { MessageSquare, Users, Clock } from 'lucide-react';
 import type { RoleplayListItem } from '@/lib/api/roleplay';
 
 interface RoleplayCardProps {
   roleplay: RoleplayListItem;
   formatRelativeDate: (dateStr: string) => string;
-  onDelete: (id: number, title: string, e: React.MouseEvent) => void;
+  onDelete: (id: number, title: string) => Promise<void> | void;
 }
 
 export default function RoleplayCard({ roleplay, formatRelativeDate, onDelete }: RoleplayCardProps) {
   const router = useRouter();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(false);
+    try {
+      await Promise.resolve(onDelete(roleplay.story_id, roleplay.title));
+    } catch {
+      setDeleteError(true);
+    } finally {
+      setIsDeleting(false);
+      setConfirmingDelete(false);
+    }
+  };
 
   return (
     <div
@@ -39,25 +56,60 @@ export default function RoleplayCard({ roleplay, formatRelativeDate, onDelete }:
         <Users className="w-3.5 h-3.5 text-white/40 flex-shrink-0" />
         <span className="text-sm text-white/60 line-clamp-1">{roleplay.characters.join(', ')}</span>
       </div>
-      <div className="flex items-center justify-between pt-2 border-t border-white/10">
-        <div className="flex items-center gap-3 text-xs text-white/40">
-          <span className="flex items-center gap-1">
-            <MessageSquare className="w-3 h-3" />
-            {roleplay.turn_count} turns
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {formatRelativeDate(roleplay.updated_at || roleplay.created_at)}
-          </span>
+
+      <div className="pt-2 border-t border-white/10" data-actions>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3 text-xs text-white/40">
+            <span className="flex items-center gap-1">
+              <MessageSquare className="w-3 h-3" />
+              {roleplay.turn_count} turns
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatRelativeDate(roleplay.updated_at || roleplay.created_at)}
+            </span>
+          </div>
         </div>
-        <button
-          data-actions
-          onClick={(e) => onDelete(roleplay.story_id, roleplay.title, e)}
-          className="p-2 hover:bg-red-500/20 active:bg-red-500/30 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100"
-          title="Delete roleplay"
-        >
-          <Trash2 className="w-4 h-4 text-red-400" />
-        </button>
+
+        {deleteError && (
+          <div className="mb-2 px-3 py-1.5 bg-red-600/20 border border-red-500/30 rounded-lg text-red-300 text-xs">
+            Delete failed. Try again.
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push(`/roleplay/${roleplay.story_id}`)}
+            className="flex-1 bg-purple-600/20 hover:bg-purple-600/40 active:bg-purple-600/50 text-purple-200 hover:text-white px-3 py-2.5 sm:py-2 rounded-lg text-sm font-medium transition-all duration-200"
+          >
+            Continue
+          </button>
+          {confirmingDelete ? (
+            <div className="flex gap-1">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:bg-red-800 text-white px-3 py-2.5 sm:py-2 rounded-lg text-sm font-bold transition-all duration-200"
+              >
+                {isDeleting ? '...' : 'Yes'}
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 px-3 py-2.5 sm:py-2 rounded-lg text-sm transition-all duration-200"
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="bg-red-600/20 hover:bg-red-600/40 active:bg-red-600/50 text-red-200 hover:text-white px-3 py-2.5 sm:py-2 rounded-lg text-sm font-medium transition-all duration-200"
+            >
+              Delete
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

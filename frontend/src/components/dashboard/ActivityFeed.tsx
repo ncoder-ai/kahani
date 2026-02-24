@@ -32,7 +32,9 @@ interface ActivityFeedProps {
   onDeleteSelectedBrainstorms: () => void;
   onCancelBrainstormSelectMode: () => void;
   // Roleplay handlers
-  onDeleteRoleplay: (id: number, title: string, e: React.MouseEvent) => void;
+  onDeleteRoleplay: (id: number, title: string) => Promise<void> | void;
+  // Brainstorm individual delete
+  onDeleteBrainstorm: (id: number, summary: string) => Promise<void> | void;
   formatRelativeDate: (dateStr: string) => string;
 }
 
@@ -63,6 +65,7 @@ export default function ActivityFeed({
   onDeleteSelectedBrainstorms,
   onCancelBrainstormSelectMode,
   onDeleteRoleplay,
+  onDeleteBrainstorm,
   formatRelativeDate,
 }: ActivityFeedProps) {
   const [activeTab, setActiveTab] = useState<Tab>('all');
@@ -193,6 +196,7 @@ export default function ActivityFeed({
                   selectMode={false}
                   isSelected={false}
                   onToggleSelection={() => {}}
+                  onDelete={onDeleteBrainstorm}
                 />
               );
             }
@@ -258,6 +262,7 @@ export default function ActivityFeed({
                 selectMode={brainstormSelectMode}
                 isSelected={selectedBrainstormIds.has(session.id)}
                 onToggleSelection={onToggleBrainstormSelection}
+                onDelete={onDeleteBrainstorm}
               />
             ))
           )}
