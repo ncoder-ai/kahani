@@ -153,6 +153,7 @@ async def get_stories(
             "story_mode": story.story_mode,
             "content_rating": story.content_rating or "sfw",
             "creation_step": story.creation_step,
+            "summary": story.summary,
             "created_at": story.created_at,
             "updated_at": story.updated_at
         }

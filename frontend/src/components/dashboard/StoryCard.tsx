@@ -77,16 +77,30 @@ export default function StoryCard({
         </p>
       )}
 
-      {/* Story Summary */}
+      {/* Story Summary — clickable to open full summary overlay */}
       {story.summary ? (
-        <div className="mb-3 p-2 sm:p-3 theme-bg-secondary border theme-border-accent rounded-lg">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold theme-accent-primary">STORY SUMMARY</span>
+        story.content_rating === 'nsfw' ? (
+          <div
+            data-actions
+            onClick={() => onViewSummary(story.id)}
+            className="mb-3 p-2 sm:p-3 bg-red-500/10 border border-red-500/20 rounded-lg cursor-pointer hover:bg-red-500/20 transition-colors"
+          >
+            <span className="text-xs text-red-300 font-medium">Show Summary</span>
           </div>
-          <p className="text-white/80 text-xs line-clamp-2 sm:line-clamp-3 whitespace-pre-wrap">
-            {story.summary}
-          </p>
-        </div>
+        ) : (
+          <div
+            data-actions
+            onClick={() => onViewSummary(story.id)}
+            className="mb-3 p-2 sm:p-3 theme-bg-secondary border theme-border-accent rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold theme-accent-primary">STORY SO FAR</span>
+            </div>
+            <p className="text-white/80 text-xs line-clamp-2 sm:line-clamp-3 whitespace-pre-wrap">
+              {story.summary}
+            </p>
+          </div>
+        )
       ) : (
         <div className="mb-3 p-2 sm:p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
           <span className="text-xs text-gray-400">No story summary available</span>
