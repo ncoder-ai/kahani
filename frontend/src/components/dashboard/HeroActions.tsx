@@ -11,6 +11,7 @@ export default function HeroActions({ isAdmin }: HeroActionsProps) {
 
   return (
     <div className="text-center mb-8 sm:mb-12">
+      <img src="/kahanilogo.png" alt="Kahani" className="h-20 sm:h-28 w-20 sm:w-28 object-contain mx-auto mb-4" />
       <h2 className="text-2xl sm:text-4xl font-bold text-white mb-2 sm:mb-4">Your Story Universe</h2>
       <p className="text-white/80 text-sm sm:text-lg mb-6 sm:mb-10 px-2">
         Create immersive stories with AI assistance
