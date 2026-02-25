@@ -92,33 +92,12 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
       loadCharacter();
     } else if (initialData) {
       // Pre-fill form with initial data (e.g., from Discover from Story)
-      setFormData({
-        name: initialData.name || '',
-        description: initialData.description || '',
-        gender: initialData.gender || '',
-        personality_traits: initialData.personality_traits || [],
-        background: initialData.background || '',
-        goals: initialData.goals || '',
-        fears: initialData.fears || '',
-        appearance: initialData.appearance || '',
-        is_template: initialData.is_template ?? true,
-        is_public: initialData.is_public ?? false,
-        voice_style: initialData.voice_style || null
-      });
+      setFormData(prev => ({
+        ...prev,
+        ...initialData,
+      }));
       // Set as generated character so it shows in AI-assisted preview mode
-      setGeneratedCharacter({
-        name: initialData.name || '',
-        description: initialData.description || '',
-        gender: initialData.gender || '',
-        personality_traits: initialData.personality_traits || [],
-        background: initialData.background || '',
-        goals: initialData.goals || '',
-        fears: initialData.fears || '',
-        appearance: initialData.appearance || '',
-        is_template: initialData.is_template ?? true,
-        is_public: initialData.is_public ?? false,
-        voice_style: initialData.voice_style || null
-      });
+      setGeneratedCharacter(initialData);
       setCreationMode('ai-assisted');
     }
   }, [characterId, mode, initialData]);
@@ -136,19 +115,11 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
     try {
       setLoading(true);
       const character = await apiClient.getCharacter(characterId);
-      setFormData({
-        name: character.name,
-        description: character.description,
-        gender: character.gender || '',
-        personality_traits: character.personality_traits,
-        background: character.background,
-        goals: character.goals,
-        fears: character.fears,
-        appearance: character.appearance,
-        is_template: character.is_template,
-        is_public: character.is_public,
-        voice_style: character.voice_style || null
-      });
+      const { name, description, gender, personality_traits, background, goals, fears, appearance, is_template, is_public, voice_style } = character;
+      setFormData(prev => ({
+        ...prev,
+        name, description, gender: gender || '', personality_traits, background, goals, fears, appearance, is_template, is_public, voice_style: voice_style || null,
+      }));
       // Set portrait image id
       setPortraitImageId(character.portrait_image_id || null);
       // If character has custom voice style, show customization
@@ -293,19 +264,11 @@ export default function CharacterForm({ characterId, onSave, mode = 'create', st
   const handleEditManually = () => {
     // Populate form with generated data and switch to manual mode
     if (generatedCharacter) {
-      setFormData({
-        name: generatedCharacter.name,
-        description: generatedCharacter.description,
-        gender: generatedCharacter.gender || '',
-        personality_traits: generatedCharacter.personality_traits || [],
-        background: generatedCharacter.background,
-        goals: generatedCharacter.goals,
-        fears: generatedCharacter.fears,
-        appearance: generatedCharacter.appearance,
-        is_template: generatedCharacter.is_template ?? true,
-        is_public: generatedCharacter.is_public ?? false,
-        voice_style: generatedCharacter.voice_style || formData.voice_style || null
-      });
+      setFormData(prev => ({
+        ...prev,
+        ...generatedCharacter,
+        voice_style: generatedCharacter.voice_style || prev.voice_style || null,
+      }));
     }
     setCreationMode('manual');
     setGeneratedCharacter(null);

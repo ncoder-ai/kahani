@@ -90,17 +90,11 @@ export default function StorySettingsModal({ isOpen, onClose, storyId, onSaved }
     try {
       // Load story data
       const story = await apiClient.getStory(storyId);
-      setFormData({
-        title: story.title || '',
-        description: story.description ?? '',
-        genre: story.genre || '',
-        tone: story.tone || '',
-        world_setting: story.world_setting ?? '',
-        initial_premise: story.initial_premise ?? '',
-        scenario: story.scenario ?? '',
-        content_rating: (story.content_rating || 'sfw') as 'sfw' | 'nsfw',
-        plot_check_mode: (story.plot_check_mode || '1') as '1' | '3' | 'all',
-      });
+      const { title, description, genre, tone, world_setting, initial_premise, scenario, content_rating, plot_check_mode } = story;
+      setFormData(prev => ({
+        ...prev,
+        title, description, genre, tone, world_setting, initial_premise, scenario, content_rating, plot_check_mode,
+      }));
       setInteractionTypes(story.interaction_types || []);
       setCurrentWorldId(story.world_id ?? null);
       

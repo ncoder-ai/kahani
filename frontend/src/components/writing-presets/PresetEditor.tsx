@@ -49,38 +49,41 @@ export default function PresetEditor({ preset, isOpen, onClose, onSave }: Preset
 
   useEffect(() => {
     if (preset) {
-      setFormData({
+      setFormData(prev => ({
+        ...prev,
         name: preset.name,
         description: preset.description || '',
         system_prompt: preset.system_prompt,
         summary_system_prompt: preset.summary_system_prompt || '',
-        pov: (preset.pov as 'first' | 'second' | 'third') || 'third',
-        prose_style: preset.prose_style || 'balanced',
-      });
+        pov: preset.pov ? preset.pov as 'first' | 'second' | 'third' : prev.pov,
+        prose_style: preset.prose_style || prev.prose_style,
+      }));
     } else {
       // New preset - load default template from API
       const loadDefault = async () => {
         try {
           const data = await api.getDefaultWritingPresetTemplate();
-          setFormData({
+          setFormData(prev => ({
+            ...prev,
             name: '',
             description: '',
             system_prompt: data.system_prompt || SUGGESTED_PRESETS[0].system_prompt,
             summary_system_prompt: '',
-            pov: (data.pov as 'first' | 'second' | 'third') || 'third',
-            prose_style: data.prose_style || 'balanced',
-          });
+            pov: data.pov ? data.pov as 'first' | 'second' | 'third' : prev.pov,
+            prose_style: data.prose_style || prev.prose_style,
+          }));
         } catch (error) {
           console.error('Failed to load default template:', error);
           // Fallback to suggested preset
-          setFormData({
+          setFormData(prev => ({
+            ...prev,
             name: '',
             description: '',
             system_prompt: SUGGESTED_PRESETS[0].system_prompt,
             summary_system_prompt: '',
             pov: 'third',
             prose_style: 'balanced',
-          });
+          }));
         }
       };
       loadDefault();

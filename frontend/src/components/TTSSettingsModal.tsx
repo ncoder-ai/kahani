@@ -143,20 +143,11 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
             console.error('Failed to load TTS provider URLs:', error);
           }
         }
-        setSettings({
-          provider_type: data.provider_type || 'openai-compatible',
+        setSettings(prev => ({
+          ...prev,
+          ...data,
           api_url: data.api_url || defaultApiUrl,
-          api_key: data.api_key,
-          voice_id: data.voice_id || 'default',
-          speed: data.speed || 1.0,
-          timeout: data.timeout || 30,
-          extra_params: data.extra_params,
-          tts_enabled: data.tts_enabled !== undefined ? data.tts_enabled : true,
-          progressive_narration: data.progressive_narration || false,
-          chunk_size: data.chunk_size || 280,
-          stream_audio: data.stream_audio !== undefined ? data.stream_audio : true,
-          auto_play_last_scene: data.auto_play_last_scene || false,
-        });
+        }));
         
         // Load Chatterbox-specific settings if present
         // Check extra_params from global settings
@@ -210,19 +201,9 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
     if (savedConfig) {
       // Load saved configuration
       newSettings = {
+        ...settings,
+        ...savedConfig,
         provider_type: providerType,
-        api_url: savedConfig.api_url,
-        api_key: savedConfig.api_key,
-        voice_id: savedConfig.voice_id,
-        speed: savedConfig.speed || 1.0,
-        timeout: savedConfig.timeout || 30,
-        extra_params: savedConfig.extra_params,
-        // Preserve global TTS settings from current settings
-        tts_enabled: settings.tts_enabled,
-        progressive_narration: settings.progressive_narration,
-        chunk_size: settings.chunk_size,
-        stream_audio: settings.stream_audio,
-        auto_play_last_scene: settings.auto_play_last_scene,
       };
       
       // Load provider-specific settings
@@ -250,6 +231,7 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         console.error('Failed to load TTS provider URLs:', error);
       }
       newSettings = {
+        ...settings,
         provider_type: providerType,
         api_url: defaultApiUrl,
         api_key: '',
@@ -257,12 +239,6 @@ export default function TTSSettingsModal({ isOpen, onClose, onSaved }: TTSSettin
         speed: 1.0,
         timeout: 30,
         extra_params: {},
-        // Preserve global TTS settings from current settings
-        tts_enabled: settings.tts_enabled,
-        progressive_narration: settings.progressive_narration,
-        chunk_size: settings.chunk_size,
-        stream_audio: settings.stream_audio,
-        auto_play_last_scene: settings.auto_play_last_scene,
       };
       
       // Reset provider-specific settings to defaults

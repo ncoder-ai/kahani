@@ -176,20 +176,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
         // Load UI preferences
         if (settings?.ui_preferences) {
-          const newUiSettings = {
-            color_theme: settings.ui_preferences.color_theme || 'pure-dark',
-            font_size: settings.ui_preferences.font_size || 'medium',
-            show_token_info: settings.ui_preferences.show_token_info || false,
-            show_context_info: settings.ui_preferences.show_context_info || false,
-            notifications: settings.ui_preferences.notifications !== false,
-            scene_display_format: settings.ui_preferences.scene_display_format || 'default',
-            show_scene_titles: settings.ui_preferences.show_scene_titles !== false,
-            scene_edit_mode: settings.ui_preferences.scene_edit_mode || 'textarea',
-            auto_open_last_story: settings.ui_preferences.auto_open_last_story || false,
-          };
-          setUiSettings(newUiSettings);
+          setUiSettings(prev => ({
+            ...prev,
+            ...settings.ui_preferences,
+          }));
           // Apply theme
-          applyTheme(newUiSettings.color_theme);
+          applyTheme(settings.ui_preferences.color_theme || 'pure-dark');
         }
 
         // Load engine-specific LLM settings
@@ -211,26 +203,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setLlmSettings(settings.llm_settings);
             }
           } else {
-            setLlmSettings({
-              temperature: settings.llm_settings.temperature ?? 0.7,
-              top_p: settings.llm_settings.top_p ?? 0.9,
-              top_k: settings.llm_settings.top_k ?? 40,
-              repetition_penalty: settings.llm_settings.repetition_penalty ?? 1.1,
-              max_tokens: settings.llm_settings.max_tokens ?? 2048,
-              timeout_total: settings.llm_settings.timeout_total,
-              api_url: settings.llm_settings.api_url || '',
-              api_key: settings.llm_settings.api_key || '',
-              api_type: settings.llm_settings.api_type || '',
-              model_name: settings.llm_settings.model_name || '',
-              completion_mode: settings.llm_settings.completion_mode || 'chat',
-              text_completion_template: settings.llm_settings.text_completion_template || '',
-              text_completion_preset: settings.llm_settings.text_completion_preset || 'llama3',
-              reasoning_effort: settings.llm_settings.reasoning_effort || null,
-              show_thinking_content: settings.llm_settings.show_thinking_content ?? true,
-              thinking_model_type: settings.llm_settings.thinking_model_type ?? null,
-              thinking_model_custom_pattern: settings.llm_settings.thinking_model_custom_pattern ?? '',
-              thinking_enabled_generation: settings.llm_settings.thinking_enabled_generation ?? false,
-            });
+            setLlmSettings(prev => ({
+              ...prev,
+              ...settings.llm_settings,
+            }));
             if (settings.llm_settings.api_type && settings.llm_settings.api_type.trim() !== '') {
               setCurrentEngine(settings.llm_settings.api_type);
             }
@@ -239,51 +215,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
         // Load Context settings
         if (settings?.context_settings) {
-          setContextSettings({
-            max_tokens: settings.context_settings.max_tokens ?? 8000,
-            keep_recent_scenes: settings.context_settings.keep_recent_scenes ?? 2,  // Now = number of batches
-            summary_threshold: settings.context_settings.summary_threshold ?? 10,
-            summary_threshold_tokens: settings.context_settings.summary_threshold_tokens ?? 4000,
-            enable_summarization: settings.context_settings.enable_summarization !== false,
-            character_extraction_threshold: settings.context_settings.character_extraction_threshold ?? 5,
-            scene_batch_size: settings.context_settings.scene_batch_size ?? 5,
-            enable_semantic_memory: settings.context_settings.enable_semantic_memory || false,
-            context_strategy: settings.context_settings.context_strategy || 'linear',
-            semantic_search_top_k: settings.context_settings.semantic_search_top_k ?? 5,
-            semantic_scenes_in_context: settings.context_settings.semantic_scenes_in_context ?? 3,
-            semantic_context_weight: settings.context_settings.semantic_context_weight ?? 0.7,
-            character_moments_in_context: settings.context_settings.character_moments_in_context ?? 2,
-            auto_extract_character_moments: settings.context_settings.auto_extract_character_moments || false,
-            auto_extract_plot_events: settings.context_settings.auto_extract_plot_events || false,
-            extraction_confidence_threshold: settings.context_settings.extraction_confidence_threshold ?? 0.8,
-            plot_event_extraction_threshold: settings.context_settings.plot_event_extraction_threshold ?? 5,
-            fill_remaining_context: settings.context_settings.fill_remaining_context !== false,
-            // Contradiction settings
-            enable_working_memory: settings.context_settings.enable_working_memory !== false,
-            enable_contradiction_detection: settings.context_settings.enable_contradiction_detection !== false,
-            contradiction_severity_threshold: settings.context_settings.contradiction_severity_threshold || 'medium',
-            enable_relationship_graph: settings.context_settings.enable_relationship_graph !== false,
-            enable_contradiction_injection: settings.context_settings.enable_contradiction_injection !== false,
-            enable_inline_contradiction_check: settings.context_settings.enable_inline_contradiction_check || false,
-            auto_regenerate_on_contradiction: settings.context_settings.auto_regenerate_on_contradiction || false,
-          });
+          setContextSettings(prev => ({
+            ...prev,
+            ...settings.context_settings,
+          }));
         }
 
         // Load Generation preferences
         if (settings?.generation_preferences) {
-          setGenerationPrefs({
-            default_genre: settings.generation_preferences.default_genre || 'fantasy',
-            default_tone: settings.generation_preferences.default_tone || 'balanced',
-            scene_length: settings.generation_preferences.scene_length || 'medium',
-            auto_choices: settings.generation_preferences.auto_choices !== false,
-            choices_count: settings.generation_preferences.choices_count ?? 4,
-            enable_streaming: settings.generation_preferences.enable_streaming !== false,
-            alert_on_high_context: settings.generation_preferences.alert_on_high_context !== false,
-            use_extraction_llm_for_summary: settings.generation_preferences.use_extraction_llm_for_summary || false,
-            separate_choice_generation: settings.generation_preferences.separate_choice_generation || false,
-            enable_chapter_plot_tracking: settings.generation_preferences.enable_chapter_plot_tracking !== false,
-            default_plot_check_mode: (settings.generation_preferences.default_plot_check_mode || '1') as '1' | '3' | 'all',
-          });
+          setGenerationPrefs(prev => ({
+            ...prev,
+            ...settings.generation_preferences,
+          }));
         }
 
         // Load Extraction Model settings
@@ -294,23 +237,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           } catch (error) {
             console.error('Failed to load extraction default URL from config:', error);
           }
-          setExtractionModelSettings({
-            enabled: settings.extraction_model_settings.enabled ?? false,
+          setExtractionModelSettings(prev => ({
+            ...prev,
+            ...settings.extraction_model_settings,
             url: settings.extraction_model_settings.url || defaultExtractionUrl,
-            api_key: settings.extraction_model_settings.api_key || '',
-            model_name: settings.extraction_model_settings.model_name || 'qwen2.5-3b-instruct',
-            temperature: settings.extraction_model_settings.temperature ?? 0.3,
-            max_tokens: settings.extraction_model_settings.max_tokens ?? 1000,
-            fallback_to_main: settings.extraction_model_settings.fallback_to_main !== false,
-            use_context_aware_extraction: settings.extraction_model_settings.use_context_aware_extraction ?? false,
-            top_p: settings.extraction_model_settings.top_p ?? 1.0,
-            repetition_penalty: settings.extraction_model_settings.repetition_penalty ?? 1.0,
-            min_p: settings.extraction_model_settings.min_p ?? 0.0,
-            thinking_disable_method: settings.extraction_model_settings.thinking_disable_method ?? 'none',
-            thinking_disable_custom: settings.extraction_model_settings.thinking_disable_custom ?? '',
-            thinking_enabled_extractions: settings.extraction_model_settings.thinking_enabled_extractions ?? false,
-            thinking_enabled_memory: settings.extraction_model_settings.thinking_enabled_memory ?? true,
-          });
+          }));
         }
 
         // Load sampler settings
@@ -323,19 +254,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
         // Load Image Generation settings
         if (settings?.image_generation_settings) {
-          setImageGenSettings({
-            enabled: settings.image_generation_settings.enabled ?? false,
-            comfyui_server_url: settings.image_generation_settings.comfyui_server_url || '',
-            comfyui_api_key: settings.image_generation_settings.comfyui_api_key || '',
-            comfyui_checkpoint: settings.image_generation_settings.comfyui_checkpoint || '',
-            comfyui_model_type: settings.image_generation_settings.comfyui_model_type || 'sdxl',
-            width: settings.image_generation_settings.width ?? 1024,
-            height: settings.image_generation_settings.height ?? 1024,
-            steps: settings.image_generation_settings.steps ?? 4,
-            cfg_scale: settings.image_generation_settings.cfg_scale ?? 1.5,
-            default_style: settings.image_generation_settings.default_style || 'illustrated',
-            use_extraction_llm_for_prompts: settings.image_generation_settings.use_extraction_llm_for_prompts ?? false,
-          });
+          setImageGenSettings(prev => ({
+            ...prev,
+            ...settings.image_generation_settings,
+          }));
         }
       }
     } catch (error) {
