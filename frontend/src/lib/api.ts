@@ -1239,6 +1239,20 @@ class ApiClient {
     }
   }
 
+  async recoverGeneration(storyId: number): Promise<{
+    status: 'none' | 'generating' | 'completed' | 'error';
+    scene_id?: number;
+    variant_id?: number;
+    content?: string;
+    choices?: Array<{text: string; order: number}>;
+    chapter_id?: number;
+    auto_play?: { enabled: boolean; session_id: string; scene_id: number };
+    error?: string;
+    content_so_far?: string;
+  }> {
+    return this.request(`/api/stories/${storyId}/generation/recover`);
+  }
+
   async generateScenario(data: { genre?: string; tone?: string; elements: { opening?: string; setting?: string; conflict?: string; }; characters?: Array<{ name: string; role: string; description: string; }>; }) {
     return this.request<{ scenario: string; message: string; }>(`/api/stories/generate-scenario`, { method: 'POST', body: JSON.stringify(data) });
   }

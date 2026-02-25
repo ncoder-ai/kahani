@@ -47,6 +47,10 @@ from .story_tasks import (
     update_working_memory_in_background,
     run_inline_entity_extraction_background,
     run_chapter_summary_background,
+    register_generation,
+    get_generation,
+    remove_generation,
+    cleanup_stale_generations,
 )
 
 # Lazy import for semantic integration
@@ -646,29 +650,45 @@ async def generate_scene_streaming_endpoint(
     current_scene_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id)
     next_sequence = current_scene_count + 1
 
-    async def generate_stream():
+    # Register generation state for recovery (decoupled from SSE stream)
+    gen_state = register_generation(current_user.id, story_id)
+
+    async def _run_generation_task(state):
+        """Run the actual generation in an asyncio.Task. Pushes SSE events to state.queue.
+        If the client disconnects, this task keeps running and saves to DB."""
         nonlocal active_chapter  # Use outer scope's active_chapter variable
-        # Acquire lock for the duration of scene generation
-        async with generation_lock:
-            mark_scene_generation_start(story_id)
-            full_content = ""
-            thinking_content = ""
-            is_thinking = False
 
-            # Quick health check before starting generation
-            try:
-                client = llm_service.get_user_client(current_user.id, user_settings)
-                is_healthy, health_msg = await client.check_health(timeout=3.0)
-                if not is_healthy:
-                    logger.error(f"[SCENE STREAM] LLM health check failed: {health_msg}")
-                    yield f"data: {json.dumps({'type': 'error', 'message': f'LLM server unavailable: {health_msg}'})}\n\n"
-                    return
-            except Exception as e:
-                logger.warning(f"[SCENE STREAM] Health check error (proceeding anyway): {e}")
-                # Don't block on health check failures - let the actual generation try
+        def _emit(event_dict):
+            """Push an SSE event to the queue. Non-blocking (unbounded queue)."""
+            state.queue.put_nowait(event_dict)
+            # Track content for recovery
+            if event_dict.get("type") == "content":
+                state.content += event_dict.get("chunk", "")
 
-            # Send initial metadata
-            yield f"data: {json.dumps({'type': 'start', 'sequence': next_sequence})}\n\n"
+        try:
+            # Acquire lock for the duration of scene generation
+            async with generation_lock:
+                mark_scene_generation_start(story_id)
+                full_content = ""
+                thinking_content = ""
+                is_thinking = False
+
+                # Quick health check before starting generation
+                try:
+                    client = llm_service.get_user_client(current_user.id, user_settings)
+                    is_healthy, health_msg = await client.check_health(timeout=3.0)
+                    if not is_healthy:
+                        logger.error(f"[SCENE STREAM] LLM health check failed: {health_msg}")
+                        _emit({'type': 'error', 'message': f'LLM server unavailable: {health_msg}'})
+                        state.status = "error"
+                        state.error = f"LLM server unavailable: {health_msg}"
+                        return
+                except Exception as e:
+                    logger.warning(f"[SCENE STREAM] Health check error (proceeding anyway): {e}")
+                    # Don't block on health check failures - let the actual generation try
+
+                # Send initial metadata
+                _emit({'type': 'start', 'sequence': next_sequence})
 
             # Wrap entire generation in try-except to catch LLM connection errors
             try:
@@ -709,7 +729,7 @@ async def generate_scene_streaming_endpoint(
                             n_value
                         ):
                             if not is_complete:
-                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                                _emit({'type': 'content', 'chunk': chunk})
                             else:
                                 # Convert contents to variants_data format (no choices for concluding scenes)
                                 variants_data = [{"content": c, "choices": []} for c in contents]
@@ -724,10 +744,10 @@ async def generate_scene_streaming_endpoint(
                             n_value
                         ):
                             if not is_complete:
-                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                                _emit({'type': 'content', 'chunk': chunk})
                             else:
                                 # Generate choices for all variants in parallel
-                                yield f"data: {json.dumps({'type': 'status', 'message': 'Generating choices for all variants...'})}\n\n"
+                                _emit({'type': 'status', 'message': 'Generating choices for all variants...'})
                                 all_choices = await llm_service.generate_choices_for_variants(
                                     contents,
                                     scene_context,
@@ -750,7 +770,7 @@ async def generate_scene_streaming_endpoint(
                             n_value
                         ):
                             if not is_complete:
-                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                                _emit({'type': 'content', 'chunk': chunk})
                             else:
                                 variants_data = vdata
 
@@ -786,7 +806,7 @@ async def generate_scene_streaming_endpoint(
                             })
 
                         # Send multi_complete event
-                        yield f"data: {json.dumps({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response, 'chapter_id': chapter_id})}\n\n"
+                        _emit({'type': 'multi_complete', 'scene_id': scene.id, 'sequence': next_sequence, 'total_variants': len(created_variants), 'variants': variants_response, 'chapter_id': chapter_id})
 
                         # Update chapter stats (chapter_id already set during scene creation)
                         if active_chapter:
@@ -795,11 +815,14 @@ async def generate_scene_streaming_endpoint(
 
                         logger.info(f"[MULTI-GEN] Created scene {scene.id} with {len(created_variants)} variants in chapter {chapter_id}")
 
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        _emit({'type': 'done'})
+                        state.status = "completed"
                         return  # Exit early - don't continue to single-generation path
                     else:
                         logger.error("[MULTI-GEN] No variants data generated")
-                        yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to generate variants'})}\n\n"
+                        _emit({'type': 'error', 'message': 'Failed to generate variants'})
+                        state.status = "error"
+                        state.error = "Failed to generate variants"
                         return
 
                 # =====================================================================
@@ -810,7 +833,7 @@ async def generate_scene_streaming_endpoint(
                 if user_provided_content:
                     # User wrote their own scene - send it immediately as a single chunk
                     full_content = user_provided_content
-                    yield f"data: {json.dumps({'type': 'content', 'chunk': user_provided_content})}\n\n"
+                    _emit({'type': 'content', 'chunk': user_provided_content})
                     parsed_choices = None  # User-provided scenes need separate choice generation
                     scene_context = context  # No LLM generation, so no snapshot, but we need scene_context defined
                 elif is_concluding_bool:
@@ -843,14 +866,14 @@ async def generate_scene_streaming_endpoint(
                             thinking_content += thinking_chunk
                             if not is_thinking:
                                 is_thinking = True
-                                yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
-                            yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
+                                _emit({'type': 'thinking_start'})
+                            _emit({'type': 'thinking_chunk', 'chunk': thinking_chunk})
                         else:
                             if is_thinking:
                                 is_thinking = False
-                                yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                                _emit({'type': 'thinking_end', 'total_chars': len(thinking_content)})
                             full_content += chunk
-                            yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                            _emit({'type': 'content', 'chunk': chunk})
 
                     # Concluding scenes don't have choices
                     parsed_choices = None
@@ -875,35 +898,39 @@ async def generate_scene_streaming_endpoint(
                                 if not is_thinking:
                                     # First thinking chunk - send thinking_start
                                     is_thinking = True
-                                    yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
+                                    _emit({'type': 'thinking_start'})
                                 # Stream thinking chunk to frontend
-                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'chunk': thinking_chunk})}\n\n"
+                                _emit({'type': 'thinking_chunk', 'chunk': thinking_chunk})
                             else:
                                 # Regular content - send thinking_end if we were thinking
                                 if is_thinking:
                                     is_thinking = False
-                                    yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                                    _emit({'type': 'thinking_end', 'total_chars': len(thinking_content)})
                                 # Stream regular content
                                 full_content += chunk
-                                yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+                                _emit({'type': 'content', 'chunk': chunk})
                         else:
                             # Scene complete, choices parsed
                             # Make sure to close thinking if still open
                             if is_thinking:
-                                yield f"data: {json.dumps({'type': 'thinking_end', 'total_chars': len(thinking_content)})}\n\n"
+                                _emit({'type': 'thinking_end', 'total_chars': len(thinking_content)})
                             parsed_choices = choices
                             break
 
             except LLMConnectionError as conn_error:
                 # Centralized handler for LLM connection failures
                 logger.error(f"[SCENE STREAM] LLM connection error: {conn_error}")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(conn_error)})}\n\n"
+                _emit({'type': 'error', 'message': str(conn_error)})
+                state.status = "error"
+                state.error = str(conn_error)
                 return
             except Exception as gen_error:
                 # Catch any other generation errors
                 error_msg = str(gen_error)
                 logger.error(f"[SCENE STREAM] Generation failed: {error_msg}")
-                yield f"data: {json.dumps({'type': 'error', 'message': f'Scene generation failed: {error_msg}'})}\n\n"
+                _emit({'type': 'error', 'message': f'Scene generation failed: {error_msg}'})
+                state.status = "error"
+                state.error = f"Scene generation failed: {error_msg}"
                 return
 
             # Propagate semantic improvement state from scene_context back to original context
@@ -986,7 +1013,7 @@ async def generate_scene_streaming_endpoint(
                 if auto_play_data:
                     auto_play_session_id = auto_play_data['session_id']
                     # Send event immediately so frontend can connect NOW!
-                    yield f"data: {json.dumps(auto_play_data['event'])}\n\n"
+                    _emit(auto_play_data['event'])
                     logger.info(f"[AUTO-PLAY] Sent auto_play_ready event (TTS can start now)")
 
             except Exception as e:
@@ -1209,7 +1236,15 @@ async def generate_scene_streaming_endpoint(
                     'scene_id': scene.id
                 }
 
-            yield f"data: {json.dumps(complete_data)}\n\n"
+            _emit(complete_data)
+
+            # Update generation state for recovery
+            state.scene_id = scene.id
+            state.variant_id = variant.id
+            state.choices = choices_data
+            state.chapter_id = chapter_id
+            if auto_play_session_id:
+                state.auto_play = complete_data.get('auto_play')
 
             # PRIORITY 3: Run extractions synchronously AFTER scene and choices are sent to frontend
             # Background task: Auto-summary generation (if needed) - keep this in background
@@ -1223,16 +1258,14 @@ async def generate_scene_streaming_endpoint(
                     if scenes_since_summary >= summary_threshold:
                         logger.info(f"[CHAPTER] Chapter {active_chapter.id} reached {summary_threshold} scenes since last summary, triggering auto-summary in background")
 
-                        # Schedule summary generation via background_tasks for sequential execution
-                        # This runs LAST after all extractions complete
+                        # Schedule summary generation as asyncio task (runs in background)
                         # Pass scene_generation_context for cache-friendly summary generation
-                        background_tasks.add_task(
-                            run_chapter_summary_background,
+                        asyncio.create_task(run_chapter_summary_background(
                             chapter_id=active_chapter.id,
                             user_id=current_user.id,
                             scene_generation_context=context.copy() if context else None,
-                            user_settings=user_settings
-                        )
+                            user_settings=user_settings,
+                        ))
                         logger.info(f"[CHAPTER] Scheduled background summary generation (cache-friendly) for chapter {active_chapter.id}")
                 except Exception as e:
                     logger.error(f"[AUTO-SUMMARY] Failed to start background summary generation: {e}")
@@ -1278,11 +1311,10 @@ async def generate_scene_streaming_endpoint(
                         # Uses FastAPI background_tasks for sequential execution with other LLM tasks
                         if enable_inline_check:
                             logger.warning(f"[INLINE_CHECK] Scheduling background entity extraction for contradiction check")
-                            yield f"data: {json.dumps({'type': 'contradiction_check', 'status': 'scheduled'})}\n\n"
+                            _emit({'type': 'contradiction_check', 'status': 'scheduled'})
 
                             # Schedule inline check FIRST so it runs before other extractions
-                            background_tasks.add_task(
-                                run_inline_entity_extraction_background,
+                            asyncio.create_task(run_inline_entity_extraction_background(
                                 story_id=story_id,
                                 chapter_id=active_chapter.id,
                                 scene_id=scene.id,
@@ -1291,8 +1323,8 @@ async def generate_scene_streaming_endpoint(
                                 user_id=current_user.id,
                                 user_settings=user_settings or {},
                                 branch_id=active_branch_id,
-                                scene_generation_context=context.copy() if context else {}
-                            )
+                                scene_generation_context=context.copy() if context else {},
+                            ))
                             logger.info(f"[INLINE_CHECK] Background task scheduled for scene {scene.sequence_number}")
 
                         # === FULL EXTRACTION AT NORMAL THRESHOLD ===
@@ -1304,8 +1336,7 @@ async def generate_scene_streaming_endpoint(
                             # Schedule extraction to run after response completes
                             # Use actual sequence numbers, not scenes_count
                             # If inline_check ran, entity states are already done for this scene
-                            background_tasks.add_task(
-                                run_extractions_in_background,
+                            asyncio.create_task(run_extractions_in_background(
                                 story_id=story_id,
                                 chapter_id=active_chapter.id,
                                 from_sequence=last_extraction_sequence,
@@ -1313,18 +1344,18 @@ async def generate_scene_streaming_endpoint(
                                 user_id=current_user.id,
                                 user_settings=user_settings or {},
                                 scene_generation_context=context,  # Pass context for cache-friendly extraction
-                                skip_entity_states=enable_inline_check  # Skip if already done by inline check
-                            )
+                                skip_entity_states=enable_inline_check,  # Skip if already done by inline check
+                            ))
 
                             # Send status event with clear message
                             extraction_msg = f"Extracting ({scenes_since_extraction}/{extraction_threshold})"
-                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})}\n\n"
+                            _emit({'type': 'extraction_status', 'status': 'scheduled', 'message': extraction_msg})
                         else:
                             # Threshold not reached - skip extraction with clear reason
                             # Show extraction_threshold (not effective_threshold) since that's what full extraction uses
                             skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
                             logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
-                            yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
+                            _emit({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})
                     else:
                         logger.warning(f"[EXTRACTION] No scenes found in chapter {active_chapter.id}, skipping extraction")
                 except Exception as e:
@@ -1332,7 +1363,7 @@ async def generate_scene_streaming_endpoint(
                     import traceback
                     logger.error(f"[EXTRACTION] Traceback: {traceback.format_exc()}")
                     # Send error status to frontend
-                    yield f"data: {json.dumps({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})}\n\n"
+                    _emit({'type': 'extraction_status', 'status': 'error', 'message': 'Extraction failed'})
                     # Don't fail scene generation if extraction fails
 
             # === PLOT EVENT EXTRACTION (SEPARATE FROM ENTITY EXTRACTION) ===
@@ -1371,26 +1402,25 @@ async def generate_scene_streaming_endpoint(
                             if scenes_since_plot_extraction >= plot_extraction_threshold:
                                 logger.warning(f"[PLOT_EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_plot_extraction}/{plot_extraction_threshold})")
 
-                                # Schedule plot extraction to run after response completes
-                                background_tasks.add_task(
-                                    run_plot_extraction_in_background,
+                                # Schedule plot extraction as asyncio task
+                                asyncio.create_task(run_plot_extraction_in_background(
                                     story_id=story_id,
                                     chapter_id=active_chapter.id,
                                     from_sequence=last_plot_extraction_sequence,
                                     to_sequence=max_sequence_in_chapter,
                                     user_id=current_user.id,
                                     user_settings=user_settings or {},
-                                    scene_generation_context=context
-                                )
+                                    scene_generation_context=context,
+                                ))
 
                                 # Send status event
                                 plot_msg = f"Plot tracking ({scenes_since_plot_extraction}/{plot_extraction_threshold})"
-                                yield f"data: {json.dumps({'type': 'plot_extraction_status', 'status': 'scheduled', 'message': plot_msg})}\n\n"
+                                _emit({'type': 'plot_extraction_status', 'status': 'scheduled', 'message': plot_msg})
                             else:
                                 # Threshold not reached
                                 skip_msg = f"Plot tracking skipped ({scenes_since_plot_extraction}/{plot_extraction_threshold})"
                                 logger.warning(f"[PLOT_EXTRACTION] ✗ SKIPPED: {skip_msg}")
-                                yield f"data: {json.dumps({'type': 'plot_extraction_status', 'status': 'skipped', 'message': skip_msg})}\n\n"
+                                _emit({'type': 'plot_extraction_status', 'status': 'skipped', 'message': skip_msg})
                 except Exception as e:
                     logger.error(f"[PLOT_EXTRACTION] Failed to check plot extraction: {e}")
                     import traceback
@@ -1418,8 +1448,7 @@ async def generate_scene_streaming_endpoint(
                     if scenes_since_chronicle >= chronicle_threshold:
                         max_seq_chapter = max(chronicle_scene_seqs) if chronicle_scene_seqs else 0
                         logger.warning(f"[CHRONICLE] ✓ SCHEDULED: Threshold reached ({scenes_since_chronicle}/{chronicle_threshold})")
-                        background_tasks.add_task(
-                            run_chronicle_extraction_in_background,
+                        asyncio.create_task(run_chronicle_extraction_in_background(
                             story_id=story_id,
                             chapter_id=active_chapter.id,
                             from_sequence=last_chronicle_seq,
@@ -1427,11 +1456,11 @@ async def generate_scene_streaming_endpoint(
                             user_id=current_user.id,
                             user_settings=user_settings or {},
                             scene_generation_context=context,
-                        )
-                        yield f"data: {json.dumps({'type': 'chronicle_status', 'status': 'scheduled'})}\n\n"
+                        ))
+                        _emit({'type': 'chronicle_status', 'status': 'scheduled'})
                     else:
                         logger.info(f"[CHRONICLE] Skipped ({scenes_since_chronicle}/{chronicle_threshold})")
-                        yield f"data: {json.dumps({'type': 'chronicle_status', 'status': 'skipped'})}\n\n"
+                        _emit({'type': 'chronicle_status', 'status': 'skipped'})
 
                 except Exception as e:
                     logger.error(f"[CHRONICLE] Failed to check chronicle extraction: {e}")
@@ -1443,8 +1472,7 @@ async def generate_scene_streaming_endpoint(
             ctx_settings_for_tasks = user_settings.get('context_settings', {}) if user_settings else {}
             if ctx_settings_for_tasks.get('enable_working_memory', True):
                 try:
-                    background_tasks.add_task(
-                        update_working_memory_in_background,
+                    asyncio.create_task(update_working_memory_in_background(
                         story_id=story_id,
                         branch_id=active_branch_id,
                         chapter_id=active_chapter.id if active_chapter else None,
@@ -1452,57 +1480,80 @@ async def generate_scene_streaming_endpoint(
                         scene_content=cleaned_full_content,
                         user_id=current_user.id,
                         user_settings=user_settings or {},
-                        scene_generation_context=context  # Pass context for cache-friendly extraction
-                    )
+                        scene_generation_context=context,  # Pass context for cache-friendly extraction
+                    ))
                     logger.info(f"[WORKING_MEMORY] Scheduled update for scene {scene.sequence_number}")
                 except Exception as e:
                     logger.error(f"[WORKING_MEMORY] Failed to schedule update: {e}")
 
             # Relationship extraction removed — low ROI, separate LLM call not justified
 
-            # Send [DONE] as the LAST event after all extraction status events
-            yield "data: [DONE]\n\n"
+            # Mark as completed (scene saved to DB)
+            if state.status == "generating":
+                state.status = "completed"
+
+        except Exception as task_error:
+            logger.error(f"[SCENE STREAM] Task error: {task_error}")
+            import traceback
+            logger.error(f"[SCENE STREAM] Traceback: {traceback.format_exc()}")
+            if state.status == "generating":
+                state.status = "error"
+                state.error = str(task_error)
+                _emit({'type': 'error', 'message': f'Scene generation failed: {task_error}'})
+        finally:
+            # Always release the generation lock timestamp and push sentinel
+            mark_scene_generation_end(story_id)
+            _emit({'type': '__done__'})
+
+    async def _stream_from_queue(state):
+        """SSE generator that reads events from the queue. If client disconnects,
+        GeneratorExit fires here — but the task keeps running."""
+        try:
+            while True:
+                event = await state.queue.get()
+                if event.get("type") == "__done__":
+                    # Task finished — send [DONE] and exit
+                    yield "data: [DONE]\n\n"
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        except GeneratorExit:
+            # Client disconnected — task continues in background
+            logger.info(f"[SCENE STREAM] Client disconnected, generation continues in background for story {story_id}")
+        finally:
+            # If task completed and client received everything, clean up
+            if state.status == "completed":
+                remove_generation(current_user.id, story_id)
 
     # Check if streaming is disabled in user settings
     generation_prefs = user_settings.get("generation_preferences", {})
     enable_streaming = generation_prefs.get("enable_streaming", True)
 
     if not enable_streaming:
-        # Non-streaming mode: collect all generator output and return JSON
+        # Non-streaming mode: run task directly and collect output, return JSON
         logger.info(f"[SCENE:NON-STREAMING:START] trace_id={trace_id} story_id={story_id}")
+
+        # Run the generation task directly (not as asyncio.Task)
+        await _run_generation_task(gen_state)
 
         complete_data = None
         full_content = ""
         chunk_count = 0
 
-        try:
-            async for chunk in generate_stream():
-                chunk_count += 1
-                if chunk_count % 10 == 0:
-                    logger.info(f"[SCENE:NON-STREAMING:PROGRESS] trace_id={trace_id} chunks={chunk_count}")
+        # Drain the queue
+        while not gen_state.queue.empty():
+            event = gen_state.queue.get_nowait()
+            chunk_count += 1
+            if event.get("type") == "__done__":
+                continue
+            if event.get("type") == "content":
+                full_content += event.get("chunk", "")
+            elif event.get("type") == "complete":
+                complete_data = event
 
-                # Parse SSE format: "data: {...}\n\n"
-                if chunk.startswith("data: "):
-                    data_str = chunk[6:].strip()
-                    if data_str == "[DONE]":
-                        logger.info(f"[SCENE:NON-STREAMING:DONE] trace_id={trace_id} total_chunks={chunk_count}")
-                        continue
-                    try:
-                        event = json.loads(data_str)
-                        if event.get("type") == "content":
-                            full_content += event.get("chunk", "")
-                        elif event.get("type") == "complete":
-                            complete_data = event
-                            logger.info(f"[SCENE:NON-STREAMING:COMPLETE] trace_id={trace_id} scene_id={event.get('scene_id')}")
-                    except json.JSONDecodeError:
-                        continue
-        except Exception as e:
-            logger.error(f"[SCENE:NON-STREAMING:ERROR] trace_id={trace_id} error={e}")
-            raise
+        remove_generation(current_user.id, story_id)
 
         if complete_data:
             from fastapi.responses import JSONResponse
-            # Use cleaned content from completion event, not raw full_content which includes ###CHOICES### marker
             cleaned_content = complete_data.get("content", full_content)
             logger.info(f"[SCENE:NON-STREAMING:RETURN] trace_id={trace_id} content_len={len(cleaned_content)}")
             return JSONResponse(content={
@@ -1519,9 +1570,10 @@ async def generate_scene_streaming_endpoint(
                 detail="Scene generation failed - no completion data received"
             )
 
-    # Streaming mode: return StreamingResponse
+    # Streaming mode: spawn task and return StreamingResponse
+    gen_state.task = asyncio.create_task(_run_generation_task(gen_state))
     response = StreamingResponse(
-        generate_stream(),
+        _stream_from_queue(gen_state),
         media_type="text/plain",
         headers={
             "Cache-Control": "no-cache",
@@ -1531,3 +1583,63 @@ async def generate_scene_streaming_endpoint(
     )
     logger.info(f"[SCENE:STREAM:READY] trace_id={trace_id} story_id={story_id} setup_ms={(time.perf_counter() - start_time) * 1000:.2f}")
     return response
+
+
+@router.get("/{story_id}/generation/recover")
+async def recover_generation(
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Recover a scene generation that completed while the client was disconnected.
+
+    Used by iOS Safari (and other clients) when the browser tab is backgrounded
+    during scene generation — WebKit kills the SSE stream, but the backend task
+    continues and saves the scene to DB. This endpoint returns the result.
+    """
+    # Opportunistic cleanup of stale entries
+    cleanup_stale_generations()
+
+    # Verify story ownership
+    story = db.query(Story).filter(
+        Story.id == story_id,
+        Story.owner_id == current_user.id
+    ).first()
+    if not story:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+
+    state = get_generation(current_user.id, story_id)
+
+    if state is None:
+        return {"status": "none"}
+
+    if state.status == "generating":
+        return {
+            "status": "generating",
+            "content_so_far": state.content,
+        }
+
+    if state.status == "completed":
+        result = {
+            "status": "completed",
+            "scene_id": state.scene_id,
+            "variant_id": state.variant_id,
+            "choices": state.choices,
+            "content": state.content,
+            "chapter_id": state.chapter_id,
+        }
+        if state.auto_play:
+            result["auto_play"] = state.auto_play
+        remove_generation(current_user.id, story_id)
+        return result
+
+    if state.status == "error":
+        result = {
+            "status": "error",
+            "message": state.error or "Unknown error",
+        }
+        remove_generation(current_user.id, story_id)
+        return result
+
+    # Shouldn't reach here
+    return {"status": "none"}

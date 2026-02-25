@@ -817,6 +817,95 @@ function StoryPageContent({ storyId }: { storyId: number }) {
     }
   };
 
+  // --- iOS Background Tab Recovery ---
+  // When iOS Safari backgrounds a tab during scene generation, WebKit kills the
+  // SSE stream. The backend continues generating and saves to DB. This recovery
+  // mechanism detects the return to foreground and retrieves the completed scene.
+  const handleRecovery = useCallback(async () => {
+    if (!story || !isStreaming) return;
+    try {
+      const result = await apiClient.recoverGeneration(storyId);
+      if (result.status === 'completed' && result.scene_id && result.content) {
+        // Scene completed in background — add it to state
+        const nextSceneNumber = (story.scenes?.length || 0) + 1;
+        const recoveredChoices = (result.choices || []).map((c: any, i: number) => ({
+          id: -(i + 1), // Temporary negative ID, will be synced from backend on refresh
+          text: c.text || c,
+          order: c.order || i + 1,
+        }));
+        const newScene: Scene = {
+          id: result.scene_id,
+          sequence_number: nextSceneNumber,
+          title: `Scene ${nextSceneNumber}`,
+          content: result.content,
+          location: '',
+          characters_present: [],
+          choices: recoveredChoices,
+          variant_id: result.variant_id,
+          has_multiple_variants: false,
+          total_variants: 1,
+          chapter_id: result.chapter_id ?? activeChapterId ?? undefined,
+        };
+        const updatedStory = { ...story, scenes: [...story.scenes, newScene] };
+        flushSync(() => { setStory(updatedStory); });
+        setStreamingContent('');
+        setStreamingSceneNumber(null);
+        setIsStreaming(false);
+        setSelectedChoice(null);
+        setShowChoicesDuringGeneration(true);
+        setGenerationStartTime(null);
+        setExtractionStatus(null);
+        setIsSceneOperationInProgress(false);
+        sceneGenerationAbortControllerRef.current = null;
+        // Auto-play TTS if provided
+        if (result.auto_play && result.auto_play.session_id) {
+          globalTTS.connectToSession(result.auto_play.session_id, result.auto_play.scene_id);
+        }
+        // Refresh in background
+        setTimeout(() => refreshStoryContent(), 500);
+        setChapterSidebarRefreshKey(prev => prev + 1);
+        console.log('[RECOVERY] Scene recovered after background tab kill');
+      } else if (result.status === 'generating') {
+        // Still running — poll again in 2s
+        console.log('[RECOVERY] Generation still in progress, polling...');
+        setTimeout(() => handleRecovery(), 2000);
+      } else if (result.status === 'error') {
+        // Generation failed in background
+        setError(result.error || 'Generation failed while in background');
+        setStreamingContent('');
+        setStreamingSceneNumber(null);
+        setIsStreaming(false);
+        setGenerationStartTime(null);
+        setExtractionStatus(null);
+        setSelectedChoice(null);
+        setShowChoicesDuringGeneration(true);
+        setIsSceneOperationInProgress(false);
+        sceneGenerationAbortControllerRef.current = null;
+      }
+      // status === 'none' — no active generation, stream probably completed normally
+    } catch (err) {
+      console.warn('[RECOVERY] Recovery check failed:', err);
+    }
+  }, [story, storyId, isStreaming, activeChapterId]);
+
+  // Listen for tab returning to foreground during streaming
+  useEffect(() => {
+    if (!isStreaming) return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isStreaming) {
+        // Wait briefly to let the stream error propagate naturally first
+        setTimeout(() => {
+          // If still streaming after delay, the stream may be dead — try recovery
+          if (isStreaming) {
+            handleRecovery();
+          }
+        }, 500);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [isStreaming, handleRecovery]);
+
   // Track scene count to detect new scenes
   useEffect(() => {
     if (story?.scenes) {
@@ -1332,7 +1421,9 @@ function StoryPageContent({ storyId }: { storyId: number }) {
     
     // Accumulate content locally so callback can access it
     let accumulatedContent = '';
-    
+    // Flag to prevent catch block from showing error while async recovery is in progress
+    let recoveryInProgress = false;
+
     try {
       // Determine content mode and user content based on first scene mode
       let userContent: string | undefined;
@@ -1562,9 +1653,81 @@ function StoryPageContent({ storyId }: { storyId: number }) {
           // Clear abort controller reference after completion
           sceneGenerationAbortControllerRef.current = null;
         },
-        // onError
-        (error: string) => {
+        // onError — attempt recovery for network errors (iOS background tab kill)
+        async (error: string) => {
           console.error('Streaming error:', error);
+
+          // Check if this might be a network error from iOS background kill
+          // (not a server-sent error like "LLM server unavailable")
+          const isNetworkError = error.includes('Failed to fetch') ||
+            error.includes('network') ||
+            error.includes('NetworkError') ||
+            error.includes('Load failed') ||
+            error.includes('The network connection was lost') ||
+            error.includes('Stream timeout');
+
+          if (isNetworkError) {
+            console.log('[RECOVERY] Network error detected, attempting recovery...');
+            recoveryInProgress = true;
+            try {
+              const result = await apiClient.recoverGeneration(storyId);
+              if (result.status === 'completed' && result.scene_id && result.content) {
+                // Scene completed in background — recover it
+                const nextSceneNumber = (story?.scenes?.length || 0) + 1;
+                const recoveredChoices = (result.choices || []).map((c: any, i: number) => ({
+                  id: -(i + 1),
+                  text: c.text || c,
+                  order: c.order || i + 1,
+                }));
+                const newScene: Scene = {
+                  id: result.scene_id,
+                  sequence_number: nextSceneNumber,
+                  title: `Scene ${nextSceneNumber}`,
+                  content: result.content,
+                  location: '',
+                  characters_present: [],
+                  choices: recoveredChoices,
+                  variant_id: result.variant_id,
+                  has_multiple_variants: false,
+                  total_variants: 1,
+                  chapter_id: result.chapter_id ?? activeChapterId ?? undefined,
+                };
+                if (story) {
+                  const updatedStory = { ...story, scenes: [...story.scenes, newScene] };
+                  flushSync(() => { setStory(updatedStory); });
+                }
+                setStreamingContent('');
+                setStreamingSceneNumber(null);
+                setIsStreaming(false);
+                setSelectedChoice(null);
+                setShowChoicesDuringGeneration(true);
+                setGenerationStartTime(null);
+                setExtractionStatus(null);
+                setIsSceneOperationInProgress(false);
+                sceneGenerationAbortControllerRef.current = null;
+                if (result.auto_play && result.auto_play.session_id) {
+                  globalTTS.connectToSession(result.auto_play.session_id, result.auto_play.scene_id);
+                }
+                setTimeout(() => refreshStoryContent(), 500);
+                setChapterSidebarRefreshKey(prev => prev + 1);
+                console.log('[RECOVERY] Scene recovered from network error');
+                return; // Don't show error
+              } else if (result.status === 'generating') {
+                // Still running — trigger polling via handleRecovery
+                console.log('[RECOVERY] Generation still in progress after network error');
+                handleRecovery();
+                return; // Don't show error yet
+              }
+              // status 'none' or 'error' — fall through to show error
+              recoveryInProgress = false;
+            } catch (recoverErr) {
+              console.warn('[RECOVERY] Recovery attempt failed:', recoverErr);
+              recoveryInProgress = false;
+            }
+          }
+
+          // Show error (non-network error or recovery failed)
+          recoveryInProgress = false;
           setError(error);
           setStreamingContent('');
           setStreamingSceneNumber(null);
@@ -1575,10 +1738,10 @@ function StoryPageContent({ storyId }: { storyId: number }) {
           // Reset choice selection state on error
           setSelectedChoice(null);
           setShowChoicesDuringGeneration(true);
-          
+
           // Clear operation flag
           setIsSceneOperationInProgress(false);
-          
+
           // Clear abort controller reference on error
           sceneGenerationAbortControllerRef.current = null;
         },
@@ -1639,21 +1802,30 @@ function StoryPageContent({ storyId }: { storyId: number }) {
       // Check for new important characters
       checkCharacterImportance();
     } catch (err) {
+      // If recovery is in progress (async onError handler), don't touch state
+      // The recovery handler will clean up when it completes
+      if (recoveryInProgress) {
+        console.log('[RECOVERY] Catch block skipped — recovery in progress');
+        return;
+      }
+      // If onError already handled recovery (set isStreaming=false), don't overwrite
       console.error('generateNewSceneStreaming error', err);
-      const errorMessage = err instanceof Error 
-        ? (err.message === 'Load failed' 
-           ? 'Network request failed. Please check your connection and try again.'
-           : err.message)
-        : 'Failed to generate scene';
-      setError(errorMessage);
-      setStreamingContent('');
-      setStreamingSceneNumber(null);
-      setIsStreaming(false);
-      setGenerationStartTime(null);
-      setIsSceneOperationInProgress(false);
-      
-      // Clear abort controller reference on error
-      sceneGenerationAbortControllerRef.current = null;
+      setIsStreaming(prev => {
+        if (prev) {
+          const errorMessage = err instanceof Error
+            ? (err.message === 'Load failed'
+               ? 'Network request failed. Please check your connection and try again.'
+               : err.message)
+            : 'Failed to generate scene';
+          setError(errorMessage);
+          setStreamingContent('');
+          setStreamingSceneNumber(null);
+          setGenerationStartTime(null);
+          setIsSceneOperationInProgress(false);
+          sceneGenerationAbortControllerRef.current = null;
+        }
+        return false;
+      });
     }
   };
 

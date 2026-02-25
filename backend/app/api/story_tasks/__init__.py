@@ -3,6 +3,14 @@ Stories API module.
 
 This module contains the stories router and related background tasks.
 """
+from .generation_tracker import (
+    GenerationState,
+    register_generation,
+    get_generation,
+    remove_generation,
+    cleanup_stale_generations,
+)
+
 from .background_tasks import (
     # Progress stores
     extraction_progress_store,
@@ -38,6 +46,13 @@ from .background_tasks import (
 )
 
 __all__ = [
+    # Generation tracker
+    'GenerationState',
+    'register_generation',
+    'get_generation',
+    'remove_generation',
+    'cleanup_stale_generations',
+
     # Progress stores
     'extraction_progress_store',
     'scene_event_extraction_progress_store',
