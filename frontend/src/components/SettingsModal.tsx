@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Settings as SettingsIcon, Check, AlertCircle } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/api';
 import { applyTheme } from '@/lib/themes';
@@ -19,8 +19,10 @@ import {
   LLMSettings,
   ContextSettings,
   ExtractionModelSettings,
+  EmbeddingModelSettings,
   ImageGenSettings,
 } from './settings';
+import type { ConfiguredProviders } from './settings/types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -45,7 +47,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     auto_open_last_story: false,
   });
 
-  // LLM Settings - Engine-specific storage
+  // Provider Registry — single source of truth for credentials + per-role params
+  const [configuredProviders, setConfiguredProviders] = useState<ConfiguredProviders>({});
+
+  // LLM Settings - Engine-specific storage (legacy, kept for backward compat)
   const [engineSettings, setEngineSettings] = useState<Record<string, LLMSettings>>({});
   const [currentEngine, setCurrentEngine] = useState<string>('');
   const [samplerSettings, setSamplerSettings] = useState<SamplerSettings>(DEFAULT_SAMPLER_SETTINGS);
@@ -120,6 +125,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [extractionEngineSettings, setExtractionEngineSettings] = useState<Record<string, ExtractionModelSettings>>({});
   const [currentExtractionEngine, setCurrentExtractionEngine] = useState<string>('');
 
+  // Embedding Model Settings
+  const [embeddingSettings, setEmbeddingSettings] = useState<EmbeddingModelSettings>({
+    provider: 'local',
+    api_url: '',
+    api_key: '',
+    model_name: 'sentence-transformers/all-mpnet-base-v2',
+    dimensions: 768,
+    needs_reembed: false,
+  });
+
   // Generation Preferences
   const [generationPrefs, setGenerationPrefs] = useState<GenerationPreferences>({
     default_genre: 'fantasy',
@@ -160,9 +175,100 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTimeout(() => setMessage(''), 3000);
   }, []);
 
+  // --- Auto-save ---
+  const loadedRef = useRef(false);        // true once initial load completes
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Build the full save payload (same shape as the old saveEngineSettings)
+  const buildSavePayload = useCallback(() => {
+    const updatedEngineSettings = { ...engineSettings };
+    if (currentEngine && currentEngine.trim() !== '') {
+      updatedEngineSettings[currentEngine] = { ...llmSettings };
+    }
+    const updatedExtractionEngineSettings = { ...extractionEngineSettings };
+    if (currentExtractionEngine && currentExtractionEngine.trim() !== '') {
+      updatedExtractionEngineSettings[currentExtractionEngine] = { ...extractionModelSettings };
+    }
+    return {
+      configured_providers: { configured_providers: configuredProviders },
+      engine_settings: {
+        engine_settings: updatedEngineSettings,
+        current_engine: currentEngine || '',
+      },
+      llm_settings: {
+        ...llmSettings,
+        api_url: llmSettings.api_url || '',
+        api_key: llmSettings.api_key || '',
+        api_type: llmSettings.api_type || '',
+        model_name: llmSettings.model_name || '',
+      },
+      extraction_model_settings: {
+        ...extractionModelSettings,
+        api_type: extractionModelSettings.api_type || 'openai-compatible',
+      },
+      extraction_engine_settings: {
+        extraction_engine_settings: updatedExtractionEngineSettings,
+        current_extraction_engine: currentExtractionEngine || '',
+      },
+      sampler_settings: samplerSettings,
+      context_settings: contextSettings,
+      generation_preferences: generationPrefs,
+      embedding_model_settings: {
+        provider: embeddingSettings.provider,
+        api_url: embeddingSettings.api_url,
+        api_key: embeddingSettings.api_key,
+        model_name: embeddingSettings.model_name,
+        dimensions: embeddingSettings.dimensions,
+      },
+      ui_preferences: uiSettings,
+      image_generation_settings: imageGenSettings,
+    };
+  }, [configuredProviders, engineSettings, currentEngine, llmSettings,
+      extractionEngineSettings, currentExtractionEngine, extractionModelSettings,
+      samplerSettings, contextSettings, generationPrefs, embeddingSettings,
+      uiSettings, imageGenSettings]);
+
+  const doAutoSave = useCallback(async () => {
+    if (!token || !loadedRef.current) return;
+    setSaveStatus('saving');
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(buildSavePayload()),
+      });
+      if (response.ok) {
+        setSaveStatus('saved');
+        window.dispatchEvent(new CustomEvent('kahaniSettingsChanged'));
+        setTimeout(() => setSaveStatus('idle'), 1500);
+      } else {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    } catch {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  }, [token, buildSavePayload]);
+
+  // Debounced auto-save: fire 800ms after the last state change
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => doAutoSave(), 800);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [configuredProviders, llmSettings, samplerSettings, extractionModelSettings,
+      currentEngine, currentExtractionEngine, embeddingSettings,
+      contextSettings, generationPrefs, uiSettings, imageGenSettings, doAutoSave]);
+
   // Load settings on mount
   useEffect(() => {
     if (isOpen) {
+      loadedRef.current = false;
       loadAllSettings();
     }
   }, [isOpen]);
@@ -178,6 +284,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       if (response.ok) {
         const data = await response.json();
         const settings = data.settings;
+
+        // Load configured providers
+        if (settings?.configured_providers) {
+          setConfiguredProviders(settings.configured_providers);
+        }
 
         // Load UI preferences
         if (settings?.ui_preferences) {
@@ -284,6 +395,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           }
         }
 
+        // Load Embedding Model settings
+        if (settings?.embedding_model_settings) {
+          setEmbeddingSettings(prev => ({
+            ...prev,
+            ...settings.embedding_model_settings,
+          }));
+        }
+
         // Load sampler settings
         if (settings?.sampler_settings) {
           setSamplerSettings({
@@ -300,69 +419,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           }));
         }
       }
+
+      // Mark loaded AFTER a tick so React batches all the setState calls above
+      // before the auto-save effect sees them
+      setTimeout(() => { loadedRef.current = true; }, 100);
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
   };
 
-  const saveEngineSettings = async () => {
-    try {
-      const updatedEngineSettings = { ...engineSettings };
-
-      if (currentEngine && currentEngine.trim() !== '') {
-        updatedEngineSettings[currentEngine] = { ...llmSettings };
-      }
-
-      setEngineSettings(updatedEngineSettings);
-
-      // Also update extraction engine settings
-      const updatedExtractionEngineSettings = { ...extractionEngineSettings };
-      if (currentExtractionEngine && currentExtractionEngine.trim() !== '') {
-        updatedExtractionEngineSettings[currentExtractionEngine] = { ...extractionModelSettings };
-      }
-      setExtractionEngineSettings(updatedExtractionEngineSettings);
-
-      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          engine_settings: {
-            engine_settings: updatedEngineSettings,
-            current_engine: currentEngine || '',
-          },
-          llm_settings: {
-            ...llmSettings,
-            api_url: llmSettings.api_url || '',
-            api_key: llmSettings.api_key || '',
-            api_type: llmSettings.api_type || '',
-            model_name: llmSettings.model_name || '',
-          },
-          extraction_model_settings: {
-            ...extractionModelSettings,
-            api_type: extractionModelSettings.api_type || 'openai-compatible',
-          },
-          extraction_engine_settings: {
-            extraction_engine_settings: updatedExtractionEngineSettings,
-            current_extraction_engine: currentExtractionEngine || '',
-          },
-          sampler_settings: samplerSettings,
-        }),
-      });
-
-      if (response.ok) {
-        showMessage('LLM and extraction model settings saved!', 'success');
-        window.dispatchEvent(new CustomEvent('kahaniSettingsChanged'));
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to save settings' }));
-        showMessage(`Failed to save settings: ${errorData.detail || 'Unknown error'}`, 'error');
-      }
-    } catch (error) {
-      showMessage('Error saving engine settings', 'error');
-    }
-  };
+  // Legacy save function — kept as a no-op in case child components still reference it.
+  // Auto-save handles everything now.
+  const saveEngineSettings = async () => { doAutoSave(); };
 
   if (!isOpen) return null;
 
@@ -374,6 +442,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="flex items-center gap-2 sm:gap-3">
             <SettingsIcon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             <h2 className="text-lg sm:text-xl font-bold text-white">Settings</h2>
+            {saveStatus === 'saving' && (
+              <span className="text-xs text-gray-400 ml-2">Saving...</span>
+            )}
+            {saveStatus === 'saved' && (
+              <span className="text-xs text-green-400 ml-2 flex items-center gap-1">
+                <Check className="w-3 h-3" /> Saved
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="text-xs text-red-400 ml-2 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" /> Save failed
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -464,7 +545,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setExtractionEngineSettings={setExtractionEngineSettings}
               currentExtractionEngine={currentExtractionEngine}
               setCurrentExtractionEngine={setCurrentExtractionEngine}
-              onSave={saveEngineSettings}
+              embeddingSettings={embeddingSettings}
+              setEmbeddingSettings={setEmbeddingSettings}
+              configuredProviders={configuredProviders}
+              setConfiguredProviders={setConfiguredProviders}
             />
           )}
 

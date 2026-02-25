@@ -205,9 +205,7 @@ class MultiVariantGeneration:
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Calculate max tokens
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
         messages = await self._service._build_cache_friendly_message_prefix(
@@ -302,9 +300,7 @@ class MultiVariantGeneration:
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Calculate max tokens
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
         messages = await self._service._build_cache_friendly_message_prefix(
@@ -677,9 +673,7 @@ class MultiVariantGeneration:
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Calculate max tokens
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
         messages = await self._service._build_cache_friendly_message_prefix(
@@ -804,9 +798,7 @@ class MultiVariantGeneration:
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
 
         # Calculate max tokens
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         # Use cache-friendly helper for consistent message prefix
         messages = await self._service._build_cache_friendly_message_prefix(

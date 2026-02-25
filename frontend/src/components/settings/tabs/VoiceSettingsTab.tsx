@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Volume2, Loader2, Check, AlertCircle, Eye } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/api';
@@ -70,6 +70,69 @@ export default function VoiceSettingsTab({
   const [testAudio, setTestAudio] = useState<HTMLAudioElement | null>(null);
   const [hasAutoConnected, setHasAutoConnected] = useState(false);
   const [hasCheckedSTT, setHasCheckedSTT] = useState(false);
+
+  // --- Auto-save ---
+  const ttsLoadedRef = useRef(false);
+  const sttLoadedRef = useRef(false);
+  const ttsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sttSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doTTSAutoSave = useCallback(async () => {
+    if (!ttsLoadedRef.current || !token) return;
+    try {
+      const extraParams: Record<string, any> = {};
+      if (ttsSettings.provider_type === 'chatterbox') {
+        extraParams.exaggeration = chatterboxExaggeration;
+        extraParams.cfg_weight = chatterboxCfgWeight;
+        extraParams.temperature = chatterboxTemperature;
+      }
+      const fullSettings = {
+        ...ttsSettings,
+        extra_params: Object.keys(extraParams).length > 0 ? extraParams : (ttsSettings.extra_params || {}),
+      };
+      await fetch(`${await getApiBaseUrl()}/api/tts/provider-configs/${ttsSettings.provider_type}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fullSettings),
+      });
+      await fetch(`${await getApiBaseUrl()}/api/tts/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fullSettings),
+      });
+    } catch (error) {
+      console.error('TTS auto-save failed:', error);
+    }
+  }, [token, ttsSettings, chatterboxExaggeration, chatterboxCfgWeight, chatterboxTemperature]);
+
+  const doSTTAutoSave = useCallback(async () => {
+    if (!sttLoadedRef.current || !token) return;
+    try {
+      await fetch(`${await getApiBaseUrl()}/api/settings/`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ stt_settings: { enabled: sttEnabled, model: sttModel } }),
+      });
+    } catch (error) {
+      console.error('STT auto-save failed:', error);
+    }
+  }, [token, sttEnabled, sttModel]);
+
+  // Debounced TTS auto-save
+  useEffect(() => {
+    if (!ttsLoadedRef.current) return;
+    if (ttsSaveTimerRef.current) clearTimeout(ttsSaveTimerRef.current);
+    ttsSaveTimerRef.current = setTimeout(() => doTTSAutoSave(), 800);
+    return () => { if (ttsSaveTimerRef.current) clearTimeout(ttsSaveTimerRef.current); };
+  }, [ttsSettings, chatterboxExaggeration, chatterboxCfgWeight, chatterboxTemperature, doTTSAutoSave]);
+
+  // Debounced STT auto-save
+  useEffect(() => {
+    if (!sttLoadedRef.current) return;
+    if (sttSaveTimerRef.current) clearTimeout(sttSaveTimerRef.current);
+    sttSaveTimerRef.current = setTimeout(() => doSTTAutoSave(), 800);
+    return () => { if (sttSaveTimerRef.current) clearTimeout(sttSaveTimerRef.current); };
+  }, [sttEnabled, sttModel, doSTTAutoSave]);
 
   useEffect(() => {
     loadTTSProviders();
@@ -203,6 +266,7 @@ export default function VoiceSettingsTab({
       console.error('Failed to load TTS settings:', error);
     } finally {
       setIsLoadingTTSSettings(false);
+      setTimeout(() => { ttsLoadedRef.current = true; }, 100);
     }
   };
 
@@ -221,6 +285,7 @@ export default function VoiceSettingsTab({
     } catch (error) {
       console.error('Failed to load STT settings:', error);
     }
+    setTimeout(() => { sttLoadedRef.current = true; }, 100);
   };
 
   const handleTTSProviderChange = async (providerType: string) => {
@@ -750,23 +815,6 @@ export default function VoiceSettingsTab({
       </div>
 
       {/* TTS Action Buttons */}
-      <div className="flex items-center justify-end pt-6 border-t border-gray-700">
-        <button
-          onClick={handleTTSSave}
-          disabled={isSavingTTS || isLoadingTTSSettings || !ttsSettings.api_url}
-          className="flex items-center gap-2 px-6 py-2 theme-btn-primary rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSavingTTS ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Saving...</span>
-            </>
-          ) : (
-            <span>Save TTS Settings</span>
-          )}
-        </button>
-      </div>
-
       {/* STT Settings Section */}
       <div className="border-t border-gray-700 pt-6 mt-6">
         <h3 className="text-lg font-semibold text-white mb-4">
@@ -835,15 +883,6 @@ export default function VoiceSettingsTab({
             </>
           )}
 
-          {/* Save Button */}
-          <div className="flex justify-end">
-            <button
-              onClick={handleSTTSave}
-              className="flex items-center gap-2 px-6 py-2 theme-btn-primary rounded-lg font-semibold"
-            >
-              <span>Save STT Settings</span>
-            </button>
-          </div>
         </div>
       </div>
 

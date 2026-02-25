@@ -195,6 +195,7 @@ class SceneEmbedding(Base):
     embedding_id = Column(String(200), nullable=False, unique=True, index=True)  # Unique identifier
     embedding = Column(Vector(768), nullable=True)  # pgvector embedding
     content_hash = Column(String(64), nullable=True)  # SHA256 hash of content for change detection
+    embedding_text = Column(Text, nullable=True)  # The actual text that was embedded (for re-embedding)
     
     # Context
     sequence_order = Column(Integer, nullable=False, index=True)

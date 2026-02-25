@@ -319,34 +319,21 @@ class LLMClient:
             else:
                 params["api_key"] = self.api_key or "not-needed"
 
-        # Add provider-specific parameters
+        # Add sampler parameters uniformly to all providers via extra_body.
+        # Providers silently ignore unsupported params (verified: OpenRouter, KoboldCpp, etc.).
+        # drop_params=True (already set on LiteLLM) handles standard OpenAI params;
+        # extra_body params pass through harmlessly to any provider.
         is_openrouter = self.api_type == "openrouter" or (self.api_url and "openrouter" in self.api_url.lower())
 
-        if self.api_type == "koboldcpp":
-            if self.top_k is not None:
-                params["top_k"] = self.top_k
-            if self.repetition_penalty is not None:
-                params["repetition_penalty"] = self.repetition_penalty
-        elif self.api_type in ["openai-compatible", "tabbyapi", "lm_studio"]:
-            extra_body = {}
-            if is_openrouter:
-                # OpenRouter only supports standard OpenAI params (top_k, repetition_penalty)
-                # Skip KoboldCpp-specific samplers (dry_*, penalty_range, mirostat, etc.)
-                if self.top_k is not None:
-                    extra_body["top_k"] = self.top_k
-                if self.repetition_penalty is not None:
-                    extra_body["repetition_penalty"] = self.repetition_penalty
-                logger.info("OpenRouter detected - skipping local-only sampler params")
-            else:
-                # Local servers (LM Studio, KoboldCpp via openai-compat, TabbyAPI)
-                if self.top_k is not None:
-                    extra_body["top_k"] = self.top_k
-                if self.repetition_penalty is not None:
-                    extra_body["repetition_penalty"] = self.repetition_penalty
-                extra_body = self._add_enabled_samplers(extra_body)
+        extra_body = {}
+        if self.top_k is not None:
+            extra_body["top_k"] = self.top_k
+        if self.repetition_penalty is not None:
+            extra_body["repetition_penalty"] = self.repetition_penalty
+        extra_body = self._add_enabled_samplers(extra_body)
 
-            if extra_body:
-                params["extra_body"] = extra_body
+        if extra_body:
+            params["extra_body"] = extra_body
 
         # Add reasoning/thinking parameters
         if self.reasoning_effort and self.reasoning_effort != "disabled":

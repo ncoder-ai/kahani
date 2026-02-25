@@ -199,15 +199,6 @@ export default function InterfaceSettingsTab({
         </div>
       </div>
 
-      {/* Save Button */}
-      <div className="flex justify-end pt-4 border-t border-gray-700">
-        <button
-          onClick={saveAllSettings}
-          className="theme-btn-primary px-6 py-2 rounded-md font-semibold"
-        >
-          Save Interface Settings
-        </button>
-      </div>
     </div>
   );
 }

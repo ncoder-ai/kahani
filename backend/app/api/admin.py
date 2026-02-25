@@ -923,6 +923,8 @@ async def reembed_story(
         )
 
     trace_id = str(uuid.uuid4())[:8]
+    # Capture user_id for background task
+    reembed_user_id = current_user.id
     logger.info(f"[REEMBED] trace_id={trace_id} Starting re-embed for story {story_id}")
 
     def run_reembed():
@@ -932,13 +934,23 @@ async def reembed_story(
         async def _do_reembed():
             from ..database import SessionLocal
             from ..services.semantic_memory import get_semantic_memory_service
-            from ..models import Scene
+            from ..services.llm.service import UnifiedLLMService
+            from ..models import Scene, UserSettings
+            from ..models.semantic_memory import SceneEmbedding
+            import hashlib
 
             reembed_db = SessionLocal()
             try:
                 semantic_memory = get_semantic_memory_service()
+                llm_service = UnifiedLLMService()
 
-                # Clear existing embeddings for this story
+                # Get user settings for LLM summary calls
+                user_settings_db = reembed_db.query(UserSettings).filter(
+                    UserSettings.user_id == reembed_user_id
+                ).first()
+                user_settings = user_settings_db.to_dict() if user_settings_db else {}
+
+                # Clear existing embedding vectors (keeps rows, sets embedding=NULL)
                 deleted_count = await semantic_memory.clear_story_embeddings(story_id)
                 logger.info(f"[REEMBED] trace_id={trace_id} Cleared {deleted_count} existing embeddings")
 
@@ -948,9 +960,10 @@ async def reembed_story(
                     Scene.is_deleted == False
                 ).order_by(Scene.sequence_number).all()
 
-                logger.info(f"[REEMBED] trace_id={trace_id} Found {len(scenes)} scenes to re-embed")
+                logger.info(f"[REEMBED] trace_id={trace_id} Found {len(scenes)} scenes to re-embed (with LLM summaries)")
 
                 success_count = 0
+                summary_count = 0
                 error_count = 0
 
                 for scene in scenes:
@@ -964,11 +977,31 @@ async def reembed_story(
                             continue
 
                         variant_id = scene.variants[0].id if scene.variants else 0
-                        await semantic_memory.add_scene_embedding(
+
+                        # Step 1: Generate LLM summary (matches normal pipeline)
+                        embed_content = content[:1000]  # fallback: truncated raw content
+                        try:
+                            summary_result = await llm_service.generate_scene_summary_cache_friendly(
+                                scene_content=content,
+                                context={},
+                                user_id=reembed_user_id,
+                                user_settings=user_settings,
+                                db=reembed_db
+                            )
+                            if summary_result and summary_result.get("summary"):
+                                embed_content = summary_result["summary"]
+                                summary_count += 1
+                            else:
+                                logger.warning(f"[REEMBED] trace_id={trace_id} Scene {scene.id}: summary returned None, using truncated content")
+                        except Exception as e:
+                            logger.warning(f"[REEMBED] trace_id={trace_id} Scene {scene.id}: summary failed ({e}), using truncated content")
+
+                        # Step 2: Generate embedding from summary
+                        embedding_id, embedding_vector = await semantic_memory.add_scene_embedding(
                             scene_id=scene.id,
                             variant_id=variant_id,
                             story_id=story_id,
-                            content=content,
+                            content=embed_content,
                             metadata={
                                 "sequence": scene.sequence_number,
                                 "chapter_id": scene.chapter_id or 0,
@@ -977,16 +1010,48 @@ async def reembed_story(
                                 "characters": []
                             }
                         )
+
+                        # Step 3: Store embedding vector in database
+                        content_hash = hashlib.sha256(embed_content.encode('utf-8')).hexdigest()
+                        existing = reembed_db.query(SceneEmbedding).filter(
+                            SceneEmbedding.embedding_id == embedding_id
+                        ).first()
+                        if existing:
+                            existing.embedding = embedding_vector
+                            existing.embedding_text = embed_content
+                            existing.content_hash = content_hash
+                            existing.content_length = len(embed_content)
+                        else:
+                            new_embedding = SceneEmbedding(
+                                embedding_id=embedding_id,
+                                story_id=story_id,
+                                branch_id=scene.branch_id,
+                                scene_id=scene.id,
+                                variant_id=variant_id,
+                                sequence_order=scene.sequence_number,
+                                chapter_id=scene.chapter_id,
+                                content_length=len(embed_content),
+                                content_hash=content_hash,
+                                embedding=embedding_vector,
+                                embedding_text=embed_content,
+                            )
+                            reembed_db.add(new_embedding)
+
                         success_count += 1
 
-                        if success_count % 50 == 0:
-                            logger.info(f"[REEMBED] trace_id={trace_id} Progress: {success_count} scenes embedded")
+                        # Commit in batches of 10
+                        if success_count % 10 == 0:
+                            reembed_db.commit()
+                            logger.info(f"[REEMBED] trace_id={trace_id} Progress: {success_count}/{len(scenes)} ({summary_count} with LLM summaries)")
 
                     except Exception as e:
                         logger.error(f"[REEMBED] trace_id={trace_id} Failed to embed scene {scene.id}: {e}")
                         error_count += 1
 
-                logger.info(f"[REEMBED] trace_id={trace_id} Complete: {success_count} success, {error_count} errors")
+                # Final commit
+                reembed_db.commit()
+
+                logger.info(f"[REEMBED] trace_id={trace_id} Complete: {success_count} success ({summary_count} with LLM summaries), {error_count} errors")
 
             except Exception as e:
                 logger.error(f"[REEMBED] trace_id={trace_id} Failed: {e}")
@@ -1060,6 +1125,7 @@ async def reembed_all_stories(
     story_ids = [s.id for s in db.query(Story.id).all()]
     total_scenes = db.query(Scene).filter(Scene.is_deleted == False).count()
 
+    reembed_user_id = current_user.id
     logger.info(f"[REEMBED-ALL] trace_id={trace_id} Starting re-embed for {len(story_ids)} stories, {total_scenes} scenes")
 
     def run_reembed_all():
@@ -1069,11 +1135,21 @@ async def reembed_all_stories(
         async def _do_reembed_all():
             from ..database import SessionLocal
             from ..services.semantic_memory import get_semantic_memory_service
-            from ..models import Scene
+            from ..services.llm.service import UnifiedLLMService
+            from ..models import Scene, UserSettings
+            from ..models.semantic_memory import SceneEmbedding
+            import hashlib
 
             reembed_db = SessionLocal()
             try:
                 semantic_memory = get_semantic_memory_service()
+                llm_service = UnifiedLLMService()
+
+                # Get user settings for LLM summary calls
+                user_settings_db = reembed_db.query(UserSettings).filter(
+                    UserSettings.user_id == reembed_user_id
+                ).first()
+                user_settings = user_settings_db.to_dict() if user_settings_db else {}
 
                 # Clear all embeddings first
                 await semantic_memory.clear_all_scene_embeddings()
@@ -1084,9 +1160,10 @@ async def reembed_all_stories(
                     Scene.is_deleted == False
                 ).order_by(Scene.story_id, Scene.sequence_number).all()
 
-                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Found {len(scenes)} scenes to re-embed")
+                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Found {len(scenes)} scenes to re-embed (with LLM summaries)")
 
                 success_count = 0
+                summary_count = 0
                 error_count = 0
 
                 for i, scene in enumerate(scenes):
@@ -1099,11 +1176,29 @@ async def reembed_all_stories(
                             continue
 
                         variant_id = scene.variants[0].id if scene.variants else 0
-                        await semantic_memory.add_scene_embedding(
+
+                        # Step 1: Generate LLM summary (matches normal pipeline)
+                        embed_content = content[:1000]  # fallback: truncated raw content
+                        try:
+                            summary_result = await llm_service.generate_scene_summary_cache_friendly(
+                                scene_content=content,
+                                context={},
+                                user_id=reembed_user_id,
+                                user_settings=user_settings,
+                                db=reembed_db
+                            )
+                            if summary_result and summary_result.get("summary"):
+                                embed_content = summary_result["summary"]
+                                summary_count += 1
+                        except Exception as e:
+                            logger.warning(f"[REEMBED-ALL] trace_id={trace_id} Scene {scene.id}: summary failed ({e}), using truncated content")
+
+                        # Step 2: Generate embedding from summary
+                        embedding_id, embedding_vector = await semantic_memory.add_scene_embedding(
                             scene_id=scene.id,
                             variant_id=variant_id,
                             story_id=scene.story_id,
-                            content=content,
+                            content=embed_content,
                             metadata={
                                 "sequence": scene.sequence_number,
                                 "chapter_id": scene.chapter_id or 0,
@@ -1112,16 +1207,47 @@ async def reembed_all_stories(
                                 "characters": []
                             }
                         )
+
+                        # Step 3: Store embedding vector in database
+                        content_hash = hashlib.sha256(embed_content.encode('utf-8')).hexdigest()
+                        existing = reembed_db.query(SceneEmbedding).filter(
+                            SceneEmbedding.embedding_id == embedding_id
+                        ).first()
+                        if existing:
+                            existing.embedding = embedding_vector
+                            existing.embedding_text = embed_content
+                            existing.content_hash = content_hash
+                            existing.content_length = len(embed_content)
+                        else:
+                            new_embedding = SceneEmbedding(
+                                embedding_id=embedding_id,
+                                story_id=scene.story_id,
+                                branch_id=scene.branch_id,
+                                scene_id=scene.id,
+                                variant_id=variant_id,
+                                sequence_order=scene.sequence_number,
+                                chapter_id=scene.chapter_id,
+                                content_length=len(embed_content),
+                                content_hash=content_hash,
+                                embedding=embedding_vector,
+                                embedding_text=embed_content,
+                            )
+                            reembed_db.add(new_embedding)
+
                         success_count += 1
 
-                        if (i + 1) % 50 == 0:
-                            logger.info(f"[REEMBED-ALL] trace_id={trace_id} Progress: {i + 1}/{len(scenes)}")
+                        # Commit in batches of 10
+                        if (i + 1) % 10 == 0:
+                            reembed_db.commit()
+                            logger.info(f"[REEMBED-ALL] trace_id={trace_id} Progress: {i + 1}/{len(scenes)} ({summary_count} with LLM summaries)")
 
                     except Exception as e:
                         logger.error(f"[REEMBED-ALL] trace_id={trace_id} Failed to embed scene {scene.id}: {e}")
                         error_count += 1
 
-                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Complete: {success_count} success, {error_count} errors")
+                # Final commit
+                reembed_db.commit()
+                logger.info(f"[REEMBED-ALL] trace_id={trace_id} Complete: {success_count} success ({summary_count} with LLM summaries), {error_count} errors")
 
             except Exception as e:
                 logger.error(f"[REEMBED-ALL] trace_id={trace_id} Failed: {e}")
@@ -1140,5 +1266,74 @@ async def reembed_all_stories(
         "trace_id": trace_id,
         "stories_to_process": len(story_ids),
         "scenes_to_process": total_scenes
+    }
+
+
+@router.post("/embeddings/backfill-event-embeddings")
+async def backfill_event_embeddings(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Backfill embeddings for scene_events rows that have NULL embedding.
+    One-time operation — new events get embedded at extraction time.
+    Runs in background; ~100 events/second with local embedding model.
+    """
+    from ..models.scene_event import SceneEvent
+
+    total = db.query(func.count(SceneEvent.id)).filter(
+        SceneEvent.embedding.is_(None)
+    ).scalar()
+
+    if total == 0:
+        return {"message": "All scene events already have embeddings", "total": 0}
+
+    def run_backfill():
+        async def _do_backfill():
+            from ..database import SessionLocal
+            from ..services.semantic_memory import get_semantic_memory_service
+
+            semantic_memory = get_semantic_memory_service()
+            backfill_db = SessionLocal()
+            batch_size = 100
+            processed = 0
+            errors = 0
+
+            try:
+                while True:
+                    events = (
+                        backfill_db.query(SceneEvent)
+                        .filter(SceneEvent.embedding.is_(None))
+                        .order_by(SceneEvent.id)
+                        .limit(batch_size)
+                        .all()
+                    )
+                    if not events:
+                        break
+
+                    texts = [e.event_text for e in events]
+                    try:
+                        embeddings = await semantic_memory.encode_texts(texts)
+                        for event, emb in zip(events, embeddings):
+                            event.embedding = emb.tolist()
+                        backfill_db.commit()
+                        processed += len(events)
+                    except Exception as e:
+                        logger.error(f"[BACKFILL] Batch failed: {e}")
+                        backfill_db.rollback()
+                        errors += len(events)
+
+                logger.info(f"[BACKFILL] Event embeddings complete: {processed} processed, {errors} errors")
+            finally:
+                backfill_db.close()
+
+        asyncio.run(_do_backfill())
+
+    background_tasks.add_task(run_backfill)
+
+    return {
+        "message": f"Backfilling {total} event embeddings in background",
+        "total": total,
     }
 

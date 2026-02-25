@@ -733,11 +733,11 @@ class CharacterAssistantService:
                 query = f"scenes featuring {character_name}, {character_name}'s actions and dialogue"
                 
                 # Use semantic search to find most relevant scenes
-                results = await semantic_service.search_similar_scenes(
+                results = await semantic_service.search_events(
                     query_text=query,
                     story_id=story_id,
                     top_k=max_scenes,
-                    use_reranking=True
+                    branch_id=branch_id,
                 )
                 
                 if results:

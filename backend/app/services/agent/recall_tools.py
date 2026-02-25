@@ -28,7 +28,7 @@ def create_recall_tools(
         """Semantic search for scenes by meaning."""
         try:
             top_k = min(int(top_k), 15)
-            results_per_query = await semantic_memory.search_similar_scenes_batch(
+            results_per_query = await semantic_memory.search_events_batch(
                 query_texts=[query],
                 story_id=story_id,
                 top_k=top_k,

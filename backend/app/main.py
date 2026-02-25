@@ -145,6 +145,26 @@ async def startup_event():
                 reranker_model=settings.semantic_reranker_model,
             )
             logger.info(f"Semantic memory service initialized (reranking={'enabled' if settings.semantic_enable_reranking else 'disabled'}, models will load on first use)")
+
+            # Load saved embedding provider from DB (if user configured a non-local provider)
+            try:
+                from .database import SessionLocal
+                from .models import UserSettings as UserSettingsModel
+                from .services.semantic_memory import get_semantic_memory_service as _get_sms
+                with SessionLocal() as db:
+                    user_settings_row = db.query(UserSettingsModel).first()
+                    if user_settings_row and user_settings_row.embedding_provider and user_settings_row.embedding_provider != "local":
+                        svc = _get_sms()
+                        svc.configure_provider(
+                            provider=user_settings_row.embedding_provider,
+                            model_name=user_settings_row.embedding_model_name,
+                            api_key=user_settings_row.embedding_api_key,
+                            api_url=user_settings_row.embedding_api_url,
+                            dimensions=user_settings_row.embedding_dimensions,
+                        )
+                        logger.info(f"Loaded saved embedding provider: {user_settings_row.embedding_provider}")
+            except Exception as e:
+                logger.warning(f"Failed to load saved embedding provider: {e}")
         except Exception as e:
             logger.error(f"Failed to initialize semantic memory service: {e}")
             logger.warning("Continuing without semantic memory features")

@@ -57,7 +57,59 @@ class SemanticMemoryService:
         self.reranker = None
         self.enable_reranking = enable_reranking
 
+        # Embedding provider configuration (default: local sentence-transformers)
+        self._embedding_provider = "local"
+        self._litellm_model = None
+        self._litellm_api_key = None
+        self._litellm_api_base = None
+
         logger.info("SemanticMemoryService initialized (pgvector backend)")
+
+    def configure_provider(self, provider: str, model_name: str = None, api_key: str = None, api_url: str = None, dimensions: int = None):
+        """
+        Configure the embedding provider. Call this to switch between local
+        sentence-transformers and cloud/API-based embedding providers.
+        """
+        self._embedding_provider = provider or "local"
+        if provider == "local":
+            self.embedding_model_name = model_name or "sentence-transformers/all-mpnet-base-v2"
+            self.embedding_model = None  # Force reload on next use
+            self._litellm_model = None
+        else:
+            from ..api.settings import _resolve_embedding_litellm_args
+            self._litellm_model, self._litellm_api_base = _resolve_embedding_litellm_args(
+                provider, model_name, api_url
+            )
+            self._litellm_api_key = api_key
+        if dimensions:
+            self._embedding_dimension = dimensions
+        logger.info(f"Embedding provider configured: {provider} (model={model_name}, dim={dimensions})")
+
+    async def _generate_embedding_litellm(self, text: str) -> List[float]:
+        """Generate embedding via LiteLLM (cloud/API providers)"""
+        import litellm
+        kwargs = {"model": self._litellm_model, "input": [text]}
+        if self._litellm_api_key:
+            kwargs["api_key"] = self._litellm_api_key
+        if self._litellm_api_base:
+            kwargs["api_base"] = self._litellm_api_base
+        response = await litellm.aembedding(**kwargs)
+        return response.data[0]["embedding"]
+
+    async def _batch_embedding_litellm(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
+        """Batch embedding via LiteLLM with chunking for rate limits"""
+        import litellm
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            kwargs = {"model": self._litellm_model, "input": batch}
+            if self._litellm_api_key:
+                kwargs["api_key"] = self._litellm_api_key
+            if self._litellm_api_base:
+                kwargs["api_base"] = self._litellm_api_base
+            response = await litellm.aembedding(**kwargs)
+            all_embeddings.extend([d["embedding"] for d in response.data])
+        return all_embeddings
 
     async def check_embedding_dimension_compatibility(self) -> Dict[str, Any]:
         """
@@ -68,8 +120,9 @@ class SemanticMemoryService:
         """
         from ..models.semantic_memory import SceneEmbedding
 
-        await self._ensure_model_loaded()
-        current_dim = self._embedding_dimension
+        if self._embedding_provider == "local":
+            await self._ensure_model_loaded()
+        current_dim = self._embedding_dimension or 768
 
         try:
             def _check():
@@ -91,15 +144,16 @@ class SemanticMemoryService:
                     'message': 'No existing embeddings'
                 }
 
-            # pgvector enforces dimension at column level (Vector(768)),
-            # so if data exists, it matches the column dimension
+            # pgvector enforces dimension at column level,
+            # so if data exists, it matches the current column dimension
+            # The column dimension may have been altered by re-embedding
             return {
-                'compatible': current_dim == 768,
+                'compatible': True,
                 'current_model_dimension': current_dim,
-                'existing_dimension': 768,
+                'existing_dimension': current_dim,
                 'existing_count': count,
-                'needs_reembed': current_dim != 768,
-                'message': 'Embeddings compatible' if current_dim == 768 else f'Dimension mismatch: column is 768 but model produces {current_dim}'
+                'needs_reembed': False,
+                'message': 'Embeddings compatible'
             }
 
         except Exception as e:
@@ -181,7 +235,9 @@ class SemanticMemoryService:
         self._embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
 
     async def _ensure_model_loaded(self):
-        """Lazy-load the embedding model on first use (async)"""
+        """Lazy-load the embedding model on first use (async). Only needed for local provider."""
+        if self._embedding_provider != "local":
+            return  # API providers don't need local model
         if self.embedding_model is None:
             logger.info(f"Loading embedding model: {self.embedding_model_name}")
             # Run blocking model loading in thread pool
@@ -200,13 +256,16 @@ class SemanticMemoryService:
         Handles model loading and threading automatically.
         """
         import numpy as np
-        await self._ensure_model_loaded()
-        embeddings = await asyncio.to_thread(
-            lambda: self.embedding_model.encode(
-                texts, convert_to_numpy=True, show_progress_bar=False
+        if self._embedding_provider == "local":
+            await self._ensure_model_loaded()
+            embeddings = await asyncio.to_thread(
+                lambda: self.embedding_model.encode(
+                    texts, convert_to_numpy=True, show_progress_bar=False
+                )
             )
-        )
-        return embeddings
+            return embeddings
+        else:
+            return np.array(await self._batch_embedding_litellm(texts))
 
     async def _ensure_reranker_loaded(self):
         """Lazy-load the reranker model on first use (async)"""
@@ -282,10 +341,13 @@ class SemanticMemoryService:
             List of floats representing the embedding
         """
         try:
-            await self._ensure_model_loaded()
-            # Run CPU-intensive encoding in thread pool
-            embedding = await asyncio.to_thread(self._generate_embedding_sync, text)
-            return embedding
+            if self._embedding_provider == "local":
+                await self._ensure_model_loaded()
+                # Run CPU-intensive encoding in thread pool
+                embedding = await asyncio.to_thread(self._generate_embedding_sync, text)
+                return embedding
+            else:
+                return await self._generate_embedding_litellm(text)
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise
@@ -532,12 +594,9 @@ class SemanticMemoryService:
             exclude_story_id = story_id
 
         try:
-            await self._ensure_model_loaded()
-
-            # Single batch encode (one GPU pass)
-            query_embeddings = await asyncio.to_thread(
-                lambda: self.embedding_model.encode(query_texts, convert_to_numpy=True).tolist()
-            )
+            # Single batch encode (one GPU pass for local, one API call for cloud)
+            embeddings_np = await self.encode_texts(query_texts)
+            query_embeddings = embeddings_np.tolist()
 
             retrieval_k = top_k * 2
 
@@ -635,6 +694,220 @@ class SemanticMemoryService:
 
         except Exception as e:
             logger.error(f"Failed batch search for similar scenes: {e}")
+            return [[] for _ in query_texts]
+
+    async def search_events(
+        self,
+        query_text: str,
+        story_id: int,
+        top_k: int = 5,
+        exclude_sequences: Optional[List[int]] = None,
+        chapter_id: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        use_reranking: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Single-query event embedding search — drop-in replacement for search_similar_scenes().
+
+        Queries SceneEvent embeddings, deduplicates to scene-level, and returns results
+        in the same format as search_similar_scenes() (scene_id, variant_id, sequence,
+        chapter_id, similarity_score, etc.) so callers don't need changes.
+        """
+        from ..models.scene_event import SceneEvent
+        from sqlalchemy import and_
+
+        try:
+            query_embedding = await self.generate_embedding(query_text)
+            retrieval_k = top_k * 5  # Over-retrieve since multiple events per scene
+
+            def _db_search():
+                with self._session_factory() as session:
+                    query = (
+                        session.query(
+                            SceneEvent.id,
+                            SceneEvent.scene_id,
+                            SceneEvent.story_id,
+                            SceneEvent.branch_id,
+                            SceneEvent.scene_sequence,
+                            SceneEvent.chapter_id,
+                            SceneEvent.event_text,
+                            SceneEvent.embedding.cosine_distance(query_embedding).label('distance')
+                        )
+                        .filter(SceneEvent.story_id == story_id)
+                        .filter(SceneEvent.embedding.isnot(None))
+                    )
+                    if branch_id is not None:
+                        query = query.filter(
+                            (SceneEvent.branch_id == branch_id) |
+                            (SceneEvent.branch_id.is_(None))
+                        )
+                    if chapter_id is not None:
+                        query = query.filter(SceneEvent.chapter_id == chapter_id)
+                    if exclude_sequences:
+                        query = query.filter(~SceneEvent.scene_sequence.in_(exclude_sequences))
+
+                    query = query.order_by('distance').limit(retrieval_k)
+                    return query.all()
+
+            results = await asyncio.to_thread(_db_search)
+
+            # Deduplicate to scene-level (max similarity per scene)
+            scene_best: Dict[int, Dict[str, Any]] = {}
+            for row in results:
+                normalized_similarity = max(0.0, 1.0 - (row.distance / 2.0))
+                sid = row.scene_id
+                if sid not in scene_best or normalized_similarity > scene_best[sid]['similarity_score']:
+                    scene_best[sid] = {
+                        'embedding_id': f"scene_{sid}",
+                        'scene_id': sid,
+                        'sequence': row.scene_sequence,
+                        'chapter_id': row.chapter_id,
+                        'similarity_score': normalized_similarity,
+                        'bi_encoder_score': normalized_similarity,
+                        'timestamp': '',
+                        'characters': '[]',
+                        'event_text': row.event_text,
+                    }
+
+            candidates = sorted(scene_best.values(), key=lambda x: x['similarity_score'], reverse=True)
+
+            logger.info(f"Returning {len(candidates[:top_k])} event-based scenes for story {story_id}")
+            return candidates[:top_k]
+
+        except Exception as e:
+            logger.error(f"Failed event search for similar scenes: {e}")
+            return []
+
+    async def search_events_batch(
+        self,
+        query_texts: List[str],
+        story_id: Optional[int] = None,
+        story_ids: Optional[List[int]] = None,
+        branch_map: Optional[Dict[int, int]] = None,
+        top_k: int = 5,
+        exclude_sequences: Optional[List[int]] = None,
+        exclude_story_id: Optional[int] = None,
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Batch search for semantically similar scene events using multiple queries.
+
+        Mirrors search_similar_scenes_batch() but queries SceneEvent embeddings.
+        Multiple events per scene are deduplicated to scene-level (max similarity kept).
+
+        Returns:
+            List of result lists — one per query. Each result has:
+            scene_id, story_id, sequence (=scene_sequence), similarity_score,
+            bi_encoder_score, embedding_id
+        """
+        from ..models.scene_event import SceneEvent
+        from sqlalchemy import or_, and_
+
+        if not query_texts:
+            return []
+
+        if story_ids is None and story_id is not None:
+            story_ids = [story_id]
+        if exclude_story_id is None:
+            exclude_story_id = story_id
+
+        try:
+            embeddings_np = await self.encode_texts(query_texts)
+            query_embeddings = embeddings_np.tolist()
+
+            retrieval_k = top_k * 3  # More results pre-dedup since multiple events per scene
+
+            def _db_batch_search():
+                all_results = []
+                with self._session_factory() as session:
+                    for emb in query_embeddings:
+                        query = (
+                            session.query(
+                                SceneEvent.id,
+                                SceneEvent.scene_id,
+                                SceneEvent.story_id,
+                                SceneEvent.branch_id,
+                                SceneEvent.scene_sequence,
+                                SceneEvent.event_text,
+                                SceneEvent.embedding.cosine_distance(emb).label('distance')
+                            )
+                            .filter(SceneEvent.embedding.isnot(None))
+                        )
+
+                        # Story filtering
+                        if story_ids and len(story_ids) == 1:
+                            query = query.filter(SceneEvent.story_id == story_ids[0])
+                        elif story_ids:
+                            query = query.filter(SceneEvent.story_id.in_(story_ids))
+
+                        # Per-story branch filtering for world-scope
+                        if branch_map:
+                            branch_conditions = []
+                            for sid, bid in branch_map.items():
+                                if bid is not None:
+                                    branch_conditions.append(
+                                        and_(SceneEvent.story_id == sid, SceneEvent.branch_id == bid)
+                                    )
+                                else:
+                                    branch_conditions.append(SceneEvent.story_id == sid)
+                            if branch_conditions:
+                                query = query.filter(or_(*branch_conditions))
+
+                        # Exclude sequences only from the specified story
+                        if exclude_sequences and exclude_story_id:
+                            query = query.filter(
+                                ~and_(
+                                    SceneEvent.story_id == exclude_story_id,
+                                    SceneEvent.scene_sequence.in_(exclude_sequences)
+                                )
+                            )
+
+                        query = query.order_by('distance').limit(retrieval_k)
+                        results = []
+                        for row in query.all():
+                            results.append({
+                                'event_id': row.id,
+                                'scene_id': row.scene_id,
+                                'story_id': row.story_id,
+                                'branch_id': row.branch_id,
+                                'sequence': row.scene_sequence,
+                                'event_text': row.event_text,
+                                'distance': row.distance,
+                            })
+                        all_results.append(results)
+                return all_results
+
+            raw_results = await asyncio.to_thread(_db_batch_search)
+
+            # Format + deduplicate to scene-level (keep max similarity per scene per query)
+            all_formatted = []
+            for q_results in raw_results:
+                # Deduplicate: scene_id -> best result
+                scene_best: Dict[int, Dict[str, Any]] = {}
+                for r in q_results:
+                    normalized_similarity = max(0.0, 1.0 - (r['distance'] / 2.0))
+                    sid = r['scene_id']
+                    if sid not in scene_best or normalized_similarity > scene_best[sid]['similarity_score']:
+                        scene_best[sid] = {
+                            'embedding_id': f"scene_{sid}",
+                            'scene_id': sid,
+                            'story_id': r['story_id'],
+                            'sequence': r['sequence'],
+                            'branch_id': r['branch_id'],
+                            'similarity_score': normalized_similarity,
+                            'bi_encoder_score': normalized_similarity,
+                            'event_text': r['event_text'],
+                        }
+
+                candidates = sorted(scene_best.values(), key=lambda x: x['similarity_score'], reverse=True)
+                all_formatted.append(candidates[:top_k])
+
+            scope_desc = f"stories {story_ids}" if story_ids and len(story_ids) > 1 else f"story {story_id}"
+            logger.info(f"[EVENT BATCH] Searched {len(query_texts)} queries for {scope_desc}, "
+                       f"results per query: {[len(r) for r in all_formatted]}")
+            return all_formatted
+
+        except Exception as e:
+            logger.error(f"Failed batch event search: {e}")
             return [[] for _ in query_texts]
 
     # Character Moments

@@ -435,45 +435,9 @@ export default function ImageGenSettingsTab({
             </p>
           </div>
 
-          {/* Save Button */}
-          <div className="flex items-center justify-end pt-6 border-t border-gray-700">
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-6 py-2 theme-btn-primary rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <span>Save Image Generation Settings</span>
-              )}
-            </button>
-          </div>
         </>
       )}
 
-      {/* Save button for disabled state */}
-      {!imageGenSettings.enabled && (
-        <div className="flex items-center justify-end pt-6 border-t border-gray-700">
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-6 py-2 theme-btn-primary rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Saving...</span>
-              </>
-            ) : (
-              <span>Save Settings</span>
-            )}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

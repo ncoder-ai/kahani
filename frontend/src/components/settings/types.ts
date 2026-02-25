@@ -146,6 +146,72 @@ export interface TTSSettings {
   auto_play_last_scene?: boolean;
 }
 
+// --- Provider Registry Types ---
+
+export interface ProviderRoleLLM {
+  model_name: string;
+  temperature: number;
+  top_p: number;
+  top_k: number;
+  repetition_penalty: number;
+  max_tokens: number;
+  completion_mode: string;
+  reasoning_effort?: string | null;
+  thinking_model_type?: string | null;
+  thinking_enabled_generation?: boolean;
+  text_completion_template?: string;
+  text_completion_preset?: string;
+  sampler_settings?: SamplerSettings;
+}
+
+export interface ProviderRoleExtraction {
+  model_name: string;
+  temperature: number;
+  max_tokens: number;
+  top_p?: number;
+  repetition_penalty?: number;
+  min_p?: number;
+  thinking_disable_method?: string;
+  thinking_disable_custom?: string;
+  thinking_enabled_extractions?: boolean;
+  thinking_enabled_memory?: boolean;
+}
+
+export interface ProviderRoleEmbedding {
+  model_name: string;
+  dimensions: number;
+}
+
+export interface ConfiguredProvider {
+  api_key?: string;
+  api_url?: string;
+  llm?: ProviderRoleLLM;
+  extraction?: ProviderRoleExtraction;
+  embedding?: ProviderRoleEmbedding;
+}
+
+export type ConfiguredProviders = Record<string, ConfiguredProvider>;
+
+// --- Embedding Model Settings ---
+
+export interface EmbeddingModelSettings {
+    provider: string;
+    api_url: string;
+    api_key: string;
+    model_name: string;
+    dimensions: number;
+    needs_reembed: boolean;
+}
+
+export interface ReembedProgress {
+    status: 'idle' | 'running' | 'completed' | 'cancelled' | 'error';
+    current_table: string;
+    processed: number;
+    total: number;
+    errors: number;
+    message?: string;
+}
+
 // Common props for all settings tabs
 export interface SettingsTabProps {
   token: string | null;

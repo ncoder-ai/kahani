@@ -5,7 +5,7 @@ import { getApiBaseUrl } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import { SamplerSettings, DEFAULT_SAMPLER_SETTINGS } from '@/types/settings';
 import TextCompletionTemplateEditor from '../../TextCompletionTemplateEditor';
-import { SettingsTabProps, LLMSettings, ExtractionModelSettings, LLMProvider, THINKING_DISABLE_OPTIONS } from '../types';
+import { SettingsTabProps, LLMSettings, ExtractionModelSettings, EmbeddingModelSettings, ReembedProgress, LLMProvider, THINKING_DISABLE_OPTIONS, ConfiguredProviders } from '../types';
 
 // Helper function to safely parse JSON template
 const safeParseJSON = (jsonString: string | undefined | null): any => {
@@ -35,7 +35,10 @@ interface LLMSettingsTabProps extends SettingsTabProps {
   setExtractionEngineSettings: (settings: Record<string, ExtractionModelSettings>) => void;
   currentExtractionEngine: string;
   setCurrentExtractionEngine: (engine: string) => void;
-  onSave: () => Promise<void>;
+  embeddingSettings: EmbeddingModelSettings;
+  setEmbeddingSettings: (settings: EmbeddingModelSettings) => void;
+  configuredProviders: ConfiguredProviders;
+  setConfiguredProviders: (providers: ConfiguredProviders) => void;
 }
 
 export default function LLMSettingsTab({
@@ -55,7 +58,10 @@ export default function LLMSettingsTab({
   setExtractionEngineSettings,
   currentExtractionEngine,
   setCurrentExtractionEngine,
-  onSave,
+  embeddingSettings,
+  setEmbeddingSettings,
+  configuredProviders,
+  setConfiguredProviders,
 }: LLMSettingsTabProps) {
   const config = useConfig();
   const [llmSubTab, setLlmSubTab] = useState<'main' | 'samplers'>('main');
@@ -72,6 +78,15 @@ export default function LLMSettingsTab({
   const [autoLoadingExtraction, setAutoLoadingExtraction] = useState(false);
   const [providers, setProviders] = useState<LLMProvider[]>([]);
 
+  // Embedding model state
+  const [embeddingProviders, setEmbeddingProviders] = useState<LLMProvider[]>([]);
+  const [testingEmbedding, setTestingEmbedding] = useState(false);
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<{success: boolean; message: string; dimensions?: number} | null>(null);
+  const [embeddingModels, setEmbeddingModels] = useState<string[]>([]);
+  const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
+  const [reembedProgress, setReembedProgress] = useState<ReembedProgress | null>(null);
+  const [pollingReembed, setPollingReembed] = useState(false);
+
   const cloudProviders = providers.filter(p => p.category === 'cloud');
   const localProviders = providers.filter(p => p.category === 'local');
 
@@ -86,10 +101,13 @@ export default function LLMSettingsTab({
 
   useEffect(() => {
     loadProviders();
+    loadEmbeddingProviders();
     loadExtractionPresets();
     // Auto-fetch models silently if API URL is configured
     autoFetchModels();
     autoFetchExtractionModels();
+    // Check if re-embed is running
+    checkReembedProgress();
   }, []);
 
   const loadProviders = async () => {
@@ -105,6 +123,160 @@ export default function LLMSettingsTab({
       console.error('Failed to load LLM providers:', error);
     }
   };
+
+  const loadEmbeddingProviders = async () => {
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-providers`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setEmbeddingProviders(data.providers || []);
+      }
+    } catch (error) {
+      console.error('Failed to load embedding providers:', error);
+    }
+  };
+
+  const testEmbeddingConnection = async () => {
+    const creds = getProviderCredentials(embeddingSettings.provider);
+    setTestingEmbedding(true);
+    setEmbeddingTestResult(null);
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          provider: embeddingSettings.provider,
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+          model_name: embeddingSettings.model_name,
+        }),
+      });
+      const data = await response.json();
+      setEmbeddingTestResult(data);
+      if (data.success && data.dimensions) {
+        setEmbeddingSettings({ ...embeddingSettings, dimensions: data.dimensions });
+      }
+    } catch (error) {
+      setEmbeddingTestResult({ success: false, message: `Error: ${error}` });
+    } finally {
+      setTestingEmbedding(false);
+    }
+  };
+
+  const fetchEmbeddingModels = async () => {
+    const creds = getProviderCredentials(embeddingSettings.provider);
+    setLoadingEmbeddingModels(true);
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/available-models`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          provider: embeddingSettings.provider,
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEmbeddingModels(data.models || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch embedding models:', error);
+    } finally {
+      setLoadingEmbeddingModels(false);
+    }
+  };
+
+  const startReembed = async () => {
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/reembed`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setPollingReembed(true);
+        pollReembedProgress();
+      } else {
+        showMessage(data.message || 'Failed to start re-embedding', 'error');
+      }
+    } catch (error) {
+      showMessage('Failed to start re-embedding', 'error');
+    }
+  };
+
+  const cancelReembed = async () => {
+    try {
+      await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/reembed/cancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch (error) {
+      console.error('Failed to cancel re-embedding:', error);
+    }
+  };
+
+  const checkReembedProgress = async () => {
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/reembed/progress`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'running') {
+          setReembedProgress(data);
+          setPollingReembed(true);
+          pollReembedProgress();
+        } else if (data.status !== 'idle') {
+          setReembedProgress(data);
+        }
+      }
+    } catch (error) {
+      // Ignore — may not have started yet
+    }
+  };
+
+  const pollReembedProgress = () => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`${await getApiBaseUrl()}/api/settings/embedding-model/reembed/progress`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setReembedProgress(data);
+          if (data.status !== 'running') {
+            clearInterval(interval);
+            setPollingReembed(false);
+            if (data.status === 'completed') {
+              showMessage('Re-embedding completed successfully!', 'success');
+              setEmbeddingSettings({ ...embeddingSettings, needs_reembed: false });
+            }
+          }
+        }
+      } catch {
+        clearInterval(interval);
+        setPollingReembed(false);
+      }
+    }, 2000);
+  };
+
+  const embeddingCloudProviders = embeddingProviders.filter(p => p.category === 'cloud');
+  const embeddingLocalProviders = embeddingProviders.filter(p => p.category === 'local');
+  const isEmbeddingCloud = embeddingCloudProviders.some(p => p.id === embeddingSettings.provider);
+  const isEmbeddingLocalApi = embeddingSettings.provider !== 'local' && !isEmbeddingCloud;
+  const needsReembed = embeddingSettings.needs_reembed;
 
   const loadExtractionPresets = async () => {
     try {
@@ -123,10 +295,12 @@ export default function LLMSettingsTab({
   };
 
   const autoFetchModels = async () => {
-    // Cloud providers don't need URL, local providers do
-    const isCloud = isCloudProvider(llmSettings.api_type);
-    if (!isCloud && !llmSettings.api_url) return;
-    if (isCloud && !llmSettings.api_key) return;
+    if (!currentEngine) return;
+    // Resolve credentials from configured providers
+    const creds = getProviderCredentials(currentEngine);
+    const isCloud = isCloudProvider(currentEngine);
+    if (!isCloud && !creds.api_url) return;
+    if (isCloud && !creds.api_key) return;
     setAutoLoading(true);
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/available-models`, {
@@ -136,9 +310,9 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          api_url: llmSettings.api_url,
-          api_key: llmSettings.api_key,
-          api_type: llmSettings.api_type,
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: currentEngine,
           model_name: llmSettings.model_name
         }),
       });
@@ -156,10 +330,11 @@ export default function LLMSettingsTab({
   };
 
   const autoFetchExtractionModels = async () => {
-    if (!extractionModelSettings.enabled) return;
-    const extIsCloud = isCloudProvider(currentExtractionEngine);
-    if (!extIsCloud && !extractionModelSettings.url) return;
-    if (extIsCloud && !extractionModelSettings.api_key) return;
+    if (!extractionModelSettings.enabled || !currentExtractionEngine) return;
+    const creds = getProviderCredentials(currentExtractionEngine);
+    const isCloud = isCloudProvider(currentExtractionEngine);
+    if (!isCloud && !creds.api_url) return;
+    if (isCloud && !creds.api_key) return;
     setAutoLoadingExtraction(true);
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
@@ -169,9 +344,9 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          url: extractionModelSettings.url,
-          api_key: extractionModelSettings.api_key,
-          api_type: currentExtractionEngine || 'openai-compatible',
+          url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: currentExtractionEngine,
         }),
       });
       if (response.ok) {
@@ -188,13 +363,18 @@ export default function LLMSettingsTab({
   };
 
   const fetchAvailableModels = async () => {
-    const isCloud = isCloudProvider(llmSettings.api_type);
-    if (!isCloud && !llmSettings.api_url) {
-      showMessage('Please enter an API URL first', 'error');
+    if (!currentEngine) {
+      showMessage('Please select a provider first', 'error');
       return;
     }
-    if (isCloud && !llmSettings.api_key) {
-      showMessage('Please enter an API key first', 'error');
+    const creds = getProviderCredentials(currentEngine);
+    const isCloud = isCloudProvider(currentEngine);
+    if (!isCloud && !creds.api_url) {
+      showMessage('Provider has no API URL configured. Edit it in "Your Providers".', 'error');
+      return;
+    }
+    if (isCloud && !creds.api_key) {
+      showMessage('Provider has no API key configured. Edit it in "Your Providers".', 'error');
       return;
     }
 
@@ -207,9 +387,9 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          api_url: llmSettings.api_url,
-          api_key: llmSettings.api_key,
-          api_type: llmSettings.api_type,
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: currentEngine,
           model_name: llmSettings.model_name
         }),
       });
@@ -234,13 +414,18 @@ export default function LLMSettingsTab({
   };
 
   const fetchExtractionModels = async () => {
-    const extIsCloud = isCloudProvider(currentExtractionEngine);
-    if (!extIsCloud && !extractionModelSettings.url) {
-      showMessage('Please enter an API URL first', 'error');
+    if (!currentExtractionEngine) {
+      showMessage('Please select a provider first', 'error');
       return;
     }
-    if (extIsCloud && !extractionModelSettings.api_key) {
-      showMessage('Please enter an API key first', 'error');
+    const creds = getProviderCredentials(currentExtractionEngine);
+    const isCloud = isCloudProvider(currentExtractionEngine);
+    if (!isCloud && !creds.api_url) {
+      showMessage('Provider has no API URL configured. Edit it in "Your Providers".', 'error');
+      return;
+    }
+    if (isCloud && !creds.api_key) {
+      showMessage('Provider has no API key configured. Edit it in "Your Providers".', 'error');
       return;
     }
 
@@ -253,9 +438,9 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          url: extractionModelSettings.url,
-          api_key: extractionModelSettings.api_key,
-          api_type: currentExtractionEngine || 'openai-compatible',
+          url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: currentExtractionEngine,
         }),
       });
 
@@ -278,74 +463,202 @@ export default function LLMSettingsTab({
     }
   };
 
-  const handleEngineChange = (newEngine: string) => {
-    // Save current settings to the current engine
-    if (currentEngine && currentEngine !== '') {
-      setEngineSettings({
-        ...engineSettings,
-        [currentEngine]: { ...llmSettings }
-      });
-    }
+  // --- Provider Registry helpers ---
 
-    // Load settings for the new engine
-    if (newEngine && engineSettings[newEngine]) {
-      setLlmSettings(engineSettings[newEngine]);
-    } else {
-      // Default settings for new engine
-      setLlmSettings({
-        temperature: 0.7,
-        top_p: 0.9,
-        top_k: 40,
-        repetition_penalty: 1.1,
-        max_tokens: 2048,
-        timeout_total: undefined,
-        api_url: '',
-        api_key: '',
-        api_type: newEngine,
-        model_name: '',
-        completion_mode: 'chat',
-        text_completion_template: '',
-        text_completion_preset: 'llama3',
-        reasoning_effort: null,
-        show_thinking_content: true,
-      });
-    }
-
-    setCurrentEngine(newEngine);
-    setAvailableModels([]);
+  // Resolve credentials from the unified provider registry
+  const getProviderCredentials = (providerId: string) => {
+    const p = configuredProviders[providerId];
+    return { api_key: p?.api_key || '', api_url: p?.api_url || '' };
   };
 
-  const handleExtractionEngineChange = (newEngine: string) => {
-    // Save current extraction settings to the current engine
-    if (currentExtractionEngine && currentExtractionEngine !== '') {
-      setExtractionEngineSettings({
-        ...extractionEngineSettings,
-        [currentExtractionEngine]: { ...extractionModelSettings }
-      });
-    }
+  // Get list of configured provider IDs
+  const configuredProviderIds = Object.keys(configuredProviders);
 
-    // Load settings for the new engine
-    if (newEngine && extractionEngineSettings[newEngine]) {
-      setExtractionModelSettings({
-        ...extractionEngineSettings[newEngine],
-        api_type: newEngine,
-      });
-    } else {
-      // Default settings for new engine
-      setExtractionModelSettings({
-        ...extractionModelSettings,
-        url: '',
-        api_key: '',
-        model_name: '',
-        api_type: newEngine,
-      });
-    }
-
-    setCurrentExtractionEngine(newEngine);
-    setAvailableExtractionModels([]);
+  // Add a new provider to the registry
+  const addProvider = (providerId: string, apiKey: string, apiUrl: string) => {
+    setConfiguredProviders({
+      ...configuredProviders,
+      [providerId]: { api_key: apiKey, api_url: apiUrl },
+    });
   };
+
+  // Remove a provider from the registry (blocked if assigned to any active role)
+  const removeProvider = (providerId: string) => {
+    if (providerId === 'local') return;
+    if (currentEngine === providerId || currentExtractionEngine === providerId || embeddingSettings.provider === providerId) {
+      showMessage('Cannot remove a provider that is assigned to an active role', 'error');
+      return;
+    }
+    const updated = { ...configuredProviders };
+    delete updated[providerId];
+    setConfiguredProviders(updated);
+  };
+
+  // Update credentials for an existing provider
+  const updateProviderCredentials = (providerId: string, apiKey: string, apiUrl: string) => {
+    setConfiguredProviders({
+      ...configuredProviders,
+      [providerId]: { ...configuredProviders[providerId], api_key: apiKey, api_url: apiUrl },
+    });
+  };
+
+  // State for inline provider add form
+  const [addingProvider, setAddingProvider] = useState(false);
+  const [newProviderType, setNewProviderType] = useState('');
+  const [newProviderKey, setNewProviderKey] = useState('');
+  const [newProviderUrl, setNewProviderUrl] = useState('');
+  const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [editProviderKey, setEditProviderKey] = useState('');
+  const [editProviderUrl, setEditProviderUrl] = useState('');
+
+  // Legacy compat: findApiKeyForProvider / findApiUrlForProvider now resolve from configuredProviders
+  const findApiKeyForProvider = (provider: string): string => {
+    return configuredProviders[provider]?.api_key || '';
+  };
+
+  const findApiUrlForProvider = (provider: string): string => {
+    return configuredProviders[provider]?.api_url || '';
+  };
+
+  // Unified provider change handler for all three roles
+  const handleProviderChange = (role: 'llm' | 'extraction' | 'embedding', newProvider: string) => {
+    const oldProvider = role === 'llm' ? currentEngine
+      : role === 'extraction' ? currentExtractionEngine
+      : embeddingSettings.provider;
+
+    // Save current role params back to old provider in configuredProviders
+    if (oldProvider && configuredProviders[oldProvider]) {
+      const updated = { ...configuredProviders };
+      if (role === 'llm') {
+        updated[oldProvider] = {
+          ...updated[oldProvider],
+          llm: {
+            model_name: llmSettings.model_name,
+            temperature: llmSettings.temperature,
+            top_p: llmSettings.top_p,
+            top_k: llmSettings.top_k,
+            repetition_penalty: llmSettings.repetition_penalty,
+            max_tokens: llmSettings.max_tokens,
+            completion_mode: llmSettings.completion_mode,
+            reasoning_effort: llmSettings.reasoning_effort,
+            thinking_model_type: llmSettings.thinking_model_type,
+            thinking_enabled_generation: llmSettings.thinking_enabled_generation,
+            text_completion_template: llmSettings.text_completion_template,
+            text_completion_preset: llmSettings.text_completion_preset,
+            sampler_settings: samplerSettings,
+          }
+        };
+      } else if (role === 'extraction') {
+        updated[oldProvider] = {
+          ...updated[oldProvider],
+          extraction: {
+            model_name: extractionModelSettings.model_name,
+            temperature: extractionModelSettings.temperature,
+            max_tokens: extractionModelSettings.max_tokens,
+            top_p: extractionModelSettings.top_p,
+            repetition_penalty: extractionModelSettings.repetition_penalty,
+            min_p: extractionModelSettings.min_p,
+            thinking_disable_method: extractionModelSettings.thinking_disable_method,
+            thinking_disable_custom: extractionModelSettings.thinking_disable_custom,
+            thinking_enabled_extractions: extractionModelSettings.thinking_enabled_extractions,
+            thinking_enabled_memory: extractionModelSettings.thinking_enabled_memory,
+          }
+        };
+      } else {
+        updated[oldProvider] = {
+          ...updated[oldProvider],
+          embedding: {
+            model_name: embeddingSettings.model_name,
+            dimensions: embeddingSettings.dimensions,
+          }
+        };
+      }
+      setConfiguredProviders(updated);
+    }
+
+    // Resolve credentials for new provider
+    const creds = getProviderCredentials(newProvider);
+
+    // Load role params from new provider (or defaults)
+    if (role === 'llm') {
+      const saved = configuredProviders[newProvider]?.llm;
+      if (saved) {
+        setLlmSettings({
+          ...llmSettings,
+          ...saved,
+          completion_mode: (saved.completion_mode === 'text' ? 'text' : 'chat') as 'chat' | 'text',
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: newProvider,
+        });
+        if (saved.sampler_settings) {
+          setSamplerSettings({ ...DEFAULT_SAMPLER_SETTINGS, ...saved.sampler_settings });
+        }
+      } else {
+        setLlmSettings({
+          temperature: 0.7, top_p: 0.9, top_k: 40,
+          repetition_penalty: 1.1, max_tokens: 2048,
+          api_url: creds.api_url, api_key: creds.api_key,
+          api_type: newProvider, model_name: '',
+          completion_mode: 'chat', text_completion_template: '',
+          text_completion_preset: 'llama3', reasoning_effort: null,
+          show_thinking_content: true,
+        });
+      }
+      setCurrentEngine(newProvider);
+      setAvailableModels([]);
+    } else if (role === 'extraction') {
+      const saved = configuredProviders[newProvider]?.extraction;
+      if (saved) {
+        setExtractionModelSettings({
+          ...extractionModelSettings,
+          ...saved,
+          thinking_disable_method: (saved.thinking_disable_method || 'none') as ExtractionModelSettings['thinking_disable_method'],
+          url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: newProvider,
+        });
+      } else {
+        setExtractionModelSettings({
+          ...extractionModelSettings,
+          url: creds.api_url,
+          api_key: creds.api_key,
+          model_name: '',
+          api_type: newProvider,
+        });
+      }
+      setCurrentExtractionEngine(newProvider);
+      setAvailableExtractionModels([]);
+    } else {
+      const saved = configuredProviders[newProvider]?.embedding;
+      setEmbeddingSettings({
+        ...embeddingSettings,
+        provider: newProvider,
+        api_url: creds.api_url,
+        api_key: creds.api_key,
+        model_name: saved?.model_name || embeddingSettings.model_name,
+        dimensions: saved?.dimensions || embeddingSettings.dimensions,
+      });
+    }
+
+    // Also save to legacy engineSettings for backward compat
+    if (role === 'llm') {
+      if (oldProvider && oldProvider !== '') {
+        setEngineSettings({ ...engineSettings, [oldProvider]: { ...llmSettings } });
+      }
+    } else if (role === 'extraction') {
+      if (oldProvider && oldProvider !== '') {
+        setExtractionEngineSettings({ ...extractionEngineSettings, [oldProvider]: { ...extractionModelSettings } });
+      }
+    }
+  };
+
+  // Legacy wrappers for existing code that calls handleEngineChange/handleExtractionEngineChange
+  const handleEngineChange = (newEngine: string) => handleProviderChange('llm', newEngine);
+  const handleExtractionEngineChange = (newEngine: string) => handleProviderChange('extraction', newEngine);
 
   const testConnection = async () => {
+    const creds = getProviderCredentials(currentEngine);
     setTestingConnection(true);
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/test-api-connection`, {
@@ -355,9 +668,9 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          api_url: llmSettings.api_url,
-          api_key: llmSettings.api_key,
-          api_type: llmSettings.api_type,
+          api_url: creds.api_url,
+          api_key: creds.api_key,
+          api_type: currentEngine,
           model_name: llmSettings.model_name,
         }),
       });
@@ -382,6 +695,7 @@ export default function LLMSettingsTab({
   };
 
   const testExtractionConnection = async () => {
+    const creds = getProviderCredentials(currentExtractionEngine);
     setTestingExtractionConnection(true);
     setConnectionTestResult(null);
     try {
@@ -392,8 +706,8 @@ export default function LLMSettingsTab({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          url: extractionModelSettings.url,
-          api_key: extractionModelSettings.api_key,
+          url: creds.api_url,
+          api_key: creds.api_key,
           model_name: extractionModelSettings.model_name,
           api_type: currentExtractionEngine || 'openai-compatible',
         }),
@@ -413,13 +727,291 @@ export default function LLMSettingsTab({
     }
   };
 
+  // Providers available for adding (not yet configured)
+  const availableToAdd = providers.filter(p => !configuredProviderIds.includes(p.id));
+
+  // Test & add a new provider
+  const handleTestAndAdd = async () => {
+    if (!newProviderType) return;
+    const providerInfo = providers.find(p => p.id === newProviderType);
+    if (!providerInfo) return;
+
+    // For cloud providers, test the API key; for local, test the URL
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/test-api-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          api_url: newProviderUrl,
+          api_key: newProviderKey,
+          api_type: newProviderType,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        addProvider(newProviderType, newProviderKey, newProviderUrl);
+        setAddingProvider(false);
+        setNewProviderType('');
+        setNewProviderKey('');
+        setNewProviderUrl('');
+        showMessage(`Added ${providerInfo.label}`, 'success');
+      } else {
+        showMessage(result.message || 'Connection test failed', 'error');
+      }
+    } catch (error) {
+      showMessage(`Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  // Skip test and just add (for users who want to configure later)
+  const handleAddWithoutTest = () => {
+    if (!newProviderType) return;
+    const providerInfo = providers.find(p => p.id === newProviderType);
+    if (!providerInfo) return;
+    addProvider(newProviderType, newProviderKey, newProviderUrl);
+    setAddingProvider(false);
+    setNewProviderType('');
+    setNewProviderKey('');
+    setNewProviderUrl('');
+    showMessage(`Added ${providerInfo.label}`, 'success');
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-white mb-2">LLM Settings</h3>
         <p className="text-sm text-gray-400 mb-4">
-          Configure your language model provider and generation parameters
+          Configure your language model providers and generation parameters
         </p>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* SECTION 1: YOUR PROVIDERS */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        <div className="mb-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-md font-semibold text-white">Your Providers</h4>
+            {!addingProvider && (
+              <button
+                onClick={() => setAddingProvider(true)}
+                className="px-3 py-1.5 text-sm theme-btn-primary rounded-md font-medium"
+              >
+                + Add Provider
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mb-3">
+            Configure providers once here. Each role (Main LLM, Extraction, Embedding) picks from your configured providers.
+          </p>
+
+          {/* Provider list */}
+          {configuredProviderIds.length === 0 && !addingProvider && (
+            <div className="text-sm text-gray-500 italic py-3">No providers configured yet. Click "Add Provider" to get started.</div>
+          )}
+          <div className="space-y-2">
+            {configuredProviderIds.map(pid => {
+              const providerInfo = providers.find(p => p.id === pid) || embeddingProviders.find(p => p.id === pid);
+              const label = providerInfo?.label || pid;
+              const category = providerInfo?.category || (pid === 'local' ? 'local' : 'unknown');
+              const creds = configuredProviders[pid];
+              const isEditing = editingProvider === pid;
+              const isAssigned = currentEngine === pid || currentExtractionEngine === pid || embeddingSettings.provider === pid;
+              const roles: string[] = [];
+              if (currentEngine === pid) roles.push('LLM');
+              if (currentExtractionEngine === pid) roles.push('Extraction');
+              if (embeddingSettings.provider === pid) roles.push('Embedding');
+
+              return (
+                <div key={pid} className="flex items-center gap-3 p-2.5 bg-gray-700/50 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white">{label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${category === 'cloud' ? 'bg-blue-900/50 text-blue-300' : 'bg-green-900/50 text-green-300'}`}>
+                        {category}
+                      </span>
+                      {roles.map(r => (
+                        <span key={r} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/50 text-purple-300">{r}</span>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {creds?.api_key ? `Key: ...${creds.api_key.slice(-4)}` : ''}
+                      {creds?.api_key && creds?.api_url ? ' | ' : ''}
+                      {creds?.api_url ? `URL: ${creds.api_url}` : ''}
+                      {!creds?.api_key && !creds?.api_url && pid !== 'local' ? 'No credentials' : ''}
+                      {pid === 'local' && !creds?.api_key && !creds?.api_url ? 'Local models' : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {pid !== 'local' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (isEditing) {
+                              updateProviderCredentials(pid, editProviderKey, editProviderUrl);
+                              setEditingProvider(null);
+                            } else {
+                              setEditingProvider(pid);
+                              setEditProviderKey(creds?.api_key || '');
+                              setEditProviderUrl(creds?.api_url || '');
+                            }
+                          }}
+                          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-600 rounded"
+                        >
+                          {isEditing ? 'Save' : 'Edit'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (isEditing) {
+                              setEditingProvider(null);
+                            } else {
+                              removeProvider(pid);
+                            }
+                          }}
+                          disabled={!isEditing && isAssigned}
+                          className="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={isAssigned ? 'Cannot remove — assigned to a role' : 'Remove provider'}
+                        >
+                          {isEditing ? 'Cancel' : 'Remove'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {/* Inline edit form */}
+            {editingProvider && editingProvider !== 'local' && (
+              <div className="p-3 bg-gray-700/30 rounded-lg border border-gray-600 space-y-2 mt-1">
+                {(() => {
+                  const providerInfo = providers.find(p => p.id === editingProvider);
+                  const isCloud = providerInfo?.category === 'cloud';
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">
+                          API Key{!isCloud ? ' (optional)' : ''}
+                        </label>
+                        <input
+                          type="password"
+                          value={editProviderKey}
+                          onChange={(e) => setEditProviderKey(e.target.value)}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white"
+                          placeholder="sk-..."
+                        />
+                      </div>
+                      {!isCloud && (
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">API URL</label>
+                          <input
+                            type="text"
+                            value={editProviderUrl}
+                            onChange={(e) => setEditProviderUrl(e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white"
+                            placeholder="http://localhost:1234"
+                          />
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* Add provider form */}
+          {addingProvider && (
+            <div className="mt-3 p-3 bg-gray-700/30 rounded-lg border border-gray-600 space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Provider</label>
+                <select
+                  value={newProviderType}
+                  onChange={(e) => {
+                    setNewProviderType(e.target.value);
+                    setNewProviderKey('');
+                    setNewProviderUrl('');
+                  }}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white"
+                >
+                  <option value="">Select provider...</option>
+                  {(() => {
+                    const cloudAvail = availableToAdd.filter(p => p.category === 'cloud');
+                    const localAvail = availableToAdd.filter(p => p.category === 'local');
+                    return (
+                      <>
+                        {cloudAvail.length > 0 && (
+                          <optgroup label="Cloud">
+                            {cloudAvail.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                          </optgroup>
+                        )}
+                        {localAvail.length > 0 && (
+                          <optgroup label="Local / Self-Hosted">
+                            {localAvail.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
+                </select>
+              </div>
+              {newProviderType && (() => {
+                const info = providers.find(p => p.id === newProviderType);
+                const isCloud = info?.category === 'cloud';
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        API Key{!isCloud ? ' (optional)' : ''}
+                      </label>
+                      <input
+                        type="password"
+                        value={newProviderKey}
+                        onChange={(e) => setNewProviderKey(e.target.value)}
+                        className="w-full bg-gray-700 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white"
+                        placeholder="sk-..."
+                      />
+                    </div>
+                    {!isCloud && (
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">API URL</label>
+                        <input
+                          type="text"
+                          value={newProviderUrl}
+                          onChange={(e) => setNewProviderUrl(e.target.value)}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white"
+                          placeholder="http://localhost:1234"
+                        />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleTestAndAdd}
+                  disabled={!newProviderType}
+                  className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-medium"
+                >
+                  Test & Add
+                </button>
+                <button
+                  onClick={handleAddWithoutTest}
+                  disabled={!newProviderType}
+                  className="px-3 py-1.5 text-sm bg-gray-600 hover:bg-gray-500 disabled:opacity-50 text-white rounded font-medium"
+                >
+                  Add Without Test
+                </button>
+                <button
+                  onClick={() => { setAddingProvider(false); setNewProviderType(''); setNewProviderKey(''); setNewProviderUrl(''); }}
+                  className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* LLM Sub-tabs */}
         <div className="flex gap-2 mb-6 border-b border-gray-700 pb-2">
@@ -454,75 +1046,26 @@ export default function LLMSettingsTab({
 
               {/* API Configuration */}
               <div className="space-y-4">
-                <h5 className="text-sm font-semibold text-white mb-2">API Configuration</h5>
 
-                {/* API Type */}
+                {/* Provider selector — only configured providers */}
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">API Engine</label>
+                  <label className="block text-sm font-medium text-white mb-2">Provider</label>
                   <select
                     value={currentEngine}
                     onChange={(e) => handleEngineChange(e.target.value)}
                     className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                   >
-                    <option value="">Select API Engine...</option>
-                    {cloudProviders.length > 0 && (
-                      <optgroup label="Cloud Providers">
-                        {cloudProviders.map(p => (
-                          <option key={p.id} value={p.id}>{p.label}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {localProviders.length > 0 && (
-                      <optgroup label="Local / Self-Hosted">
-                        {localProviders.map(p => (
-                          <option key={p.id} value={p.id}>{p.label}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {providers.length === 0 && (
-                      <>
-                        <option value="openai-compatible">OpenAI Compatible</option>
-                        <option value="openai">OpenAI Official</option>
-                        <option value="ollama">Ollama</option>
-                      </>
-                    )}
+                    <option value="">Select Provider...</option>
+                    {configuredProviderIds.filter(pid => pid !== 'local').map(pid => {
+                      const info = providers.find(p => p.id === pid);
+                      return <option key={pid} value={pid}>{info?.label || pid}</option>;
+                    })}
                   </select>
-                </div>
-
-                {/* API URL - hidden for cloud providers */}
-                {!isCloudProvider(currentEngine) && (
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">API URL</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={llmSettings.api_url}
-                        onChange={(e) => setLlmSettings({ ...llmSettings, api_url: e.target.value })}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                        placeholder="http://localhost:1234"
-                      />
-                      <button
-                        onClick={testConnection}
-                        disabled={testingConnection}
-                        className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
-                      >
-                        {testingConnection ? 'Testing...' : 'Test'}
-                      </button>
+                  {currentEngine && !configuredProviderIds.includes(currentEngine) && (
+                    <div className="text-xs text-amber-400 mt-1">
+                      Provider "{currentEngine}" is not configured. Add it in "Your Providers" above.
                     </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    API Key{isCloudProvider(currentEngine) ? ' (required)' : ' (optional)'}
-                  </label>
-                  <input
-                    type="password"
-                    value={llmSettings.api_key}
-                    onChange={(e) => setLlmSettings({ ...llmSettings, api_key: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                    placeholder="sk-..."
-                  />
+                  )}
                 </div>
 
                 <div>
@@ -537,7 +1080,7 @@ export default function LLMSettingsTab({
                     />
                     <button
                       onClick={fetchAvailableModels}
-                      disabled={loadingModels || autoLoading || (!isCloudProvider(currentEngine) && !llmSettings.api_url)}
+                      disabled={loadingModels || autoLoading || !currentEngine}
                       className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
                     >
                       {loadingModels || autoLoading ? 'Loading...' : 'Fetch Models'}
@@ -859,73 +1402,25 @@ export default function LLMSettingsTab({
 
                 {extractionModelSettings.enabled && (
                   <div className="space-y-4 mt-4 p-4 bg-gray-800/50 rounded-lg border border-gray-600">
-                    {/* Extraction Engine Selector */}
+                    {/* Extraction Provider Selector — configured providers only */}
                     <div>
-                      <label className="block text-sm font-medium text-white mb-2">API Engine</label>
+                      <label className="block text-sm font-medium text-white mb-2">Provider</label>
                       <select
                         value={currentExtractionEngine}
                         onChange={(e) => handleExtractionEngineChange(e.target.value)}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                       >
-                        <option value="">Select API Engine...</option>
-                        {cloudProviders.length > 0 && (
-                          <optgroup label="Cloud Providers">
-                            {cloudProviders.map(p => (
-                              <option key={p.id} value={p.id}>{p.label}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {localProviders.length > 0 && (
-                          <optgroup label="Local / Self-Hosted">
-                            {localProviders.map(p => (
-                              <option key={p.id} value={p.id}>{p.label}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {providers.length === 0 && (
-                          <>
-                            <option value="openai-compatible">OpenAI Compatible</option>
-                            <option value="openai">OpenAI Official</option>
-                            <option value="ollama">Ollama</option>
-                          </>
-                        )}
+                        <option value="">Select Provider...</option>
+                        {configuredProviderIds.filter(pid => pid !== 'local').map(pid => {
+                          const info = providers.find(p => p.id === pid);
+                          return <option key={pid} value={pid}>{info?.label || pid}</option>;
+                        })}
                       </select>
-                    </div>
-
-                    {/* API URL - hidden for cloud providers */}
-                    {!isExtractionCloud && (
-                      <div>
-                        <label className="block text-sm font-medium text-white mb-2">API URL</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={extractionModelSettings.url}
-                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, url: e.target.value })}
-                            className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                            placeholder="http://localhost:1234/v1"
-                          />
-                          <button
-                            onClick={fetchExtractionModels}
-                            disabled={loadingExtractionModels || autoLoadingExtraction}
-                            className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
-                          >
-                            {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch'}
-                          </button>
+                      {currentExtractionEngine && !configuredProviderIds.includes(currentExtractionEngine) && (
+                        <div className="text-xs text-amber-400 mt-1">
+                          Provider "{currentExtractionEngine}" is not configured. Add it in "Your Providers" above.
                         </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        API Key{isExtractionCloud ? ' (required)' : ' (optional)'}
-                      </label>
-                      <input
-                        type="password"
-                        value={extractionModelSettings.api_key}
-                        onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, api_key: e.target.value })}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                        placeholder={isExtractionCloud ? 'sk-...' : 'Optional'}
-                      />
+                      )}
                     </div>
 
                     <div>
@@ -953,15 +1448,13 @@ export default function LLMSettingsTab({
                             />
                           )}
                         </div>
-                        {isExtractionCloud && (
-                          <button
-                            onClick={fetchExtractionModels}
-                            disabled={loadingExtractionModels || autoLoadingExtraction}
-                            className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
-                          >
-                            {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch Models'}
-                          </button>
-                        )}
+                        <button
+                          onClick={fetchExtractionModels}
+                          disabled={loadingExtractionModels || autoLoadingExtraction || !currentExtractionEngine}
+                          className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
+                        >
+                          {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch Models'}
+                        </button>
                       </div>
                     </div>
 
@@ -1205,15 +1698,164 @@ export default function LLMSettingsTab({
               </div>
             </div>
 
-            {/* Save Button */}
-            <div className="flex justify-end pt-4 border-t border-gray-700">
-              <button
-                onClick={onSave}
-                className="px-6 py-2 theme-btn-primary rounded-lg font-semibold"
-              >
-                Save LLM Settings
-              </button>
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* EMBEDDING MODEL SECTION */}
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            <div className="border-t-2 border-gray-600 pt-6 mt-6">
+              <h3 className="text-lg font-semibold text-white mb-4">Embedding Model</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                Configure the model used for semantic search embeddings. Default uses local sentence-transformers (requires CPU/GPU). Switch to a cloud provider to offload embedding computation.
+              </p>
+
+              {/* Warning banner for needs_reembed */}
+              {(needsReembed || (embeddingTestResult?.success && embeddingTestResult.dimensions && embeddingTestResult.dimensions !== embeddingSettings.dimensions)) && reembedProgress?.status !== 'running' && (
+                <div className="mb-4 p-3 bg-amber-900/30 border border-amber-600/50 rounded-lg">
+                  <p className="text-sm text-amber-300">
+                    Embedding dimensions have changed. You need to re-process all embeddings for semantic search to work correctly.
+                  </p>
+                </div>
+              )}
+
+              {/* Re-embed progress */}
+              {reembedProgress && reembedProgress.status === 'running' && (
+                <div className="mb-4 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-blue-200 font-medium">Re-processing embeddings...</span>
+                    <button
+                      onClick={cancelReembed}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-2">
+                    {reembedProgress.current_table}: {reembedProgress.processed}/{reembedProgress.total}
+                    {reembedProgress.errors > 0 && ` (${reembedProgress.errors} errors)`}
+                  </p>
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all"
+                      style={{ width: `${reembedProgress.total > 0 ? (reembedProgress.processed / reembedProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Completed/error status */}
+              {reembedProgress && (reembedProgress.status === 'completed' || reembedProgress.status === 'error' || reembedProgress.status === 'cancelled') && (
+                <div className={`mb-4 p-3 rounded-lg ${
+                  reembedProgress.status === 'completed' ? 'bg-green-900/20 border border-green-700/30' :
+                  'bg-red-900/20 border border-red-700/30'
+                }`}>
+                  <p className={`text-sm ${reembedProgress.status === 'completed' ? 'text-green-300' : 'text-red-300'}`}>
+                    {reembedProgress.message}
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Provider Selection — configured providers + local */}
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Provider</label>
+                  <select
+                    value={embeddingSettings.provider}
+                    onChange={(e) => handleProviderChange('embedding', e.target.value)}
+                    disabled={pollingReembed}
+                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                  >
+                    {/* Always include local */}
+                    <option value="local">Local (sentence-transformers)</option>
+                    {configuredProviderIds.filter(pid => pid !== 'local').map(pid => {
+                      const info = providers.find(p => p.id === pid) || embeddingProviders.find(p => p.id === pid);
+                      return <option key={pid} value={pid}>{info?.label || pid}</option>;
+                    })}
+                  </select>
+                  {embeddingSettings.provider !== 'local' && !configuredProviderIds.includes(embeddingSettings.provider) && (
+                    <div className="text-xs text-amber-400 mt-1">
+                      Provider "{embeddingSettings.provider}" is not configured. Add it in "Your Providers" above.
+                    </div>
+                  )}
+                </div>
+
+                {/* Model Name */}
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Model Name</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={embeddingSettings.model_name}
+                      onChange={(e) => setEmbeddingSettings({ ...embeddingSettings, model_name: e.target.value })}
+                      disabled={pollingReembed}
+                      className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                      placeholder={embeddingSettings.provider === 'local' ? 'sentence-transformers/all-mpnet-base-v2' : 'text-embedding-3-small'}
+                    />
+                    {embeddingSettings.provider !== 'local' && (
+                      <button
+                        onClick={fetchEmbeddingModels}
+                        disabled={loadingEmbeddingModels || pollingReembed}
+                        className="px-3 py-2 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded text-sm whitespace-nowrap"
+                      >
+                        {loadingEmbeddingModels ? '...' : 'Fetch Models'}
+                      </button>
+                    )}
+                  </div>
+                  {embeddingModels.length > 0 && (
+                    <div className="mt-2">
+                      <select
+                        value={embeddingSettings.model_name}
+                        onChange={(e) => setEmbeddingSettings({ ...embeddingSettings, model_name: e.target.value })}
+                        disabled={pollingReembed}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white disabled:opacity-50"
+                      >
+                        <option value="">Select a model...</option>
+                        {embeddingModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {embeddingModels.length} models available
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dimensions display */}
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Dimensions: {embeddingSettings.dimensions}
+                  </label>
+                  <div className="text-xs text-gray-400">
+                    Detected after testing connection. All embedding tables use this dimension.
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={testEmbeddingConnection}
+                    disabled={testingEmbedding || pollingReembed || !embeddingSettings.model_name}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-medium"
+                  >
+                    {testingEmbedding ? 'Testing...' : 'Test Connection'}
+                  </button>
+
+                  <button
+                    onClick={startReembed}
+                    disabled={pollingReembed}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-medium"
+                  >
+                    Re-process All Embeddings
+                  </button>
+
+                  {embeddingTestResult && (
+                    <span className={`text-sm ${embeddingTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                      {embeddingTestResult.success ? '✓' : '✗'} {embeddingTestResult.message}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
+
           </>
         )}
 
@@ -1222,7 +1864,6 @@ export default function LLMSettingsTab({
           <SamplersSettings
             samplerSettings={samplerSettings}
             setSamplerSettings={setSamplerSettings}
-            onSave={onSave}
           />
         )}
       </div>
@@ -1234,10 +1875,9 @@ export default function LLMSettingsTab({
 interface SamplersSettingsProps {
   samplerSettings: SamplerSettings;
   setSamplerSettings: (settings: SamplerSettings) => void;
-  onSave: () => Promise<void>;
 }
 
-function SamplersSettings({ samplerSettings, setSamplerSettings, onSave }: SamplersSettingsProps) {
+function SamplersSettings({ samplerSettings, setSamplerSettings }: SamplersSettingsProps) {
   return (
     <div className="space-y-6">
       <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 mb-4">
@@ -1438,15 +2078,6 @@ function SamplersSettings({ samplerSettings, setSamplerSettings, onSave }: Sampl
         />
       </div>
 
-      {/* Save Button for Samplers */}
-      <div className="flex justify-end pt-4 border-t border-gray-700">
-        <button
-          onClick={onSave}
-          className="px-6 py-2 theme-btn-primary rounded-lg font-semibold"
-        >
-          Save Sampler Settings
-        </button>
-      </div>
     </div>
   );
 }

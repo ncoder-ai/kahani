@@ -137,6 +137,14 @@ class UserSettings(Base):
     extraction_engine_settings = Column(Text, nullable=True)  # JSON dict of per-engine extraction settings
     current_extraction_engine = Column(String(100), nullable=True)  # Currently selected extraction engine
 
+    # Embedding Provider Settings
+    embedding_provider = Column(String(100), nullable=True)  # "local", "openai", "mistral", "openai-compatible", etc.
+    embedding_api_url = Column(String(500), nullable=True)  # For local/self-hosted providers
+    embedding_api_key = Column(String(500), nullable=True)  # For cloud providers
+    embedding_model_name = Column(String(200), nullable=True)  # e.g., "text-embedding-3-small"
+    embedding_dimensions = Column(Integer, nullable=True)  # Detected or manual (e.g., 768, 1536)
+    embedding_needs_reembed = Column(Boolean, nullable=True)  # True when model/dimensions change
+
     # Advanced Settings
     custom_system_prompt = Column(Text, nullable=True)
     enable_experimental_features = Column(Boolean, nullable=True)
@@ -149,6 +157,10 @@ class UserSettings(Base):
     # Stores all TabbyAPI/OpenAI-compatible sampler configurations
     # Each sampler has an 'enabled' flag and a 'value' field
     sampler_settings = Column(Text, nullable=True)
+
+    # Unified Provider Registry — single source of truth for credentials + per-role params
+    # JSON: {"provider_id": {"api_key": "...", "api_url": "...", "llm": {...}, "extraction": {...}, "embedding": {...}}}
+    configured_providers = Column(Text, nullable=True)
 
     # Image Generation Settings
     image_gen_enabled = Column(Boolean, nullable=True)
@@ -174,9 +186,35 @@ class UserSettings(Base):
     # Relationships
     user = relationship("User", back_populates="settings")
     
+    def _get_configured_providers(self) -> dict:
+        """Parse configured_providers JSON string to dictionary."""
+        try:
+            return json.loads(self.configured_providers) if self.configured_providers else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def _resolve_provider_credentials(self, provider_id: str) -> tuple:
+        """Return (api_key, api_url) for provider from configured_providers.
+
+        Falls back to legacy flat columns if provider not found in registry.
+        """
+        providers = self._get_configured_providers()
+        if provider_id in providers:
+            p = providers[provider_id]
+            return (p.get("api_key", ""), p.get("api_url", ""))
+
+        # Legacy fallback — check flat columns
+        if provider_id and self.llm_api_type == provider_id:
+            return (self.llm_api_key or "", self.llm_api_url or "")
+        if provider_id and self.extraction_model_api_type == provider_id:
+            return (self.extraction_model_api_key or "", self.extraction_model_url or "")
+        if provider_id and (self.embedding_provider or "local") == provider_id:
+            return (self.embedding_api_key or "", self.embedding_api_url or "")
+        return ("", "")
+
     def to_dict(self):
         """Convert settings to dictionary for API responses
-        
+
         Returns defaults from config.yaml when fields are None for backward compatibility
         with existing empty UserSettings records.
         """
@@ -193,6 +231,29 @@ class UserSettings(Base):
         ext_model_defaults = user_defaults.get("extraction_model_settings", {})
         adv_defaults = user_defaults.get("advanced", {})
         
+        # Resolve credentials from configured_providers (with legacy fallback)
+        llm_provider = self.llm_api_type if self.llm_api_type is not None else llm_api_defaults.get("api_type", "openai-compatible")
+        llm_key, llm_url = self._resolve_provider_credentials(llm_provider)
+        # Legacy fallback: if configured_providers didn't have it, use flat columns
+        if not llm_key:
+            llm_key = self.llm_api_key or ""
+        if not llm_url:
+            llm_url = self.llm_api_url or ""
+
+        ext_provider = self.extraction_model_api_type if self.extraction_model_api_type is not None else ext_model_defaults.get("api_type", "openai-compatible")
+        ext_key, ext_url = self._resolve_provider_credentials(ext_provider)
+        if not ext_key:
+            ext_key = self.extraction_model_api_key or ""
+        if not ext_url:
+            ext_url = self.extraction_model_url or ext_model_defaults.get("url", "http://localhost:1234/v1")
+
+        emb_provider = self.embedding_provider or "local"
+        emb_key, emb_url = self._resolve_provider_credentials(emb_provider)
+        if not emb_key:
+            emb_key = self.embedding_api_key or ""
+        if not emb_url:
+            emb_url = self.embedding_api_url or ""
+
         return {
             "llm_settings": {
                 "temperature": self.llm_temperature if self.llm_temperature is not None else llm_defaults.get("temperature", 0.7),
@@ -201,9 +262,9 @@ class UserSettings(Base):
                 "repetition_penalty": self.llm_repetition_penalty if self.llm_repetition_penalty is not None else llm_defaults.get("repetition_penalty", 1.1),
                 "max_tokens": self.llm_max_tokens if self.llm_max_tokens is not None else llm_defaults.get("max_tokens", 2048),
                 "timeout_total": self.llm_timeout_total if self.llm_timeout_total is not None else settings.llm_timeout_total,
-                "api_url": self.llm_api_url or "",
-                "api_key": self.llm_api_key or "",
-                "api_type": self.llm_api_type if self.llm_api_type is not None else llm_api_defaults.get("api_type", "openai-compatible"),
+                "api_url": llm_url,
+                "api_key": llm_key,
+                "api_type": llm_provider,
                 "model_name": self.llm_model_name or "",
                 "completion_mode": self.completion_mode if self.completion_mode is not None else text_completion_defaults.get("mode", "chat"),
                 "text_completion_template": self.text_completion_template or "",
@@ -286,8 +347,8 @@ class UserSettings(Base):
             },
             "extraction_model_settings": {
                 "enabled": self.extraction_model_enabled if self.extraction_model_enabled is not None else ext_model_defaults.get("enabled", False),
-                "url": self.extraction_model_url or ext_model_defaults.get("url", "http://localhost:1234/v1"),
-                "api_key": self.extraction_model_api_key or "",
+                "url": ext_url,
+                "api_key": ext_key,
                 "model_name": self.extraction_model_name or ext_model_defaults.get("model_name", "qwen2.5-3b-instruct"),
                 "temperature": self.extraction_model_temperature if self.extraction_model_temperature is not None else ext_model_defaults.get("temperature", 0.3),
                 "max_tokens": self.extraction_model_max_tokens if self.extraction_model_max_tokens is not None else ext_model_defaults.get("max_tokens", 1000),
@@ -307,6 +368,14 @@ class UserSettings(Base):
             },
             "extraction_engine_settings": self._parse_extraction_engine_settings(),
             "current_extraction_engine": self.current_extraction_engine or "",
+            "embedding_model_settings": {
+                "provider": emb_provider,
+                "api_url": emb_url,
+                "api_key": emb_key,
+                "model_name": self.embedding_model_name or settings.semantic_embedding_model,
+                "dimensions": self.embedding_dimensions or 768,
+                "needs_reembed": self.embedding_needs_reembed or False,
+            },
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features if self.enable_experimental_features is not None else adv_defaults.get("experimental_features", False)
@@ -314,7 +383,8 @@ class UserSettings(Base):
             "engine_settings": self._parse_engine_settings(),
             "current_engine": self.current_engine or "",
             "sampler_settings": self._get_merged_sampler_settings(),
-            "image_generation_settings": self._get_image_generation_settings()
+            "image_generation_settings": self._get_image_generation_settings(),
+            "configured_providers": self._get_configured_providers()
         }
     
     def _get_merged_sampler_settings(self):
@@ -660,6 +730,10 @@ class UserSettings(Base):
             self.custom_system_prompt = adv.get("custom_system_prompt")
         if self.enable_experimental_features is None:
             self.enable_experimental_features = adv.get("experimental_features", False)
+
+        # Configured Providers — initialize with at least local provider
+        if self.configured_providers is None:
+            self.configured_providers = json.dumps({"local": {}})
 
         # Image Generation Settings
         img_gen = user_defaults.get("image_generation_settings", {})

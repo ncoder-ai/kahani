@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 import json
+import asyncio
 from ..database import get_db
 from ..models import User, UserSettings
 from ..dependencies import get_current_user
@@ -46,6 +47,66 @@ PROVIDER_REGISTRY = {
     "vllm": {"label": "vLLM", "category": "local", "base_url": None, "models_path": "/v1/models"},
     "lm_studio": {"label": "LM Studio", "category": "local", "base_url": None, "models_path": "/v1/models"},
 }
+
+# Embedding provider registry — LiteLLM's aembedding() uses the same provider/model routing,
+# so any provider with embedding endpoints works. "local" is special (sentence-transformers).
+EMBEDDING_PROVIDER_REGISTRY = {
+    # Local sentence-transformers (no API needed)
+    "local": {"label": "Local (sentence-transformers)", "category": "local", "base_url": None, "models_path": None},
+    # Cloud providers with embedding support (verified via LiteLLM docs)
+    "openai": {"label": "OpenAI", "category": "cloud", "base_url": "https://api.openai.com/v1", "models_path": "/models"},
+    "mistral": {"label": "Mistral AI", "category": "cloud", "base_url": "https://api.mistral.ai/v1", "models_path": "/models"},
+    "cohere": {"label": "Cohere", "category": "cloud", "base_url": None, "models_path": None},
+    "together_ai": {"label": "Together AI", "category": "cloud", "base_url": "https://api.together.xyz/v1", "models_path": "/models"},
+    "voyage": {"label": "Voyage AI", "category": "cloud", "base_url": None, "models_path": None},
+    "gemini": {"label": "Google Gemini", "category": "cloud", "base_url": None, "models_path": None},
+    "deepinfra": {"label": "DeepInfra", "category": "cloud", "base_url": "https://api.deepinfra.com/v1/openai", "models_path": "/models"},
+    "openrouter": {"label": "OpenRouter", "category": "cloud", "base_url": "https://openrouter.ai/api/v1", "models_path": "/embeddings/models"},
+    # Local/self-hosted providers — user provides URL
+    "openai-compatible": {"label": "OpenAI Compatible", "category": "local", "base_url": None, "models_path": "/v1/models"},
+    "ollama": {"label": "Ollama", "category": "local", "base_url": None, "models_path": "/api/tags"},
+    "vllm": {"label": "vLLM", "category": "local", "base_url": None, "models_path": "/v1/models"},
+    "lm_studio": {"label": "LM Studio", "category": "local", "base_url": None, "models_path": "/v1/models"},
+}
+
+# Providers that LiteLLM natively supports for embeddings (has a handler in litellm.embedding()).
+# Providers NOT in this set must be routed via "openai/" prefix + api_base.
+LITELLM_NATIVE_EMBEDDING_PROVIDERS = {
+    "openai", "azure", "mistral", "cohere", "voyage", "bedrock",
+    "huggingface", "ollama", "vertex_ai", "sagemaker", "databricks",
+    "triton", "watsonx", "xinference", "oobabooga",
+}
+
+
+def _resolve_embedding_litellm_args(
+    provider: str, model_name: str, api_url: str | None = None
+) -> tuple[str, str | None]:
+    """Build the (litellm_model, api_base) tuple for litellm.aembedding().
+
+    - Native providers (openai, mistral, cohere, ...): "provider/model", no api_base
+    - Local/self-hosted (ollama, vllm, lm_studio, openai-compatible): "openai/model", user's api_url
+    - Non-native cloud (openrouter, together_ai, deepinfra, gemini, ...):
+      "openai/model", provider's base_url from registry (OpenAI-compatible endpoint)
+    """
+    if provider in LITELLM_NATIVE_EMBEDDING_PROVIDERS:
+        return f"{provider}/{model_name}", None
+    elif provider in ("openai-compatible", "vllm", "lm_studio"):
+        return f"openai/{model_name}", api_url
+    else:
+        # Non-native cloud provider — route through openai/ with provider's base_url
+        registry_url = EMBEDDING_PROVIDER_REGISTRY.get(provider, {}).get("base_url")
+        return f"openai/{model_name}", registry_url or api_url
+
+
+def _resolve_provider_key_from_configured(user_settings, provider: str) -> str:
+    """Look up an API key for a provider from configured_providers registry.
+
+    Single source of truth — no more cross-section syncing.
+    Falls back to legacy columns for pre-migration users.
+    """
+    api_key, _ = user_settings._resolve_provider_credentials(provider)
+    return api_key
+
 
 def is_cloud_provider(api_type: str) -> bool:
     """Check if a provider is a cloud provider (LiteLLM routes natively)"""
@@ -167,7 +228,7 @@ class ExtractionModelSettingsUpdate(BaseModel):
     model_name: Optional[str] = None
     api_type: Optional[str] = None  # Provider type (e.g., "openai-compatible", "groq")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=100, le=5000)
+    max_tokens: Optional[int] = Field(default=None, ge=100, le=32000)
     fallback_to_main: Optional[bool] = None
     enable_combined_extraction: Optional[bool] = None  # Enable combined extraction (default: True)
     use_context_aware_extraction: Optional[bool] = None  # Use main LLM with full scene context for better extraction
@@ -264,6 +325,15 @@ class SamplerSettingsUpdate(BaseModel):
     n: Optional[SamplerSettingValue] = None  # Number of completions to generate (1-5)
 
 
+class EmbeddingModelSettingsUpdate(BaseModel):
+    """Settings for embedding model provider"""
+    provider: Optional[str] = None
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    dimensions: Optional[int] = Field(default=None, ge=64, le=4096)
+
+
 class ImageGenerationSettingsUpdate(BaseModel):
     """Settings for AI image generation"""
     enabled: Optional[bool] = None
@@ -277,6 +347,11 @@ class ImageGenerationSettingsUpdate(BaseModel):
     cfg_scale: Optional[float] = Field(default=None, ge=1.0, le=20.0)
     default_style: Optional[str] = None
     use_extraction_llm_for_prompts: Optional[bool] = None
+
+
+class ConfiguredProvidersUpdate(BaseModel):
+    """Unified provider registry — single source of truth for credentials + per-role params"""
+    configured_providers: Dict[str, Any]
 
 
 class UserSettingsUpdate(BaseModel):
@@ -293,6 +368,8 @@ class UserSettingsUpdate(BaseModel):
     character_assistant_settings: CharacterAssistantSettingsUpdate = None
     sampler_settings: Optional[SamplerSettingsUpdate] = None
     image_generation_settings: Optional[ImageGenerationSettingsUpdate] = None
+    embedding_model_settings: Optional[EmbeddingModelSettingsUpdate] = None
+    configured_providers: Optional[ConfiguredProvidersUpdate] = None
 
 @router.get("/")
 async def get_user_settings(
@@ -670,10 +747,61 @@ async def update_user_settings(
         if img.use_extraction_llm_for_prompts is not None:
             user_settings.use_extraction_llm_for_image_prompts = img.use_extraction_llm_for_prompts
 
+    # Update configured providers (unified provider registry)
+    if settings_update.configured_providers:
+        if not current_user.can_change_llm_provider:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to change LLM provider settings."
+            )
+        user_settings.configured_providers = json.dumps(
+            settings_update.configured_providers.configured_providers
+        )
+
+    # Update embedding model settings
+    if settings_update.embedding_model_settings:
+        emb = settings_update.embedding_model_settings
+        old_dimensions = user_settings.embedding_dimensions
+
+        if emb.provider is not None:
+            user_settings.embedding_provider = emb.provider if emb.provider != "local" else None
+            # Clear stale api_url when switching to a cloud provider
+            if EMBEDDING_PROVIDER_REGISTRY.get(emb.provider, {}).get("category") == "cloud":
+                user_settings.embedding_api_url = None
+        if emb.api_url is not None:
+            user_settings.embedding_api_url = emb.api_url if emb.api_url else None
+        if emb.api_key is not None:
+            resolved_key = emb.api_key
+            # If no key provided, resolve from configured_providers registry
+            if not resolved_key and emb.provider:
+                resolved_key = _resolve_provider_key_from_configured(user_settings, emb.provider)
+            user_settings.embedding_api_key = resolved_key if resolved_key else None
+        if emb.model_name is not None:
+            user_settings.embedding_model_name = emb.model_name if emb.model_name else None
+        if emb.dimensions is not None:
+            user_settings.embedding_dimensions = emb.dimensions
+            # Flag re-embed if dimensions changed
+            if old_dimensions and old_dimensions != emb.dimensions:
+                user_settings.embedding_needs_reembed = True
+
+        # Reconfigure live SemanticMemoryService
+        try:
+            from ..services.semantic_memory import get_semantic_memory_service
+            svc = get_semantic_memory_service()
+            svc.configure_provider(
+                provider=emb.provider or user_settings.embedding_provider or "local",
+                model_name=emb.model_name or user_settings.embedding_model_name,
+                api_key=user_settings.embedding_api_key or emb.api_key,
+                api_url=emb.api_url or user_settings.embedding_api_url,
+                dimensions=emb.dimensions or user_settings.embedding_dimensions,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to reconfigure embedding provider: {e}")
+
     try:
         db.commit()
         db.refresh(user_settings)
-        
+
         # Invalidate LLM cache if LLM settings were updated
         if settings_update.llm_settings:
             llm_service.invalidate_user_client(current_user.id)
@@ -840,6 +968,200 @@ async def get_llm_providers():
     return {"providers": providers}
 
 
+@router.get("/embedding-providers")
+async def get_embedding_providers():
+    """Get available embedding providers with metadata"""
+    providers = []
+    for key, info in EMBEDDING_PROVIDER_REGISTRY.items():
+        providers.append({
+            "id": key,
+            "label": info["label"],
+            "category": info["category"],
+            "needs_url": info["category"] == "local" and key != "local",
+            "needs_api_key": info["category"] == "cloud",
+        })
+    return {"providers": providers}
+
+
+class EmbeddingTestRequest(BaseModel):
+    provider: str
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+
+
+@router.post("/embedding-model/test")
+async def test_embedding_model(
+    request: EmbeddingTestRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Test an embedding model and return detected dimensions"""
+    # Resolve API key from user settings if not provided
+    if not request.api_key and request.provider:
+        user_settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+        if user_settings:
+            request.api_key = _resolve_provider_key_from_configured(user_settings, request.provider)
+    try:
+        if request.provider == "local":
+            # Test local sentence-transformers
+            from sentence_transformers import SentenceTransformer
+            import asyncio
+            def _test_local():
+                model = SentenceTransformer(request.model_name or "sentence-transformers/all-mpnet-base-v2")
+                dim = model.get_sentence_embedding_dimension()
+                return dim
+            dimensions = await asyncio.to_thread(_test_local)
+            return {
+                "success": True,
+                "dimensions": dimensions,
+                "message": f"Local model loaded. Dimension: {dimensions}"
+            }
+        else:
+            import litellm
+            litellm_model, api_base = _resolve_embedding_litellm_args(
+                request.provider, request.model_name, request.api_url
+            )
+
+            kwargs = {"model": litellm_model, "input": ["test embedding dimension detection"]}
+            if request.api_key:
+                kwargs["api_key"] = request.api_key
+            if api_base:
+                kwargs["api_base"] = api_base
+
+            response = await litellm.aembedding(**kwargs)
+            dimensions = len(response.data[0]["embedding"])
+            return {
+                "success": True,
+                "dimensions": dimensions,
+                "message": f"Connection successful. Dimension: {dimensions}"
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "dimensions": None,
+            "message": f"Test failed: {str(e)}"
+        }
+
+
+@router.post("/embedding-model/available-models")
+async def get_embedding_available_models(
+    request: EmbeddingTestRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch available embedding models from a provider.
+
+    Same pattern as the main LLM available-models endpoint: hit the provider's
+    models API, parse response, filter for embedding models. No hardcoded lists —
+    LiteLLM handles all routing, so the user can also type any model name manually.
+    """
+    import httpx
+
+    if request.provider == "local":
+        return {
+            "success": True,
+            "models": ["sentence-transformers/all-mpnet-base-v2", "sentence-transformers/all-MiniLM-L6-v2"],
+            "message": "Common sentence-transformer models"
+        }
+
+    provider_info = EMBEDDING_PROVIDER_REGISTRY.get(request.provider)
+    if not provider_info:
+        return {"success": False, "models": [], "message": f"Unknown provider: {request.provider}"}
+
+    if not provider_info.get("models_path"):
+        return {"success": False, "models": [], "message": f"No models endpoint for {request.provider}. Type a model name manually."}
+
+    # Resolve URL: cloud providers have base_url in registry, local providers need user-supplied URL
+    if provider_info["category"] == "cloud" and provider_info.get("base_url"):
+        api_url = provider_info["base_url"]
+    elif request.api_url:
+        api_url = request.api_url
+    else:
+        return {"success": False, "models": [], "message": "API URL required for this provider"}
+
+    try:
+        headers = {"Content-Type": "application/json"}
+        if request.api_key:
+            headers["Authorization"] = f"Bearer {request.api_key}"
+
+        models_url = f"{api_url.rstrip('/')}{provider_info['models_path']}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(models_url, headers=headers)
+
+        if response.status_code != 200:
+            return {"success": False, "models": [], "message": f"API returned {response.status_code}. You can type a model name manually."}
+
+        data = response.json()
+        models = []
+        if request.provider == "ollama":
+            models = [m["name"] for m in data.get("models", [])]
+        elif "data" in data:
+            models = [m["id"] for m in data["data"]]
+
+        # Filter for embedding models (skip for self-hosted where all models may be relevant)
+        if provider_info["category"] == "cloud":
+            embedding_keywords = ("embed", "e5-", "bge-", "gte-", "arctic-embed", "nomic-embed")
+            embedding_models = [m for m in models if any(kw in m.lower() for kw in embedding_keywords)]
+            if embedding_models:
+                return {"success": True, "models": embedding_models, "message": f"Found {len(embedding_models)} embedding models"}
+
+        # For local/self-hosted or if cloud filter matched nothing, return all
+        return {"success": True, "models": models, "message": f"Found {len(models)} models"}
+    except Exception as e:
+        return {"success": False, "models": [], "message": f"Failed to fetch models: {str(e)}. You can type a model name manually."}
+
+
+@router.post("/embedding-model/reembed")
+async def start_reembed(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger background re-embedding of all vectors"""
+    from fastapi import BackgroundTasks
+    from ..services.reembed_service import get_reembed_service
+
+    user_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == current_user.id
+    ).first()
+
+    if not user_settings:
+        raise HTTPException(status_code=400, detail="No settings found")
+
+    new_dimension = user_settings.embedding_dimensions or 768
+    svc = get_reembed_service()
+
+    progress = svc.get_progress(current_user.id)
+    if progress.get("status") == "running":
+        return {"success": False, "message": "Re-embedding already in progress"}
+
+    # Launch as background task via asyncio
+    asyncio.ensure_future(svc.start_reembed(current_user.id, new_dimension))
+
+    return {"success": True, "message": "Re-embedding started"}
+
+
+@router.get("/embedding-model/reembed/progress")
+async def get_reembed_progress(
+    current_user: User = Depends(get_current_user),
+):
+    """Poll for re-embedding progress"""
+    from ..services.reembed_service import get_reembed_service
+    svc = get_reembed_service()
+    return svc.get_progress(current_user.id)
+
+
+@router.post("/embedding-model/reembed/cancel")
+async def cancel_reembed(
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel in-progress re-embedding"""
+    from ..services.reembed_service import get_reembed_service
+    svc = get_reembed_service()
+    svc.cancel(current_user.id)
+    return {"success": True, "message": "Cancellation requested"}
+
+
 class TestConnectionRequest(BaseModel):
     api_url: Optional[str] = None
     api_key: Optional[str] = None
@@ -866,8 +1188,20 @@ async def test_api_connection(
         )
     
     # Use provided values or fall back to saved settings
-    api_key = request.api_key or ""
     api_type = request.api_type or "openai_compatible"
+    api_key = request.api_key or ""
+
+    # Resolve credentials from configured_providers if not provided in request
+    if not api_key or not request.api_url:
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        if user_settings:
+            cp_key, cp_url = user_settings._resolve_provider_credentials(api_type)
+            if not api_key:
+                api_key = cp_key
+            if not request.api_url and cp_url:
+                request.api_url = cp_url
 
     # For cloud providers, resolve URL from registry
     if is_cloud_provider(api_type):
@@ -884,17 +1218,10 @@ async def test_api_connection(
     elif request.api_url:
         api_url = request.api_url
     else:
-        # Get user settings
-        user_settings = db.query(UserSettings).filter(
-            UserSettings.user_id == current_user.id
-        ).first()
-
-        if not user_settings or not user_settings.llm_api_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
-            )
-        api_url = user_settings.llm_api_url
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+        )
 
     try:
         # Configure request based on API type
@@ -959,8 +1286,20 @@ async def get_available_models(
             detail="You do not have permission to view available LLM models. Please contact an administrator."
         )
 
-    api_key = request.api_key or ""
     api_type = request.api_type or "openai_compatible"
+    api_key = request.api_key or ""
+
+    # Resolve credentials from configured_providers if not provided in request
+    if not api_key or not request.api_url:
+        user_settings = db.query(UserSettings).filter(
+            UserSettings.user_id == current_user.id
+        ).first()
+        if user_settings:
+            cp_key, cp_url = user_settings._resolve_provider_credentials(api_type)
+            if not api_key:
+                api_key = cp_key
+            if not request.api_url and cp_url:
+                request.api_url = cp_url
 
     # For cloud providers, resolve URL from registry
     if is_cloud_provider(api_type):
@@ -986,17 +1325,10 @@ async def get_available_models(
     elif request.api_url:
         api_url = request.api_url
     else:
-        # Get user settings
-        user_settings = db.query(UserSettings).filter(
-            UserSettings.user_id == current_user.id
-        ).first()
-
-        if not user_settings or not user_settings.llm_api_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
-            )
-        api_url = user_settings.llm_api_url
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
+        )
 
     try:
         # Configure request based on API type
@@ -1538,10 +1870,12 @@ async def test_extraction_model_connection(
                 detail="Extraction model not configured. Please configure settings first."
             )
 
-        url = url or user_settings.extraction_model_url or settings.extraction_model_url
-        api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
-        model_name = model_name or user_settings.extraction_model_name or "qwen2.5-3b-instruct"
         api_type = api_type or user_settings.extraction_model_api_type or "openai-compatible"
+        # Resolve from configured_providers first, then legacy columns
+        cp_key, cp_url = user_settings._resolve_provider_credentials(api_type)
+        url = url or cp_url or user_settings.extraction_model_url or settings.extraction_model_url
+        api_key = api_key if api_key is not None else (cp_key or user_settings.extraction_model_api_key or "")
+        model_name = model_name or user_settings.extraction_model_name or "qwen2.5-3b-instruct"
 
     api_type = api_type or "openai-compatible"
 
@@ -1627,9 +1961,11 @@ async def get_extraction_available_models(
                 detail="Extraction model URL not configured. Please configure settings first."
             )
 
-        url = user_settings.extraction_model_url or settings.extraction_model_url
-        api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
         api_type = api_type or user_settings.extraction_model_api_type or "openai-compatible"
+        # Resolve from configured_providers first
+        cp_key, cp_url = user_settings._resolve_provider_credentials(api_type)
+        url = cp_url or user_settings.extraction_model_url or settings.extraction_model_url
+        api_key = api_key if api_key is not None else (cp_key or user_settings.extraction_model_api_key or "")
 
     api_type = api_type or "openai-compatible"
 

@@ -96,7 +96,7 @@ async def semantic_search(
         
         # Perform search based on context type
         if request.context_type in ["scenes", "all"]:
-            scene_results = await semantic_memory.search_similar_scenes(
+            scene_results = await semantic_memory.search_events(
                 query_text=request.query,
                 story_id=story_id,
                 top_k=request.top_k

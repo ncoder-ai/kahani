@@ -122,8 +122,10 @@ async def process_scene_embeddings(
         story_obj = db.query(Story).filter(Story.id == story_id).first()
         world_id = story_obj.world_id if story_obj else None
         
-        # 1. Create scene embedding (only if semantic memory enabled and not already done)
-        if not skip_semantic and not skip_scene_embedding:
+        # 1. Create scene embedding — DISABLED: recall now uses event embeddings
+        # (search_events_batch) which have better vocabulary for factual queries.
+        # Scene summary embeddings are no longer used in any search path.
+        if False and not skip_semantic and not skip_scene_embedding:
             logger.info(f"Starting semantic processing for scene {scene_id}")
             semantic_memory = get_semantic_memory_service()
             logger.info(f"Semantic memory service obtained successfully")
@@ -163,6 +165,7 @@ async def process_scene_embeddings(
                     existing_embedding.chapter_id = chapter_id
                     existing_embedding.content_length = len(scene_content)
                     existing_embedding.embedding = embedding_vector
+                    existing_embedding.embedding_text = scene_content
                     existing_embedding.updated_at = None  # Will trigger onupdate
                     logger.info(f"Updated existing scene embedding: {embedding_id}")
                 else:
@@ -178,7 +181,8 @@ async def process_scene_embeddings(
                         content_hash=content_hash,
                         sequence_order=sequence_number,
                         chapter_id=chapter_id,
-                        content_length=len(scene_content)
+                        content_length=len(scene_content),
+                        embedding_text=scene_content,
                     )
                     db.add(scene_embedding)
                     logger.info(f"Created new scene embedding: {embedding_id}")
@@ -329,7 +333,7 @@ async def process_scene_embeddings(
         return results
 
 
-def _store_scene_events(
+async def _store_scene_events(
     db: Session,
     events: list,
     story_id: int,
@@ -339,11 +343,12 @@ def _store_scene_events(
     branch_id: Optional[int],
     world_id: Optional[int] = None
 ) -> int:
-    """Store extracted scene events in the database. Returns count stored."""
+    """Store extracted scene events in the database with embeddings. Returns count stored."""
     # Delete existing events for this scene (idempotent re-extraction)
     db.query(SceneEvent).filter(SceneEvent.scene_id == scene_id).delete()
 
     stored = 0
+    new_events = []
     for event in events:
         text = event.get('text', '').strip()
         if not text or len(text) < 5:
@@ -354,7 +359,7 @@ def _store_scene_events(
         # Filter: keep only plain strings (person names), drop dicts/objects/non-strings
         chars = [c for c in chars if isinstance(c, str) and len(c) > 0]
 
-        db.add(SceneEvent(
+        scene_event = SceneEvent(
             story_id=story_id,
             branch_id=branch_id,
             world_id=world_id,
@@ -363,11 +368,26 @@ def _store_scene_events(
             chapter_id=chapter_id,
             event_text=text[:500],
             characters_involved=chars,
-        ))
+        )
+        db.add(scene_event)
+        new_events.append(scene_event)
         stored += 1
 
     if stored:
         db.flush()
+
+        # Embed event texts — best-effort, never blocks text storage
+        try:
+            semantic_memory = get_semantic_memory_service()
+            texts = [e.event_text for e in new_events]
+            embeddings = await semantic_memory.encode_texts(texts)
+            for event_obj, emb in zip(new_events, embeddings):
+                event_obj.embedding = emb.tolist()
+            db.flush()
+            logger.info(f"[SCENE EVENTS] Embedded {stored} events for scene {scene_id}")
+        except Exception as e:
+            logger.warning(f"[SCENE EVENTS] Embedding failed (text stored OK): {e}")
+
     return stored
 
 
@@ -443,7 +463,7 @@ async def _try_combined_extraction(
                 # Store scene events
                 events = extraction_results.get('events', [])
                 if events:
-                    stored = _store_scene_events(
+                    stored = await _store_scene_events(
                         db=db,
                         events=events,
                         story_id=story_id,
@@ -855,10 +875,9 @@ async def batch_process_scene_extractions(
             except Exception as e:
                 logger.warning(f"[EXTRACTION] Scene summary generation failed: {e}")
 
-            # Step 1b: Embed summary-only in pgvector
-            # Pure summary without chapter/character prefix — prefix dilutes
-            # bi-encoder signal by ~0.25 similarity points
-            if settings.enable_semantic_memory:
+            # Step 1b: Embed summary-only in pgvector — DISABLED: recall now uses
+            # event embeddings (search_events_batch) which have better vocabulary.
+            if False and settings.enable_semantic_memory:
                 try:
                     # Use summary as embedding content; fall back to truncated scene content
                     if summary_result and summary_result.get("summary"):
@@ -896,6 +915,7 @@ async def batch_process_scene_extractions(
                         existing_embedding.chapter_id = chapter_id
                         existing_embedding.content_length = len(enriched_content)
                         existing_embedding.embedding = embedding_vector
+                        existing_embedding.embedding_text = enriched_content
                         existing_embedding.updated_at = None
                     else:
                         scene_embedding = SceneEmbedding(
@@ -909,7 +929,8 @@ async def batch_process_scene_extractions(
                             content_hash=content_hash,
                             sequence_order=seq_embed,
                             chapter_id=chapter_id,
-                            content_length=len(enriched_content)
+                            content_length=len(enriched_content),
+                            embedding_text=enriched_content,
                         )
                         db.add(scene_embedding)
 
@@ -1015,7 +1036,7 @@ async def batch_process_scene_extractions(
                         events_data = extract_json_robust(events_response)
                         events = events_data.get('events', [])
                         if events:
-                            stored = _store_scene_events(
+                            stored = await _store_scene_events(
                                 db=db,
                                 events=events,
                                 story_id=story_id,

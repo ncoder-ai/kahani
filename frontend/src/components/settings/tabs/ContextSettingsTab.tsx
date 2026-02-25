@@ -1,6 +1,5 @@
 'use client';
 
-import { getApiBaseUrl } from '@/lib/api';
 import { GenerationPreferences } from '@/types/settings';
 import { SettingsTabProps, ContextSettings, ExtractionModelSettings } from '../types';
 
@@ -21,32 +20,6 @@ export default function ContextSettingsTab({
   setGenerationPrefs,
   extractionModelSettings,
 }: ContextSettingsTabProps) {
-  const saveSettings = async () => {
-    try {
-      const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          context_settings: contextSettings,
-          generation_preferences: generationPrefs,
-          extraction_model_settings: extractionModelSettings,
-        }),
-      });
-      if (response.ok) {
-        showMessage('Settings saved!', 'success');
-        // Notify other components (like story page) that settings changed
-        window.dispatchEvent(new CustomEvent('kahaniSettingsChanged'));
-      } else {
-        showMessage('Failed to save settings', 'error');
-      }
-    } catch (error) {
-      showMessage('Error saving settings', 'error');
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -745,15 +718,6 @@ export default function ContextSettingsTab({
           )}
         </div>
 
-        {/* Save Button */}
-        <div className="flex justify-end pt-4 border-t border-gray-700">
-          <button
-            onClick={saveSettings}
-            className="px-6 py-2 theme-btn-primary rounded-lg font-semibold"
-          >
-            Save Settings
-          </button>
-        </div>
       </div>
     </div>
   );

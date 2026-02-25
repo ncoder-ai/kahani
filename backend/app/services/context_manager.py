@@ -2949,13 +2949,13 @@ Appearance: {char.get('appearance', '')}
             # Use 10x to ensure we get enough candidates after branch filtering (legacy data has no branch_id)
             search_top_k = self.semantic_top_k * 10  # Get 10x results to filter by branch
 
-            similar_scenes = await self.semantic_memory.search_similar_scenes(
+            similar_scenes = await self.semantic_memory.search_events(
                 query_text=query_content,
                 story_id=story_id,
                 top_k=search_top_k,
                 exclude_sequences=exclude_sequences,
-                chapter_id=limit_to_chapter_id,  # Limit to chapter if specified, otherwise None (entire story)
-                use_reranking=False  # Single-query path uses keyword boosting; cross-encoder only in multi-query path
+                chapter_id=limit_to_chapter_id,
+                branch_id=branch_id,
             )
 
             if not similar_scenes:
@@ -3178,7 +3178,17 @@ Appearance: {char.get('appearance', '')}
             used_tokens = 0
 
             for result, scene in filtered_results_with_scenes:
-                variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
+                # Look up variant: use variant_id if available (scene embeddings),
+                # otherwise find active variant via StoryFlow (event embeddings)
+                variant = None
+                if result.get('variant_id'):
+                    variant = db.query(SceneVariant).filter(SceneVariant.id == result['variant_id']).first()
+                if not variant:
+                    flow = db.query(StoryFlow).filter(
+                        StoryFlow.scene_id == result['scene_id'],
+                        StoryFlow.is_active == True
+                    ).first()
+                    variant = flow.scene_variant if flow else None
                 if not variant:
                     continue
 
@@ -3634,10 +3644,42 @@ Appearance: {char.get('appearance', '')}
                     if cached and cached[0] == max_event_id:
                         event_embeddings = cached[1]
                     else:
-                        event_texts = [e.event_text for e in all_events]
-                        event_embeddings = await self.semantic_memory.encode_texts(event_texts)
+                        # Load pre-computed embeddings from DB where available
+                        has_vector = []
+                        no_vector = []
+                        for i, e in enumerate(all_events):
+                            if e.embedding is not None:
+                                has_vector.append((i, e))
+                            else:
+                                no_vector.append((i, e))
+
+                        # Infer embedding dimension from first available vector or model
+                        embed_dim = len(has_vector[0][1].embedding) if has_vector else 768
+
+                        # Build embeddings array from DB vectors + encode missing
+                        event_embeddings = np.zeros((len(all_events), embed_dim), dtype=np.float32)
+                        for i, e in has_vector:
+                            event_embeddings[i] = np.array(e.embedding, dtype=np.float32)
+
+                        if no_vector:
+                            missing_texts = [e.event_text for _, e in no_vector]
+                            missing_embs = await self.semantic_memory.encode_texts(missing_texts)
+                            for (i, e), emb in zip(no_vector, missing_embs):
+                                event_embeddings[i] = emb
+                                # Opportunistically write back to DB
+                                try:
+                                    e.embedding = emb.tolist()
+                                except Exception:
+                                    pass
+                            try:
+                                db.flush()
+                            except Exception:
+                                pass
+                            logger.info(f"[EVENT INDEX] Backfilled {len(no_vector)} event embeddings for story {story_id}")
+
                         ContextManager._event_embedding_cache[cache_key] = (max_event_id, event_embeddings)
-                        logger.info(f"[EVENT INDEX] Cached {len(all_events)} event embeddings for story {story_id}")
+                        loaded_from_db = len(has_vector)
+                        logger.info(f"[EVENT INDEX] Cached {len(all_events)} events for story {story_id} ({loaded_from_db} from DB, {len(no_vector)} encoded)")
 
                     query_embeddings = await self.semantic_memory.encode_texts(sub_queries)
 
@@ -3959,24 +4001,25 @@ Appearance: {char.get('appearance', '')}
             search_top_k = self.semantic_top_k * 5
 
             # Batch search — single batch encode + single pgvector call
+            # Event embeddings used for all intents — better vocabulary than scene summaries
             if world_scope:
-                batch_results = await self.semantic_memory.search_similar_scenes_batch(
+                batch_results = await self.semantic_memory.search_events_batch(
                     query_texts=all_queries,
                     story_ids=world_scope["story_ids"],
                     branch_map=world_scope["branch_map"],
                     top_k=search_top_k,
                     exclude_sequences=exclude_sequences,
                     exclude_story_id=story_id,
-                    chapter_id=None
                 )
             else:
-                batch_results = await self.semantic_memory.search_similar_scenes_batch(
+                batch_results = await self.semantic_memory.search_events_batch(
                     query_texts=all_queries,
                     story_id=story_id,
                     top_k=search_top_k,
                     exclude_sequences=exclude_sequences,
-                    chapter_id=None
                 )
+
+            logger.info("[SEMANTIC MULTI-QUERY] Using event-embed bi-encoder")
 
             if not batch_results or all(len(r) == 0 for r in batch_results):
                 logger.info("[SEMANTIC MULTI-QUERY] No results from batch search")

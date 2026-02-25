@@ -1125,11 +1125,9 @@ Chapter Conclusion:"""
             skip_choices=separate_choice_generation
         )
         
-        # Add buffer for choices section when generating scene with choices
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        max_tokens = base_max_tokens + 300  # Extra tokens for choices section
-        logger.info(f"[SCENE WITH CHOICES] Using max_tokens: {max_tokens} (base: {base_max_tokens} + 300 buffer for choices)")
-        
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        logger.info(f"[SCENE WITH CHOICES] Using max_tokens: {max_tokens}")
+
         client = self.get_user_client(user_id, user_settings)
 
         # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
@@ -1274,10 +1272,7 @@ Chapter Conclusion:"""
         )
         messages.append({"role": "user", "content": task_content})
 
-        # Add buffer for choices section
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         logger.info(f"[VARIANT NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
 
@@ -1348,10 +1343,7 @@ Chapter Conclusion:"""
         )
         messages.append({"role": "user", "content": task_content})
 
-        # Add buffer for choices section
-        base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
 
         logger.info(f"[CONTINUATION NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
 
@@ -1632,12 +1624,9 @@ Chapter Conclusion:"""
         if pov_reminder:
             system_prompt += "\n\n" + pov_reminder
         
-        # Add buffer for choices section when generating scene with choices
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens} (base: {base_max_tokens} + {choices_buffer_tokens} buffer for {choices_count} choices)")
-        
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
+        logger.info(f"[SCENE WITH CHOICES STREAMING] Using max_tokens: {max_tokens}")
+
         client = self.get_user_client(user_id, user_settings)
 
         # Fast path: saved full prompt = simple variant regeneration.
@@ -1991,10 +1980,7 @@ Chapter Conclusion:"""
         # Guarantees choice gen uses the exact same system prompt + context prefix.
         context['_saved_prompt_prefix'] = list(messages[:-1])
 
-        # Add buffer for choices section - dynamic based on choices_count
-        base_max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
-        max_tokens = base_max_tokens + choices_buffer_tokens
+        max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
         logger.info(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
 
@@ -2223,11 +2209,8 @@ Write approximately {scene_length_description} in length.
         # Save prefix for same-request reuse (choices generation after continuation).
         context['_saved_prompt_prefix'] = list(messages[:-1])
 
-        # Add buffer for choices section - dynamic based on choices_count
-        base_max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
-        choices_buffer_tokens = max(300, choices_count * 50)  # At least 300, or 50 per choice
-        max_tokens = base_max_tokens + choices_buffer_tokens
-        
+        max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
+
         logger.info(f"[CONTINUATION] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
         
         # Write debug output for debugging cache issues

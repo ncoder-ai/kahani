@@ -632,7 +632,7 @@ class RoleplayContextBuilder:
             )
             exclude_seqs = [f.sequence_number for f in recent_flows]
 
-            results = await semantic_memory.search_similar_scenes(
+            results = await semantic_memory.search_events(
                 query_text=query,
                 story_id=story.id,
                 top_k=5,
