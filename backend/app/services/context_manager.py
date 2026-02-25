@@ -2265,31 +2265,9 @@ Appearance: {char.get('appearance', '')}
             from .llm.extraction_service import ExtractionLLMService
             from .llm.prompts import prompt_manager
 
-            ext_defaults = settings._yaml_config.get('extraction_model', {})
-            url = ext_settings.get('url', ext_defaults.get('url'))
-            model = ext_settings.get('model_name', ext_defaults.get('model_name'))
-            if not url or not model:
+            extraction_service = ExtractionLLMService.from_settings(self.user_settings)
+            if not extraction_service:
                 return None
-
-            api_key = ext_settings.get('api_key', ext_defaults.get('api_key', ''))
-            temperature = ext_settings.get('temperature', ext_defaults.get('temperature', 0.3))
-            max_tokens = ext_settings.get('max_tokens', ext_defaults.get('max_tokens', 2000))
-            top_p = ext_settings.get('top_p', ext_defaults.get('top_p', 1.0))
-            repetition_penalty = ext_settings.get('repetition_penalty', ext_defaults.get('repetition_penalty', 1.0))
-            min_p = ext_settings.get('min_p', ext_defaults.get('min_p', 0.0))
-            thinking_disable_method = ext_settings.get('thinking_disable_method', ext_defaults.get('thinking_disable_method', 'none'))
-            thinking_disable_custom = ext_settings.get('thinking_disable_custom', ext_defaults.get('thinking_disable_custom', ''))
-            llm_settings = self.user_settings.get('llm_settings', {})
-            timeout_total = llm_settings.get('timeout_total', 240)
-
-            extraction_service = ExtractionLLMService(
-                url=url, model=model, api_key=api_key,
-                temperature=temperature, max_tokens=max_tokens,
-                timeout_total=timeout_total, top_p=top_p,
-                repetition_penalty=repetition_penalty, min_p=min_p,
-                thinking_disable_method=thinking_disable_method,
-                thinking_disable_custom=thinking_disable_custom,
-            )
 
             decompose_task = prompt_manager.get_prompt("semantic_decompose", "user", user_intent=user_intent)
             if not decompose_task:

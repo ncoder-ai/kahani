@@ -247,49 +247,9 @@ class NPCTrackingService:
         Returns:
             ExtractionLLMService instance or None if not enabled
         """
-        # Check if extraction model is enabled
-        extraction_settings = self.user_settings.get('extraction_model_settings', {})
-        if not extraction_settings.get('enabled', False):
-            return None
-        
-        try:
-            # Get extraction model configuration
-            ext_defaults = settings._yaml_config.get('extraction_model', {})
-            service_defaults = settings.service_defaults.get('extraction_service', {})
-            url = extraction_settings.get('url', ext_defaults.get('url'))
-            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature'))
-            max_tokens = extraction_settings.get('max_tokens', service_defaults.get('npc_tracking_max_tokens', 1500))
-
-            # Get advanced sampling settings
-            top_p = extraction_settings.get('top_p', ext_defaults.get('top_p', 1.0))
-            repetition_penalty = extraction_settings.get('repetition_penalty', ext_defaults.get('repetition_penalty', 1.0))
-            min_p = extraction_settings.get('min_p', ext_defaults.get('min_p', 0.0))
-            thinking_disable_method = extraction_settings.get('thinking_disable_method', ext_defaults.get('thinking_disable_method', 'none'))
-            thinking_disable_custom = extraction_settings.get('thinking_disable_custom', ext_defaults.get('thinking_disable_custom', ''))
-
-            # Get timeout from user's LLM settings
-            llm_settings = self.user_settings.get('llm_settings', {})
-            timeout_total = llm_settings.get('timeout_total', 240)
-
-            # Create extraction service
-            return ExtractionLLMService(
-                url=url,
-                model=model,
-                api_key=api_key,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout_total=timeout_total,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                min_p=min_p,
-                thinking_disable_method=thinking_disable_method,
-                thinking_disable_custom=thinking_disable_custom
-            )
-        except Exception as e:
-            logger.warning(f"Failed to initialize extraction service: {e}")
-            return None
+        service_defaults = settings.service_defaults.get('extraction_service', {})
+        npc_max_tokens = service_defaults.get('npc_tracking_max_tokens', 1500)
+        return ExtractionLLMService.from_settings(self.user_settings, max_tokens_override=npc_max_tokens)
 
     async def _extract_npcs_with_llm_batch(
         self,

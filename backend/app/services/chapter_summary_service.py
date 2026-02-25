@@ -630,19 +630,9 @@ class ChapterSummaryService:
         if use_extraction_llm and extraction_enabled:
             try:
                 from .llm.extraction_service import ExtractionLLMService
-                logger.info(f"[CHAPTER:SUMMARY] Using extraction LLM for {trace_context}")
-
-                ext_settings = user_settings.get('extraction_model_settings', {})
-                llm_settings = user_settings.get('llm_settings', {})
-                timeout_total = llm_settings.get('timeout_total', 240)
-                extraction_service = ExtractionLLMService(
-                    url=ext_settings.get('url', 'http://localhost:1234/v1'),
-                    model=ext_settings.get('model_name', 'qwen2.5-3b-instruct'),
-                    api_key=ext_settings.get('api_key', ''),
-                    temperature=ext_settings.get('temperature', 0.3),
-                    max_tokens=ext_settings.get('max_tokens', 1000),
-                    timeout_total=timeout_total
-                )
+                extraction_service = ExtractionLLMService.from_settings(user_settings)
+                if extraction_service:
+                    logger.info(f"[CHAPTER:SUMMARY] Using extraction LLM for {trace_context}")
 
                 from litellm import acompletion
                 params = extraction_service._get_generation_params(max_tokens=max_tokens)

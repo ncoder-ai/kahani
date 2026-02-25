@@ -76,6 +76,7 @@ export interface ExtractionModelSettings {
   url: string;
   api_key: string;
   model_name: string;
+  api_type?: string;  // Provider type (e.g., "openai-compatible", "groq")
   temperature: number;
   max_tokens: number;
   fallback_to_main: boolean;
@@ -91,6 +92,15 @@ export interface ExtractionModelSettings {
   thinking_disable_custom?: string;
   thinking_enabled_extractions?: boolean;   // default false
   thinking_enabled_memory?: boolean;        // default true
+}
+
+// LLM Provider definition returned by GET /api/settings/llm-providers
+export interface LLMProvider {
+  id: string;
+  label: string;
+  category: 'cloud' | 'local';
+  needs_url: boolean;
+  needs_api_key: boolean;
 }
 
 // Thinking model type options — how to control <think> tags for local thinking models

@@ -131,6 +131,11 @@ class UserSettings(Base):
     extraction_model_thinking_enabled_memory = Column(Boolean, nullable=True)  # Per-task: allow thinking for memory/recall
     use_main_llm_for_plot_extraction = Column(Boolean, nullable=True)  # Use main LLM for plot event extraction (more accurate)
     use_main_llm_for_decomposition = Column(Boolean, nullable=True)  # Use main LLM for query decomposition (avoids extraction LLM contention)
+    extraction_model_api_type = Column(String(100), nullable=True)  # Provider type for extraction model (e.g., "openai-compatible", "groq", "anthropic")
+
+    # Extraction Engine-Specific Settings (mirrors main engine_settings pattern)
+    extraction_engine_settings = Column(Text, nullable=True)  # JSON dict of per-engine extraction settings
+    current_extraction_engine = Column(String(100), nullable=True)  # Currently selected extraction engine
 
     # Advanced Settings
     custom_system_prompt = Column(Text, nullable=True)
@@ -297,8 +302,11 @@ class UserSettings(Base):
                 "thinking_enabled_memory": self.extraction_model_thinking_enabled_memory if self.extraction_model_thinking_enabled_memory is not None else ext_model_defaults.get("thinking_enabled_memory", True),
                 "enable_combined_extraction": True,  # Default: enabled, combines all extractions in one LLM call
                 "use_main_llm_for_plot_extraction": self.use_main_llm_for_plot_extraction if self.use_main_llm_for_plot_extraction is not None else False,
-                "use_main_llm_for_decomposition": self.use_main_llm_for_decomposition if self.use_main_llm_for_decomposition is not None else False
+                "use_main_llm_for_decomposition": self.use_main_llm_for_decomposition if self.use_main_llm_for_decomposition is not None else False,
+                "api_type": self.extraction_model_api_type if self.extraction_model_api_type is not None else ext_model_defaults.get("api_type", "openai-compatible")
             },
+            "extraction_engine_settings": self._parse_extraction_engine_settings(),
+            "current_extraction_engine": self.current_extraction_engine or "",
             "advanced": {
                 "custom_system_prompt": self.custom_system_prompt,
                 "experimental_features": self.enable_experimental_features if self.enable_experimental_features is not None else adv_defaults.get("experimental_features", False)
@@ -346,6 +354,13 @@ class UserSettings(Base):
         """Parse engine_settings JSON string to dictionary"""
         try:
             return json.loads(self.engine_settings) if self.engine_settings else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def _parse_extraction_engine_settings(self):
+        """Parse extraction_engine_settings JSON string to dictionary"""
+        try:
+            return json.loads(self.extraction_engine_settings) if self.extraction_engine_settings else {}
         except (json.JSONDecodeError, TypeError):
             return {}
     

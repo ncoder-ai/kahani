@@ -102,6 +102,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     url: 'http://localhost:1234/v1',
     api_key: '',
     model_name: 'qwen2.5-3b-instruct',
+    api_type: 'openai-compatible',
     temperature: 0.3,
     max_tokens: 1000,
     fallback_to_main: true,
@@ -114,6 +115,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     thinking_enabled_extractions: false,
     thinking_enabled_memory: true,
   });
+
+  // Extraction Engine-Specific Settings (mirrors main LLM engine pattern)
+  const [extractionEngineSettings, setExtractionEngineSettings] = useState<Record<string, ExtractionModelSettings>>({});
+  const [currentExtractionEngine, setCurrentExtractionEngine] = useState<string>('');
 
   // Generation Preferences
   const [generationPrefs, setGenerationPrefs] = useState<GenerationPreferences>({
@@ -237,11 +242,46 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           } catch (error) {
             console.error('Failed to load extraction default URL from config:', error);
           }
-          setExtractionModelSettings(prev => ({
-            ...prev,
-            ...settings.extraction_model_settings,
-            url: settings.extraction_model_settings.url || defaultExtractionUrl,
-          }));
+
+          // Load extraction engine settings (per-engine persistence)
+          if (settings.extraction_engine_settings && Object.keys(settings.extraction_engine_settings).length > 0) {
+            setExtractionEngineSettings(settings.extraction_engine_settings);
+            if (settings.current_extraction_engine && settings.current_extraction_engine.trim() !== '') {
+              setCurrentExtractionEngine(settings.current_extraction_engine);
+              const savedEngineSettings = settings.extraction_engine_settings[settings.current_extraction_engine];
+              if (savedEngineSettings) {
+                setExtractionModelSettings(prev => ({
+                  ...prev,
+                  ...savedEngineSettings,
+                  url: savedEngineSettings.url || defaultExtractionUrl,
+                }));
+              } else {
+                setExtractionModelSettings(prev => ({
+                  ...prev,
+                  ...settings.extraction_model_settings,
+                  url: settings.extraction_model_settings.url || defaultExtractionUrl,
+                }));
+              }
+            } else {
+              // No current engine set, use flat settings
+              const apiType = settings.extraction_model_settings.api_type || 'openai-compatible';
+              setCurrentExtractionEngine(apiType);
+              setExtractionModelSettings(prev => ({
+                ...prev,
+                ...settings.extraction_model_settings,
+                url: settings.extraction_model_settings.url || defaultExtractionUrl,
+              }));
+            }
+          } else {
+            // No engine settings, use flat settings (backward compat)
+            const apiType = settings.extraction_model_settings.api_type || 'openai-compatible';
+            setCurrentExtractionEngine(apiType);
+            setExtractionModelSettings(prev => ({
+              ...prev,
+              ...settings.extraction_model_settings,
+              url: settings.extraction_model_settings.url || defaultExtractionUrl,
+            }));
+          }
         }
 
         // Load sampler settings
@@ -275,6 +315,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       setEngineSettings(updatedEngineSettings);
 
+      // Also update extraction engine settings
+      const updatedExtractionEngineSettings = { ...extractionEngineSettings };
+      if (currentExtractionEngine && currentExtractionEngine.trim() !== '') {
+        updatedExtractionEngineSettings[currentExtractionEngine] = { ...extractionModelSettings };
+      }
+      setExtractionEngineSettings(updatedExtractionEngineSettings);
+
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/`, {
         method: 'PUT',
         headers: {
@@ -293,7 +340,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             api_type: llmSettings.api_type || '',
             model_name: llmSettings.model_name || '',
           },
-          extraction_model_settings: extractionModelSettings,
+          extraction_model_settings: {
+            ...extractionModelSettings,
+            api_type: extractionModelSettings.api_type || 'openai-compatible',
+          },
+          extraction_engine_settings: {
+            extraction_engine_settings: updatedExtractionEngineSettings,
+            current_extraction_engine: currentExtractionEngine || '',
+          },
           sampler_settings: samplerSettings,
         }),
       });
@@ -406,6 +460,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setEngineSettings={setEngineSettings}
               currentEngine={currentEngine}
               setCurrentEngine={setCurrentEngine}
+              extractionEngineSettings={extractionEngineSettings}
+              setExtractionEngineSettings={setExtractionEngineSettings}
+              currentExtractionEngine={currentExtractionEngine}
+              setCurrentExtractionEngine={setCurrentExtractionEngine}
               onSave={saveEngineSettings}
             />
           )}

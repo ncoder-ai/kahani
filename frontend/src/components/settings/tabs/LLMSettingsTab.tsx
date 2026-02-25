@@ -5,7 +5,7 @@ import { getApiBaseUrl } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import { SamplerSettings, DEFAULT_SAMPLER_SETTINGS } from '@/types/settings';
 import TextCompletionTemplateEditor from '../../TextCompletionTemplateEditor';
-import { SettingsTabProps, LLMSettings, ExtractionModelSettings, THINKING_DISABLE_OPTIONS } from '../types';
+import { SettingsTabProps, LLMSettings, ExtractionModelSettings, LLMProvider, THINKING_DISABLE_OPTIONS } from '../types';
 
 // Helper function to safely parse JSON template
 const safeParseJSON = (jsonString: string | undefined | null): any => {
@@ -31,6 +31,10 @@ interface LLMSettingsTabProps extends SettingsTabProps {
   setEngineSettings: (settings: Record<string, LLMSettings>) => void;
   currentEngine: string;
   setCurrentEngine: (engine: string) => void;
+  extractionEngineSettings: Record<string, ExtractionModelSettings>;
+  setExtractionEngineSettings: (settings: Record<string, ExtractionModelSettings>) => void;
+  currentExtractionEngine: string;
+  setCurrentExtractionEngine: (engine: string) => void;
   onSave: () => Promise<void>;
 }
 
@@ -47,6 +51,10 @@ export default function LLMSettingsTab({
   setEngineSettings,
   currentEngine,
   setCurrentEngine,
+  extractionEngineSettings,
+  setExtractionEngineSettings,
+  currentExtractionEngine,
+  setCurrentExtractionEngine,
   onSave,
 }: LLMSettingsTabProps) {
   const config = useConfig();
@@ -62,13 +70,41 @@ export default function LLMSettingsTab({
 
   const [autoLoading, setAutoLoading] = useState(false);
   const [autoLoadingExtraction, setAutoLoadingExtraction] = useState(false);
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
+
+  const cloudProviders = providers.filter(p => p.category === 'cloud');
+  const localProviders = providers.filter(p => p.category === 'local');
+
+  // Check if a provider is a cloud provider (no URL needed)
+  const isCloudProvider = (apiType: string) => {
+    const provider = providers.find(p => p.id === apiType);
+    return provider?.category === 'cloud';
+  };
+
+  // Check if current extraction engine is cloud
+  const isExtractionCloud = isCloudProvider(currentExtractionEngine);
 
   useEffect(() => {
+    loadProviders();
     loadExtractionPresets();
     // Auto-fetch models silently if API URL is configured
     autoFetchModels();
     autoFetchExtractionModels();
   }, []);
+
+  const loadProviders = async () => {
+    try {
+      const response = await fetch(`${await getApiBaseUrl()}/api/settings/llm-providers`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setProviders(data.providers || []);
+      }
+    } catch (error) {
+      console.error('Failed to load LLM providers:', error);
+    }
+  };
 
   const loadExtractionPresets = async () => {
     try {
@@ -87,7 +123,10 @@ export default function LLMSettingsTab({
   };
 
   const autoFetchModels = async () => {
-    if (!llmSettings.api_url) return;
+    // Cloud providers don't need URL, local providers do
+    const isCloud = isCloudProvider(llmSettings.api_type);
+    if (!isCloud && !llmSettings.api_url) return;
+    if (isCloud && !llmSettings.api_key) return;
     setAutoLoading(true);
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/available-models`, {
@@ -117,7 +156,10 @@ export default function LLMSettingsTab({
   };
 
   const autoFetchExtractionModels = async () => {
-    if (!extractionModelSettings.enabled || !extractionModelSettings.url) return;
+    if (!extractionModelSettings.enabled) return;
+    const extIsCloud = isCloudProvider(currentExtractionEngine);
+    if (!extIsCloud && !extractionModelSettings.url) return;
+    if (extIsCloud && !extractionModelSettings.api_key) return;
     setAutoLoadingExtraction(true);
     try {
       const response = await fetch(`${await getApiBaseUrl()}/api/settings/extraction-model/available-models`, {
@@ -129,6 +171,7 @@ export default function LLMSettingsTab({
         body: JSON.stringify({
           url: extractionModelSettings.url,
           api_key: extractionModelSettings.api_key,
+          api_type: currentExtractionEngine || 'openai-compatible',
         }),
       });
       if (response.ok) {
@@ -145,8 +188,13 @@ export default function LLMSettingsTab({
   };
 
   const fetchAvailableModels = async () => {
-    if (!llmSettings.api_url) {
+    const isCloud = isCloudProvider(llmSettings.api_type);
+    if (!isCloud && !llmSettings.api_url) {
       showMessage('Please enter an API URL first', 'error');
+      return;
+    }
+    if (isCloud && !llmSettings.api_key) {
+      showMessage('Please enter an API key first', 'error');
       return;
     }
 
@@ -186,8 +234,13 @@ export default function LLMSettingsTab({
   };
 
   const fetchExtractionModels = async () => {
-    if (!extractionModelSettings.url) {
+    const extIsCloud = isCloudProvider(currentExtractionEngine);
+    if (!extIsCloud && !extractionModelSettings.url) {
       showMessage('Please enter an API URL first', 'error');
+      return;
+    }
+    if (extIsCloud && !extractionModelSettings.api_key) {
+      showMessage('Please enter an API key first', 'error');
       return;
     }
 
@@ -202,6 +255,7 @@ export default function LLMSettingsTab({
         body: JSON.stringify({
           url: extractionModelSettings.url,
           api_key: extractionModelSettings.api_key,
+          api_type: currentExtractionEngine || 'openai-compatible',
         }),
       });
 
@@ -261,6 +315,36 @@ export default function LLMSettingsTab({
     setAvailableModels([]);
   };
 
+  const handleExtractionEngineChange = (newEngine: string) => {
+    // Save current extraction settings to the current engine
+    if (currentExtractionEngine && currentExtractionEngine !== '') {
+      setExtractionEngineSettings({
+        ...extractionEngineSettings,
+        [currentExtractionEngine]: { ...extractionModelSettings }
+      });
+    }
+
+    // Load settings for the new engine
+    if (newEngine && extractionEngineSettings[newEngine]) {
+      setExtractionModelSettings({
+        ...extractionEngineSettings[newEngine],
+        api_type: newEngine,
+      });
+    } else {
+      // Default settings for new engine
+      setExtractionModelSettings({
+        ...extractionModelSettings,
+        url: '',
+        api_key: '',
+        model_name: '',
+        api_type: newEngine,
+      });
+    }
+
+    setCurrentExtractionEngine(newEngine);
+    setAvailableExtractionModels([]);
+  };
+
   const testConnection = async () => {
     setTestingConnection(true);
     try {
@@ -311,6 +395,7 @@ export default function LLMSettingsTab({
           url: extractionModelSettings.url,
           api_key: extractionModelSettings.api_key,
           model_name: extractionModelSettings.model_name,
+          api_type: currentExtractionEngine || 'openai-compatible',
         }),
       });
       const result = await response.json();
@@ -380,36 +465,57 @@ export default function LLMSettingsTab({
                     className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
                   >
                     <option value="">Select API Engine...</option>
-                    <option value="openai-compatible">OpenAI Compatible</option>
-                    <option value="tabbyapi">TabbyAPI</option>
-                    <option value="openai">OpenAI Official</option>
-                    <option value="koboldcpp">KoboldCpp</option>
-                    <option value="ollama">Ollama</option>
+                    {cloudProviders.length > 0 && (
+                      <optgroup label="Cloud Providers">
+                        {cloudProviders.map(p => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {localProviders.length > 0 && (
+                      <optgroup label="Local / Self-Hosted">
+                        {localProviders.map(p => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {providers.length === 0 && (
+                      <>
+                        <option value="openai-compatible">OpenAI Compatible</option>
+                        <option value="openai">OpenAI Official</option>
+                        <option value="ollama">Ollama</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">API URL</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={llmSettings.api_url}
-                      onChange={(e) => setLlmSettings({ ...llmSettings, api_url: e.target.value })}
-                      className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                      placeholder="https://api.openai.com/v1"
-                    />
-                    <button
-                      onClick={testConnection}
-                      disabled={testingConnection}
-                      className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
-                    >
-                      {testingConnection ? 'Testing...' : 'Test'}
-                    </button>
+                {/* API URL - hidden for cloud providers */}
+                {!isCloudProvider(currentEngine) && (
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">API URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={llmSettings.api_url}
+                        onChange={(e) => setLlmSettings({ ...llmSettings, api_url: e.target.value })}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                        placeholder="http://localhost:1234"
+                      />
+                      <button
+                        onClick={testConnection}
+                        disabled={testingConnection}
+                        className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
+                      >
+                        {testingConnection ? 'Testing...' : 'Test'}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">API Key</label>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    API Key{isCloudProvider(currentEngine) ? ' (required)' : ' (optional)'}
+                  </label>
                   <input
                     type="password"
                     value={llmSettings.api_key}
@@ -427,11 +533,11 @@ export default function LLMSettingsTab({
                       value={llmSettings.model_name}
                       onChange={(e) => setLlmSettings({ ...llmSettings, model_name: e.target.value })}
                       className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                      placeholder="gpt-4"
+                      placeholder={isCloudProvider(currentEngine) ? 'model-name' : 'gpt-4'}
                     />
                     <button
                       onClick={fetchAvailableModels}
-                      disabled={loadingModels || autoLoading || !llmSettings.api_url}
+                      disabled={loadingModels || autoLoading || (!isCloudProvider(currentEngine) && !llmSettings.api_url)}
                       className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
                     >
                       {loadingModels || autoLoading ? 'Loading...' : 'Fetch Models'}
@@ -753,59 +859,110 @@ export default function LLMSettingsTab({
 
                 {extractionModelSettings.enabled && (
                   <div className="space-y-4 mt-4 p-4 bg-gray-800/50 rounded-lg border border-gray-600">
+                    {/* Extraction Engine Selector */}
                     <div>
-                      <label className="block text-sm font-medium text-white mb-2">API URL</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={extractionModelSettings.url}
-                          onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, url: e.target.value })}
-                          className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                          placeholder="http://localhost:1234/v1"
-                        />
-                        <button
-                          onClick={fetchExtractionModels}
-                          disabled={loadingExtractionModels || autoLoadingExtraction}
-                          className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
-                        >
-                          {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch'}
-                        </button>
-                      </div>
+                      <label className="block text-sm font-medium text-white mb-2">API Engine</label>
+                      <select
+                        value={currentExtractionEngine}
+                        onChange={(e) => handleExtractionEngineChange(e.target.value)}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                      >
+                        <option value="">Select API Engine...</option>
+                        {cloudProviders.length > 0 && (
+                          <optgroup label="Cloud Providers">
+                            {cloudProviders.map(p => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {localProviders.length > 0 && (
+                          <optgroup label="Local / Self-Hosted">
+                            {localProviders.map(p => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {providers.length === 0 && (
+                          <>
+                            <option value="openai-compatible">OpenAI Compatible</option>
+                            <option value="openai">OpenAI Official</option>
+                            <option value="ollama">Ollama</option>
+                          </>
+                        )}
+                      </select>
                     </div>
 
+                    {/* API URL - hidden for cloud providers */}
+                    {!isExtractionCloud && (
+                      <div>
+                        <label className="block text-sm font-medium text-white mb-2">API URL</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={extractionModelSettings.url}
+                            onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, url: e.target.value })}
+                            className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                            placeholder="http://localhost:1234/v1"
+                          />
+                          <button
+                            onClick={fetchExtractionModels}
+                            disabled={loadingExtractionModels || autoLoadingExtraction}
+                            className="px-4 py-2 theme-btn-secondary rounded-md font-medium disabled:opacity-50"
+                          >
+                            {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div>
-                      <label className="block text-sm font-medium text-white mb-2">API Key (optional)</label>
+                      <label className="block text-sm font-medium text-white mb-2">
+                        API Key{isExtractionCloud ? ' (required)' : ' (optional)'}
+                      </label>
                       <input
                         type="password"
                         value={extractionModelSettings.api_key}
                         onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, api_key: e.target.value })}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                        placeholder="Optional"
+                        placeholder={isExtractionCloud ? 'sk-...' : 'Optional'}
                       />
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-white mb-2">Model Name</label>
-                      {availableExtractionModels.length > 0 ? (
-                        <select
-                          value={extractionModelSettings.model_name}
-                          onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                        >
-                          <option value="">Select a model...</option>
-                          {availableExtractionModels.map((model) => (
-                            <option key={model} value={model}>{model}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={extractionModelSettings.model_name}
-                          onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                          placeholder="qwen2.5-3b-instruct"
-                        />
-                      )}
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          {availableExtractionModels.length > 0 ? (
+                            <select
+                              value={extractionModelSettings.model_name}
+                              onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
+                              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                            >
+                              <option value="">Select a model...</option>
+                              {availableExtractionModels.map((model) => (
+                                <option key={model} value={model}>{model}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={extractionModelSettings.model_name}
+                              onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
+                              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
+                              placeholder="qwen2.5-3b-instruct"
+                            />
+                          )}
+                        </div>
+                        {isExtractionCloud && (
+                          <button
+                            onClick={fetchExtractionModels}
+                            disabled={loadingExtractionModels || autoLoadingExtraction}
+                            className="px-4 py-2 theme-btn-primary rounded-md font-medium disabled:opacity-50"
+                          >
+                            {loadingExtractionModels || autoLoadingExtraction ? 'Loading...' : 'Fetch Models'}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div>

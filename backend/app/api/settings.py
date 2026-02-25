@@ -16,6 +16,49 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Provider registry for all supported LLM providers
+# Cloud providers: LiteLLM routes natively, user only provides API key + model
+# Local providers: User provides URL + optional key + model
+PROVIDER_REGISTRY = {
+    # Cloud providers - LiteLLM routes natively
+    "openai": {"label": "OpenAI", "category": "cloud", "base_url": "https://api.openai.com/v1", "models_path": "/models"},
+    "anthropic": {"label": "Anthropic", "category": "cloud", "base_url": "https://api.anthropic.com/v1", "models_path": "/models"},
+    "groq": {"label": "Groq", "category": "cloud", "base_url": "https://api.groq.com/openai/v1", "models_path": "/models"},
+    "mistral": {"label": "Mistral AI", "category": "cloud", "base_url": "https://api.mistral.ai/v1", "models_path": "/models"},
+    "deepseek": {"label": "DeepSeek", "category": "cloud", "base_url": "https://api.deepseek.com", "models_path": "/models"},
+    "together_ai": {"label": "Together AI", "category": "cloud", "base_url": "https://api.together.xyz/v1", "models_path": "/models"},
+    "fireworks_ai": {"label": "Fireworks AI", "category": "cloud", "base_url": "https://api.fireworks.ai/inference/v1", "models_path": "/models"},
+    "openrouter": {"label": "OpenRouter", "category": "cloud", "base_url": "https://openrouter.ai/api/v1", "models_path": "/models"},
+    "perplexity": {"label": "Perplexity", "category": "cloud", "base_url": "https://api.perplexity.ai", "models_path": "/models"},
+    "deepinfra": {"label": "DeepInfra", "category": "cloud", "base_url": "https://api.deepinfra.com/v1/openai", "models_path": "/models"},
+    "gemini": {"label": "Google Gemini", "category": "cloud", "base_url": None, "models_path": None},
+    "cohere": {"label": "Cohere", "category": "cloud", "base_url": None, "models_path": None},
+    "xai": {"label": "xAI (Grok)", "category": "cloud", "base_url": "https://api.x.ai/v1", "models_path": "/models"},
+    "cerebras": {"label": "Cerebras", "category": "cloud", "base_url": "https://api.cerebras.ai/v1", "models_path": "/models"},
+    "sambanova": {"label": "SambaNova", "category": "cloud", "base_url": "https://api.sambanova.ai/v1", "models_path": "/models"},
+    "ai21": {"label": "AI21 Labs", "category": "cloud", "base_url": None, "models_path": None},
+    "novita": {"label": "Novita AI", "category": "cloud", "base_url": "https://api.novita.ai/v3/openai", "models_path": "/models"},
+    # Local/self-hosted providers - user provides URL
+    "openai-compatible": {"label": "OpenAI Compatible", "category": "local", "base_url": None, "models_path": "/v1/models"},
+    "ollama": {"label": "Ollama", "category": "local", "base_url": None, "models_path": "/api/tags"},
+    "koboldcpp": {"label": "KoboldCpp", "category": "local", "base_url": None, "models_path": "/api/v1/model"},
+    "tabbyapi": {"label": "TabbyAPI", "category": "local", "base_url": None, "models_path": "/v1/models"},
+    "vllm": {"label": "vLLM", "category": "local", "base_url": None, "models_path": "/v1/models"},
+    "lm_studio": {"label": "LM Studio", "category": "local", "base_url": None, "models_path": "/v1/models"},
+}
+
+def is_cloud_provider(api_type: str) -> bool:
+    """Check if a provider is a cloud provider (LiteLLM routes natively)"""
+    provider = PROVIDER_REGISTRY.get(api_type)
+    return provider is not None and provider["category"] == "cloud"
+
+def get_provider_base_url(api_type: str) -> Optional[str]:
+    """Get the base URL for a cloud provider from the registry"""
+    provider = PROVIDER_REGISTRY.get(api_type)
+    if provider and provider["category"] == "cloud":
+        return provider.get("base_url")
+    return None
+
 class LLMSettingsUpdate(BaseModel):
     temperature: float = Field(ge=0.0, le=2.0, default=0.7)
     top_p: float = Field(ge=0.0, le=1.0, default=1.0)
@@ -122,6 +165,7 @@ class ExtractionModelSettingsUpdate(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
     model_name: Optional[str] = None
+    api_type: Optional[str] = None  # Provider type (e.g., "openai-compatible", "groq")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=100, le=5000)
     fallback_to_main: Optional[bool] = None
@@ -143,6 +187,10 @@ class ExtractionModelSettingsUpdate(BaseModel):
     # Per-task thinking toggles
     thinking_enabled_extractions: Optional[bool] = None
     thinking_enabled_memory: Optional[bool] = None
+
+class ExtractionEngineSettingsUpdate(BaseModel):
+    extraction_engine_settings: Optional[Dict[str, Any]] = None
+    current_extraction_engine: Optional[str] = None
 
 
 class SamplerSettingValue(BaseModel):
@@ -240,6 +288,7 @@ class UserSettingsUpdate(BaseModel):
     export_settings: ExportSettingsUpdate = None
     stt_settings: STTSettingsUpdate = None
     extraction_model_settings: ExtractionModelSettingsUpdate = None
+    extraction_engine_settings: Optional[ExtractionEngineSettingsUpdate] = None
     advanced: AdvancedSettingsUpdate = None
     character_assistant_settings: CharacterAssistantSettingsUpdate = None
     sampler_settings: Optional[SamplerSettingsUpdate] = None
@@ -561,6 +610,20 @@ async def update_user_settings(
         if ext.thinking_enabled_memory is not None:
             user_settings.extraction_model_thinking_enabled_memory = ext.thinking_enabled_memory
 
+    # Update extraction engine settings (per-engine persistence, mirrors main engine_settings)
+    if settings_update.extraction_engine_settings:
+        ext_eng = settings_update.extraction_engine_settings
+        if ext_eng.extraction_engine_settings is not None:
+            user_settings.extraction_engine_settings = json.dumps(ext_eng.extraction_engine_settings)
+        if ext_eng.current_extraction_engine is not None:
+            user_settings.current_extraction_engine = ext_eng.current_extraction_engine
+
+    # Save extraction api_type from extraction_model_settings
+    if settings_update.extraction_model_settings:
+        ext = settings_update.extraction_model_settings
+        if ext.api_type is not None:
+            user_settings.extraction_model_api_type = ext.api_type if ext.api_type else None
+
     # Update sampler settings
     if settings_update.sampler_settings:
         sampler = settings_update.sampler_settings
@@ -762,6 +825,21 @@ async def get_settings_presets():
         "message": "Available settings presets"
     }
 
+@router.get("/llm-providers")
+async def get_llm_providers():
+    """Get available LLM providers with metadata"""
+    providers = []
+    for key, info in PROVIDER_REGISTRY.items():
+        providers.append({
+            "id": key,
+            "label": info["label"],
+            "category": info["category"],
+            "needs_url": info["category"] == "local",
+            "needs_api_key": info["category"] == "cloud",
+        })
+    return {"providers": providers}
+
+
 class TestConnectionRequest(BaseModel):
     api_url: Optional[str] = None
     api_key: Optional[str] = None
@@ -788,30 +866,44 @@ async def test_api_connection(
         )
     
     # Use provided values or fall back to saved settings
-    if request.api_url:
+    api_key = request.api_key or ""
+    api_type = request.api_type or "openai_compatible"
+
+    # For cloud providers, resolve URL from registry
+    if is_cloud_provider(api_type):
+        cloud_base = get_provider_base_url(api_type)
+        if cloud_base:
+            api_url = cloud_base
+        else:
+            # Provider without base_url (gemini, cohere, ai21) — can't HTTP test
+            return {
+                "success": True,
+                "message": f"Cloud provider '{api_type}' uses LiteLLM native routing. Connection will be tested on first use.",
+                "status_code": 200
+            }
+    elif request.api_url:
         api_url = request.api_url
     else:
         # Get user settings
         user_settings = db.query(UserSettings).filter(
             UserSettings.user_id == current_user.id
         ).first()
-        
+
         if not user_settings or not user_settings.llm_api_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
             )
         api_url = user_settings.llm_api_url
-    
-    api_key = request.api_key or ""
-    api_type = request.api_type or "openai_compatible"
-    
+
     try:
         # Configure request based on API type
         headers = {}
-        
-        if api_type == 'openai':
-            test_url = f"{api_url}/models"
+
+        if is_cloud_provider(api_type):
+            # Cloud providers: use base_url + /models
+            provider_info = PROVIDER_REGISTRY[api_type]
+            test_url = f"{api_url.rstrip('/')}{provider_info.get('models_path', '/models')}"
             headers = {
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json'
@@ -820,17 +912,17 @@ async def test_api_connection(
             test_url = f"{api_url}/api/v1/model"
         elif api_type == 'ollama':
             test_url = f"{api_url}/api/tags"
-        else:  # openai_compatible, tabbyapi
+        else:  # openai_compatible, tabbyapi, vllm, lm_studio
             # Always add /v1 for these providers
             test_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'
-        
+
         # Make the request with timeout
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(test_url, headers=headers)
-            
+
         if response.status_code == 200:
             return {
                 "success": True,
@@ -843,7 +935,7 @@ async def test_api_connection(
                 "message": f"Connection failed: {response.status_code} {response.reason_phrase}",
                 "status_code": response.status_code
             }
-            
+
     except Exception as e:
         return {
             "success": False,
@@ -859,39 +951,61 @@ async def get_available_models(
 ):
     """Fetch available models from the configured LLM API"""
     import httpx
-    
+
     # Verify user has permission to manage LLM provider settings
     if not current_user.can_change_llm_provider:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to view available LLM models. Please contact an administrator."
         )
-    
-    # Use provided values or fall back to saved settings
-    if request.api_url:
+
+    api_key = request.api_key or ""
+    api_type = request.api_type or "openai_compatible"
+
+    # For cloud providers, resolve URL from registry
+    if is_cloud_provider(api_type):
+        cloud_base = get_provider_base_url(api_type)
+        if cloud_base:
+            api_url = cloud_base
+        else:
+            # Provider without base_url (gemini, cohere, ai21) — use litellm static list
+            try:
+                import litellm
+                provider_models = litellm.models_by_provider.get(api_type, [])
+                return {
+                    "success": True,
+                    "models": list(provider_models),
+                    "message": f"Found {len(provider_models)} models for {api_type}"
+                }
+            except Exception:
+                return {
+                    "success": False,
+                    "models": [],
+                    "message": f"Could not fetch models for {api_type}"
+                }
+    elif request.api_url:
         api_url = request.api_url
     else:
         # Get user settings
         user_settings = db.query(UserSettings).filter(
             UserSettings.user_id == current_user.id
         ).first()
-        
+
         if not user_settings or not user_settings.llm_api_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="LLM API URL not configured. Please provide your LLM endpoint URL first."
             )
         api_url = user_settings.llm_api_url
-    
-    api_key = request.api_key or ""
-    api_type = request.api_type or "openai_compatible"
-    
+
     try:
         # Configure request based on API type
         headers = {}
-        
-        if api_type == 'openai':
-            models_url = f"{api_url}/models"
+
+        if is_cloud_provider(api_type):
+            # Cloud providers: use base_url + /models
+            provider_info = PROVIDER_REGISTRY[api_type]
+            models_url = f"{api_url.rstrip('/')}{provider_info.get('models_path', '/models')}"
             headers = {
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json'
@@ -900,21 +1014,21 @@ async def get_available_models(
             models_url = f"{api_url}/api/v1/model"
         elif api_type == 'ollama':
             models_url = f"{api_url}/api/tags"
-        else:  # openai_compatible, tabbyapi
+        else:  # openai_compatible, tabbyapi, vllm, lm_studio
             # Always add /v1 for these providers
             models_url = f"{api_url}/v1/models"
             if api_key:
                 headers['Authorization'] = f'Bearer {api_key}'
             headers['Content-Type'] = 'application/json'
-        
+
         # Make the request with timeout
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(models_url, headers=headers)
-            
+
         if response.status_code == 200:
             data = response.json()
             models = []
-            
+
             # Parse response based on API type
             if api_type == 'ollama':
                 # Ollama returns {"models": [{"name": "model_name", ...}, ...]}
@@ -924,11 +1038,11 @@ async def get_available_models(
                 # KoboldCpp returns {"result": "model_name"}
                 if 'result' in data:
                     models = [data['result']]
-            else:  # openai, openai_compatible
+            else:  # openai, openai_compatible, cloud providers
                 # OpenAI format returns {"data": [{"id": "model_id", ...}, ...]}
                 if 'data' in data:
                     models = [model['id'] for model in data['data']]
-            
+
             return {
                 "success": True,
                 "models": models,
@@ -940,7 +1054,7 @@ async def get_available_models(
                 "models": [],
                 "message": f"Failed to fetch models: {response.status_code} {response.reason_phrase}"
             }
-            
+
     except Exception as e:
         return {
             "success": False,
@@ -1389,6 +1503,7 @@ class ExtractionModelTestRequest(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
     model_name: Optional[str] = None
+    api_type: Optional[str] = None  # Provider type (e.g., "openai-compatible", "groq")
 
 @router.post("/extraction-model/test")
 async def test_extraction_model_connection(
@@ -1399,32 +1514,56 @@ async def test_extraction_model_connection(
     """Test connection to extraction model endpoint"""
     from ..services.llm.extraction_service import ExtractionLLMService
     from ..config import settings
-    
+
     # Use provided values or fall back to saved settings
     if request:
         url = request.url
         api_key = request.api_key
         model_name = request.model_name
+        api_type = request.api_type
     else:
         url = None
         api_key = None
         model_name = None
-    
-    if not url or not model_name:
+        api_type = None
+
+    if not model_name:
         user_settings = db.query(UserSettings).filter(
             UserSettings.user_id == current_user.id
         ).first()
-        
+
         if not user_settings:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Extraction model not configured. Please configure settings first."
             )
-        
+
         url = url or user_settings.extraction_model_url or settings.extraction_model_url
         api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
         model_name = model_name or user_settings.extraction_model_name or "qwen2.5-3b-instruct"
-    
+        api_type = api_type or user_settings.extraction_model_api_type or "openai-compatible"
+
+    api_type = api_type or "openai-compatible"
+
+    # For cloud providers without a URL, resolve from registry
+    if is_cloud_provider(api_type) and not url:
+        cloud_base = get_provider_base_url(api_type)
+        if not cloud_base:
+            return {
+                "success": True,
+                "message": f"Cloud provider '{api_type}' uses LiteLLM native routing. Connection will be tested on first use.",
+                "response_time_ms": 0,
+                "url": None,
+                "model": model_name
+            }
+        url = cloud_base
+
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Extraction model URL not configured. Please provide a URL or select a cloud provider."
+        )
+
     try:
         # Create extraction service
         extraction_service = ExtractionLLMService(
@@ -1432,7 +1571,8 @@ async def test_extraction_model_connection(
             model=model_name,
             api_key=api_key or "",
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=1000,
+            api_type=api_type
         )
         
         # Test connection
@@ -1465,37 +1605,74 @@ async def get_extraction_available_models(
     """Fetch available models from extraction endpoint"""
     import httpx
     from ..config import settings
-    
+
     # Use provided values or fall back to saved settings
     if request:
         url = request.url
         api_key = request.api_key
+        api_type = request.api_type
     else:
         url = None
         api_key = None
-    
-    if not url:
+        api_type = None
+
+    if not url and not (api_type and is_cloud_provider(api_type)):
         user_settings = db.query(UserSettings).filter(
             UserSettings.user_id == current_user.id
         ).first()
-        
+
         if not user_settings:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Extraction model URL not configured. Please configure settings first."
             )
-        
+
         url = user_settings.extraction_model_url or settings.extraction_model_url
         api_key = api_key if api_key is not None else (user_settings.extraction_model_api_key or "")
-    
+        api_type = api_type or user_settings.extraction_model_api_type or "openai-compatible"
+
+    api_type = api_type or "openai-compatible"
+
+    # For cloud providers, resolve URL from registry
+    if is_cloud_provider(api_type):
+        cloud_base = get_provider_base_url(api_type)
+        if cloud_base:
+            url = cloud_base
+        else:
+            # Provider without base_url — use litellm static list
+            try:
+                import litellm
+                provider_models = litellm.models_by_provider.get(api_type, [])
+                return {
+                    "success": True,
+                    "models": list(provider_models),
+                    "message": f"Found {len(provider_models)} models for {api_type}"
+                }
+            except Exception:
+                return {
+                    "success": False,
+                    "models": [],
+                    "message": f"Could not fetch models for {api_type}"
+                }
+
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Extraction model URL not configured."
+        )
+
     try:
-        # Ensure URL ends with /v1 for OpenAI-compatible endpoints
-        base_url = url.rstrip('/')
-        if not base_url.endswith('/v1'):
-            base_url = f"{base_url}/v1"
-        
-        models_url = f"{base_url}/models"
-        
+        # Determine models URL based on provider type
+        if is_cloud_provider(api_type):
+            provider_info = PROVIDER_REGISTRY[api_type]
+            models_url = f"{url.rstrip('/')}{provider_info.get('models_path', '/models')}"
+        else:
+            # Ensure URL ends with /v1 for OpenAI-compatible endpoints
+            base_url = url.rstrip('/')
+            if not base_url.endswith('/v1'):
+                base_url = f"{base_url}/v1"
+            models_url = f"{base_url}/models"
+
         # Configure headers
         headers = {
             'Content-Type': 'application/json'

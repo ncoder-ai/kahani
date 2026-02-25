@@ -13,15 +13,22 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     """Manages LiteLLM client configuration and connections"""
-    
+
+    # Cloud providers that LiteLLM routes natively (no api_base needed)
+    CLOUD_PROVIDERS = {
+        'openai', 'anthropic', 'groq', 'mistral', 'deepseek', 'together_ai',
+        'fireworks_ai', 'openrouter', 'perplexity', 'deepinfra', 'gemini',
+        'cohere', 'ai21', 'cerebras', 'sambanova', 'novita', 'xai',
+    }
+
     def __init__(self, user_settings: Dict[str, Any]):
         """Initialize LLM client with user settings - NO DEFAULTS, user must configure everything"""
         # Validate that user_settings is provided
         if not user_settings:
             raise ValueError("No LLM settings provided. Please configure your LLM settings first.")
-        
+
         self.user_settings = user_settings
-        
+
         # Support both nested and flat structure for backwards compatibility
         # If 'llm_settings' key exists, use it (old format)
         # Otherwise, use the flat structure (new format)
@@ -29,15 +36,16 @@ class LLMClient:
             self.llm_config = user_settings['llm_settings']
         else:
             self.llm_config = user_settings
-        
+
         # Validate required settings - NO DEFAULTS
-        self.api_url = self.llm_config.get('api_url')
-        if not self.api_url:
-            raise ValueError("LLM API URL not configured. Please provide your LLM endpoint URL in user settings.")
-        
         self.api_type = self.llm_config.get('api_type')
         if not self.api_type:
             raise ValueError("LLM API type not configured. Please provide your LLM API type in user settings.")
+
+        self.api_url = self.llm_config.get('api_url')
+        # Cloud providers don't need api_url — LiteLLM routes natively
+        if not self.api_url and self.api_type not in self.CLOUD_PROVIDERS:
+            raise ValueError("LLM API URL not configured. Please provide your LLM endpoint URL in user settings.")
         
         self.model_name = self.llm_config.get('model_name')
         if not self.model_name:
@@ -70,38 +78,38 @@ class LLMClient:
     
     def _build_model_string(self) -> str:
         """Build LiteLLM model string based on provider type"""
-        if self.api_type == "openai":
-            return self.model_name
-        elif self.api_type == "openai-compatible" or self.api_type == "openai_compatible":
+        # Cloud providers: use {provider}/{model} for LiteLLM native routing
+        if self.api_type in self.CLOUD_PROVIDERS:
+            if self.api_type == "openai":
+                # OpenAI is the default provider in LiteLLM, no prefix needed
+                return self.model_name
+            return f"{self.api_type}/{self.model_name}"
+
+        # Local/self-hosted providers
+        if self.api_type == "openai-compatible" or self.api_type == "openai_compatible":
             # Check if this is OpenRouter - needs special prefix for reasoning support
-            if "openrouter" in self.api_url.lower():
+            if self.api_url and "openrouter" in self.api_url.lower():
                 return f"openrouter/{self.model_name}"
             # For other OpenAI-compatible APIs, use openai/ prefix
-            # As per LiteLLM docs: model="openai/mistral"
             return f"openai/{self.model_name}"
-        elif self.api_type == "tabbyapi":
-            # TabbyAPI is OpenAI-compatible, use openai/ prefix
-            return f"openai/{self.model_name}"
-        elif self.api_type == "lm_studio":
-            # LM Studio is also OpenAI-compatible
+        elif self.api_type in ("tabbyapi", "lm_studio", "vllm"):
+            # OpenAI-compatible local servers
             return f"openai/{self.model_name}"
         elif self.api_type == "ollama":
             return f"ollama/{self.model_name}"
         elif self.api_type == "koboldcpp":
             return f"koboldcpp/{self.model_name}"
-        elif self.api_type == "anthropic":
-            return f"anthropic/{self.model_name}"
-        elif self.api_type == "cohere":
-            return f"cohere/{self.model_name}"
         else:
             # Default fallback to openai format
             return f"openai/{self.model_name}"
     
     def _configure_litellm(self):
         """Configure LiteLLM with provider-specific settings"""
-        # For openai-compatible and tabbyapi, we pass api_base per-request in get_generation_params()
-        # The backend will add the appropriate /v1 path for each provider
-        if self.api_type == "openai-compatible":
+        # Cloud providers: just set the API key, LiteLLM handles routing
+        if self.api_type in self.CLOUD_PROVIDERS:
+            if self.api_key and self.api_key.strip():
+                litellm.api_key = self.api_key
+        elif self.api_type == "openai-compatible":
             # Just set the API key if needed
             if self.api_key and self.api_key.strip():
                 litellm.api_key = self.api_key
@@ -118,12 +126,6 @@ class LLMClient:
             litellm.api_base = self.api_url
         elif self.api_type == "koboldcpp":
             litellm.api_base = self.api_url
-        elif self.api_type == "anthropic":
-            if self.api_key:
-                litellm.api_key = self.api_key
-        elif self.api_type == "cohere":
-            if self.api_key:
-                litellm.api_key = self.api_key
         
         # Disable verbose logging to reduce console noise
         litellm.set_verbose = False
@@ -300,29 +302,25 @@ class LLMClient:
         if self.top_p is not None:
             params["top_p"] = self.top_p
         
-        # Add API base and key for openai-compatible and tabbyapi providers
-        # Pass api_base per-request so LiteLLM uses it directly without modification
-        if self.api_type in ["openai-compatible", "tabbyapi"]:
-            # Add /v1 to the base URL for these providers
+        # Add API base and key based on provider type
+        if self.api_type in self.CLOUD_PROVIDERS:
+            # Cloud providers: LiteLLM routes natively, just pass API key
+            if self.api_key and self.api_key.strip():
+                params["api_key"] = self.api_key
+        elif self.api_type in ["openai-compatible", "tabbyapi", "vllm", "lm_studio"]:
+            # Local OpenAI-compatible: pass api_base per-request
             api_base_url = f"{self.api_url}/v1" if not self.api_url.endswith("/v1") else self.api_url
             params["api_base"] = api_base_url
-            # For localhost (LM Studio, etc), use a dummy key that LiteLLM accepts
-            # LiteLLM will pass it through but local servers typically ignore it
-            if "localhost" in self.api_url or "127.0.0.1" in self.api_url:
+            # For localhost, use a dummy key that LiteLLM accepts
+            if self.api_url and ("localhost" in self.api_url or "127.0.0.1" in self.api_url):
                 params["api_key"] = "dummy-key-for-local-server"
             elif self.api_key and self.api_key.strip():
                 params["api_key"] = self.api_key
             else:
-                # For non-localhost openai-compatible, still need some key
                 params["api_key"] = self.api_key or "not-needed"
-        elif self.api_type in ["openai", "anthropic", "cohere"]:
-            # For these providers, API key is required
-            if self.api_key:
-                params["api_key"] = self.api_key
-        
+
         # Add provider-specific parameters
-        # Note: OpenAI-compatible APIs (like LM Studio) may support these via extra_body
-        is_openrouter = "openrouter" in self.api_url.lower()
+        is_openrouter = self.api_type == "openrouter" or (self.api_url and "openrouter" in self.api_url.lower())
 
         if self.api_type == "koboldcpp":
             if self.top_k is not None:
@@ -430,8 +428,7 @@ class LLMClient:
         """
         # For cloud providers that go through LiteLLM, we can't easily health check
         # without making an actual API call. Skip health check for these.
-        cloud_providers = ['anthropic', 'openai', 'openrouter', 'together', 'groq', 'mistral']
-        if self.api_type in cloud_providers:
+        if self.api_type in self.CLOUD_PROVIDERS:
             # Assume cloud providers are available - they have their own reliability
             logger.debug(f"Skipping health check for cloud provider: {self.api_type}")
             return True, f"Cloud provider {self.api_type} - assuming available"

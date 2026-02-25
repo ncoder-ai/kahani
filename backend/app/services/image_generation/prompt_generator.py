@@ -62,18 +62,7 @@ class ImagePromptGenerator:
             try:
                 from ..llm.extraction_service import ExtractionLLMService
 
-                ext = self.user_settings.get('extraction_model_settings', {})
-                llm_settings = self.user_settings.get('llm_settings', {})
-                timeout_total = llm_settings.get('timeout_total', 240)
-
-                service = ExtractionLLMService(
-                    url=ext.get('url', 'http://localhost:1234/v1'),
-                    model=ext.get('model_name', 'qwen2.5-3b-instruct'),
-                    api_key=ext.get('api_key', ''),
-                    temperature=0.7,
-                    max_tokens=max_tokens,
-                    timeout_total=timeout_total,
-                )
+                service = ExtractionLLMService.from_settings(self.user_settings, temperature_override=0.7, max_tokens_override=max_tokens)
                 logger.info(f"[IMAGE_PROMPT] Using extraction LLM for prompt generation")
                 return await service.generate(prompt=prompt)
             except Exception as e:

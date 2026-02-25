@@ -278,26 +278,9 @@ async def run_interaction_extraction_background(
     extraction_settings = user_settings.get('extraction_model_settings', {})
     if extraction_settings.get('enabled', False):
         try:
-            ext_defaults = settings._yaml_config.get('extraction_model', {})
-            url = extraction_settings.get('url', ext_defaults.get('url'))
-            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature', 0.3))
-            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens', 2048))
-
-            if url and model:
-                # Get timeout from user's LLM settings
-                llm_settings = user_settings.get('llm_settings', {})
-                timeout_total = llm_settings.get('timeout_total', 240)
-                extraction_service = ExtractionLLMService(
-                    url=url,
-                    model=model,
-                    api_key=api_key,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout_total=timeout_total
-                )
-                logger.info(f"[INTERACTION_EXTRACT] Using extraction LLM: {model} at {url} (timeout={timeout_total}s)")
+            extraction_service = ExtractionLLMService.from_settings(user_settings)
+            if extraction_service:
+                logger.info(f"[INTERACTION_EXTRACT] Using extraction LLM (timeout={extraction_service.timeout_total}s)")
         except Exception as e:
             logger.warning(f"[INTERACTION_EXTRACT] Failed to init extraction service: {e}, falling back to main LLM")
 
@@ -774,13 +757,8 @@ async def run_extractions_in_background(
             # Check extraction model health first (if enabled)
             extraction_settings = user_settings.get('extraction_model_settings', {})
             if extraction_settings.get('enabled', False):
-                ext_defaults = settings._yaml_config.get('extraction_model', {})
-                url = extraction_settings.get('url', ext_defaults.get('url'))
-                model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-                api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-
-                if url and model:
-                    ext_service = ExtractionLLMService(url=url, model=model, api_key=api_key)
+                ext_service = ExtractionLLMService.from_settings(user_settings)
+                if ext_service:
                     is_healthy, health_msg = await ext_service.check_health(timeout=3.0)
                     if not is_healthy:
                         logger.warning(f"[EXTRACTION] Extraction model unavailable: {health_msg}")
@@ -2073,25 +2051,9 @@ async def run_scene_event_extraction_background(
     extraction_settings = user_settings.get('extraction_model_settings', {})
     if extraction_settings.get('enabled', False):
         try:
-            ext_defaults = settings._yaml_config.get('extraction_model', {})
-            url = extraction_settings.get('url', ext_defaults.get('url'))
-            model = extraction_settings.get('model_name', ext_defaults.get('model_name'))
-            api_key = extraction_settings.get('api_key', ext_defaults.get('api_key', ''))
-            temperature = extraction_settings.get('temperature', ext_defaults.get('temperature', 0.3))
-            max_tokens = extraction_settings.get('max_tokens', ext_defaults.get('max_tokens', 2048))
-
-            if url and model:
-                llm_settings = user_settings.get('llm_settings', {})
-                timeout_total = llm_settings.get('timeout_total', 240)
-                extraction_service = ExtractionLLMService(
-                    url=url,
-                    model=model,
-                    api_key=api_key,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout_total=timeout_total
-                )
-                logger.info(f"[EVENT_EXTRACT] Using extraction LLM: {model}")
+            extraction_service = ExtractionLLMService.from_settings(user_settings)
+            if extraction_service:
+                logger.info(f"[EVENT_EXTRACT] Using extraction LLM: {extraction_service.model}")
         except Exception as e:
             logger.warning(f"[EVENT_EXTRACT] Failed to init extraction service: {e}, falling back to main LLM")
 

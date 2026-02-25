@@ -142,19 +142,27 @@ THINKING_PATTERNS = {
 
 
 class ExtractionLLMService:
-    """OpenAI-compatible extraction service for small local models"""
+    """Extraction service for small models via OpenAI-compatible APIs or cloud providers"""
 
-    def __init__(self, url: str, model: str, api_key: str = "",
+    # Cloud providers that LiteLLM routes natively (no api_base needed)
+    CLOUD_PROVIDERS = {
+        'openai', 'anthropic', 'groq', 'mistral', 'deepseek', 'together_ai',
+        'fireworks_ai', 'openrouter', 'perplexity', 'deepinfra', 'gemini',
+        'cohere', 'ai21', 'cerebras', 'sambanova', 'novita', 'xai',
+    }
+
+    def __init__(self, url: str = "", model: str = "", api_key: str = "",
                  temperature: float = 0.3, max_tokens: Optional[int] = None,
                  timeout_total: float = 240,
                  top_p: float = 1.0, repetition_penalty: float = 1.0,
                  min_p: float = 0.0, thinking_disable_method: str = "none",
-                 thinking_disable_custom: str = ""):
+                 thinking_disable_custom: str = "",
+                 api_type: str = "openai-compatible"):
         """
         Initialize extraction service
 
         Args:
-            url: OpenAI-compatible API endpoint URL (e.g., http://localhost:1234/v1)
+            url: API endpoint URL (required for local providers, optional for cloud)
             model: Model name to use
             api_key: API key if required (empty string for local servers)
             temperature: Temperature for generation (default 0.3 for more deterministic)
@@ -165,11 +173,20 @@ class ExtractionLLMService:
             min_p: Minimum probability threshold (default 0.0)
             thinking_disable_method: Method to disable thinking output (none, qwen3, deepseek, mistral, gemini, openai, kimi, glm, custom)
             thinking_disable_custom: Custom regex pattern for thinking tag removal when method is "custom"
+            api_type: Provider type (default "openai-compatible"). Cloud providers use LiteLLM native routing.
         """
-        self.url = url.rstrip('/')
-        # Ensure URL ends with /v1 for OpenAI-compatible endpoints
-        if not self.url.endswith('/v1'):
-            self.url = f"{self.url}/v1"
+        self.api_type = api_type
+        self.is_cloud = api_type in self.CLOUD_PROVIDERS
+
+        if self.is_cloud:
+            # Cloud providers: URL is optional, LiteLLM routes natively
+            self.url = url.rstrip('/') if url else ""
+        else:
+            # Local providers: URL is required
+            self.url = url.rstrip('/') if url else ""
+            # Ensure URL ends with /v1 for OpenAI-compatible endpoints
+            if self.url and not self.url.endswith('/v1'):
+                self.url = f"{self.url}/v1"
 
         self.model = model
         self.api_key = api_key or "not-needed"  # Some servers don't require key
@@ -190,8 +207,73 @@ class ExtractionLLMService:
         # Use timeout from user settings
         self.timeout_total = timeout_total
 
-        # Configure LiteLLM for OpenAI-compatible endpoint
+        # Configure LiteLLM
         self._configure_litellm()
+
+    @classmethod
+    def from_settings(
+        cls,
+        user_settings: Dict[str, Any],
+        *,
+        max_tokens_override: Optional[int] = None,
+        temperature_override: Optional[float] = None,
+    ) -> Optional['ExtractionLLMService']:
+        """Create an ExtractionLLMService from user_settings dict.
+
+        This is the single centralized factory for all extraction service instantiation.
+        All callers should use this instead of constructing directly.
+
+        Args:
+            user_settings: Full user settings dict (with 'extraction_model_settings' and 'llm_settings' keys)
+            max_tokens_override: Override the configured max_tokens (e.g. for NPC tracking)
+            temperature_override: Override the configured temperature (e.g. for image prompts)
+
+        Returns:
+            ExtractionLLMService instance, or None if URL/model not configured
+        """
+        from ...config import settings as app_settings
+
+        ext_settings = user_settings.get('extraction_model_settings', {})
+        ext_defaults = app_settings._yaml_config.get('extraction_model', {})
+        llm_settings = user_settings.get('llm_settings', {})
+
+        url = ext_settings.get('url', ext_defaults.get('url', ''))
+        model = ext_settings.get('model_name', ext_defaults.get('model_name', ''))
+        api_type = ext_settings.get('api_type', ext_defaults.get('api_type', 'openai-compatible'))
+
+        # Cloud providers don't need a URL
+        is_cloud = api_type in cls.CLOUD_PROVIDERS
+        if not model or (not url and not is_cloud):
+            return None
+
+        api_key = ext_settings.get('api_key', ext_defaults.get('api_key', ''))
+        temperature = temperature_override if temperature_override is not None else ext_settings.get('temperature', ext_defaults.get('temperature', 0.3))
+        max_tokens = max_tokens_override if max_tokens_override is not None else ext_settings.get('max_tokens', ext_defaults.get('max_tokens'))
+        timeout_total = llm_settings.get('timeout_total', 240)
+
+        # Advanced sampling
+        top_p = ext_settings.get('top_p', ext_defaults.get('top_p', 1.0))
+        repetition_penalty = ext_settings.get('repetition_penalty', ext_defaults.get('repetition_penalty', 1.0))
+        min_p = ext_settings.get('min_p', ext_defaults.get('min_p', 0.0))
+
+        # Thinking settings
+        thinking_disable_method = ext_settings.get('thinking_disable_method', ext_defaults.get('thinking_disable_method', 'none'))
+        thinking_disable_custom = ext_settings.get('thinking_disable_custom', ext_defaults.get('thinking_disable_custom', ''))
+
+        return cls(
+            url=url or '',
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_total=timeout_total,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            min_p=min_p,
+            thinking_disable_method=thinking_disable_method,
+            thinking_disable_custom=thinking_disable_custom,
+            api_type=api_type,
+        )
 
     def _compile_thinking_pattern(self) -> Optional[re.Pattern]:
         """Compile the regex pattern for thinking tag removal based on method"""
@@ -253,8 +335,12 @@ class ExtractionLLMService:
         logger.info(f"ExtractionLLMService configured: url={self.url}, model={self.model}")
     
     def _build_model_string(self) -> str:
-        """Build LiteLLM model string for OpenAI-compatible endpoint"""
-        # Use openai/ prefix for OpenAI-compatible APIs
+        """Build LiteLLM model string based on provider type"""
+        if self.is_cloud:
+            if self.api_type == "openai":
+                return self.model  # OpenAI is default in LiteLLM
+            return f"{self.api_type}/{self.model}"
+        # Local providers: use openai/ prefix for OpenAI-compatible APIs
         return f"openai/{self.model}"
     
     def _get_generation_params(self, max_tokens: Optional[int] = None, allow_thinking: bool = False) -> Dict[str, Any]:
@@ -271,10 +357,12 @@ class ExtractionLLMService:
         resolved_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         params = {
             "model": self._build_model_string(),
-            "api_base": self.url,
             "api_key": self.api_key,
             "temperature": self.temperature,
         }
+        # Only set api_base for local providers (cloud providers use LiteLLM native routing)
+        if not self.is_cloud and self.url:
+            params["api_base"] = self.url
         if resolved_max_tokens is not None:
             params["max_tokens"] = resolved_max_tokens
 
@@ -370,6 +458,11 @@ class ExtractionLLMService:
         Returns:
             Tuple of (is_healthy: bool, message: str)
         """
+        # Cloud providers: skip health check, assume available
+        if self.is_cloud:
+            logger.debug(f"Skipping health check for cloud extraction provider: {self.api_type}")
+            return True, f"Cloud provider {self.api_type} - assuming available"
+
         # Ensure URL has /v1 suffix
         base_url = self.url
         if not base_url.endswith('/v1'):
