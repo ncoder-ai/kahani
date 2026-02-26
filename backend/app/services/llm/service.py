@@ -5464,19 +5464,39 @@ Chapter Conclusion:"""
 
             content = response.choices[0].message.content
 
-            # Strip thinking tags from response when local thinking model is enabled
-            if thinking_model_type != 'none' and thinking_enabled_gen and content:
-                from .extraction_service import THINKING_PATTERNS
-                pattern = THINKING_PATTERNS.get(thinking_model_type)
-                if not pattern and thinking_model_type == 'custom':
-                    custom_pat = llm_settings.get('thinking_model_custom_pattern', '')
-                    if custom_pat:
-                        try:
-                            pattern = re.compile(custom_pat, re.IGNORECASE | re.DOTALL)
-                        except re.error:
-                            pass
-                if pattern:
-                    content = pattern.sub("", content).strip()
+            # Strip thinking tags from response — always when thinking_model_type is
+            # configured (regardless of thinking_enabled_gen), plus auto-detect fallback
+            if content:
+                if thinking_model_type != 'none':
+                    from .extraction_service import THINKING_PATTERNS
+                    pattern = THINKING_PATTERNS.get(thinking_model_type)
+                    if not pattern and thinking_model_type == 'custom':
+                        custom_pat = llm_settings.get('thinking_model_custom_pattern', '')
+                        if custom_pat:
+                            try:
+                                pattern = re.compile(custom_pat, re.IGNORECASE | re.DOTALL)
+                            except re.error:
+                                pass
+                    if pattern:
+                        content = pattern.sub("", content).strip()
+                    # Also handle orphaned </think> (no opening tag — e.g. koboldcpp/GLM4.7)
+                    close_tag = "</think>"
+                    close_idx = content.lower().find(close_tag)
+                    if close_idx != -1 and "<think>" not in content[:close_idx].lower():
+                        stripped = content[:close_idx]
+                        content = content[close_idx + len(close_tag):].strip()
+                        logger.info(f"[THINKING STRIP] Removed {len(stripped)} chars before orphaned </think> tag")
+                else:
+                    # Auto-detect: strip <think> tags even without thinking_model_type
+                    from .thinking_parser import ThinkingTagParser
+                    if ThinkingTagParser.has_thinking_tags(content):
+                        logger.info("[THINKING AUTO-DETECT] Found <think> tags in non-streaming response without thinking_model_type configured — stripping")
+                        content = ThinkingTagParser.strip_thinking_tags(content)
+                    # Also check for orphaned </think> without opening tag
+                    elif "</think>" in content.lower():
+                        close_idx = content.lower().find("</think>")
+                        content = content[close_idx + 8:].strip()
+                        logger.info(f"[THINKING AUTO-DETECT] Found orphaned </think> — stripped preamble")
 
             return content
 
@@ -5594,11 +5614,22 @@ Chapter Conclusion:"""
             chunk_count = 0
             thinking_signaled = False
 
-            # Stream filter state for local thinking models that embed <think> in content
-            # When thinking_model_type is set and thinking is enabled, we parse the content
-            # stream to detect <think>...</think> blocks and route them as __THINKING__
-            local_think_filter = (thinking_model_type != 'none' and thinking_enabled_gen)
-            in_think_block = False
+            # Stream filter for models that embed <think>...</think> tags in content.
+            # Only needed for tag-based models (qwen3, deepseek, kimi, glm, custom).
+            # API-parameter models (mistral, openai, gemini) send thinking via separate
+            # delta fields (reasoning_content/reasoning) — handled above, no content filter needed.
+            TAG_BASED_THINK_TYPES = {'qwen3', 'deepseek', 'kimi', 'glm', 'custom'}
+            local_think_filter = (thinking_model_type in TAG_BASED_THINK_TYPES)
+            # Auto-detect mode: when thinking_model_type not configured, buffer first ~50
+            # chars and activate filter if stream starts with <think>
+            auto_detect_think = (thinking_model_type == 'none')
+            auto_detect_done = False
+            # When a tag-based thinking model is configured but thinking display is
+            # disabled, assume the stream starts in a think block. Some backends
+            # (e.g. koboldcpp) ignore suppression params and emit reasoning as plain
+            # text followed by </think> (no opening <think> tag). Starting in_think_block
+            # =True treats everything as thinking until </think> is found.
+            in_think_block = (local_think_filter and not thinking_enabled_gen)
             content_buffer = ""  # Small buffer for tag boundary detection
 
             async for chunk in response:
@@ -5653,29 +5684,74 @@ Chapter Conclusion:"""
                     if hasattr(delta, 'content') and delta.content:
                         text = delta.content
 
-                        # Stream filter for local thinking models (e.g., Qwen3, DeepSeek)
+                        # Auto-detect: buffer first ~50 chars to check for <think> tag
+                        # when no thinking_model_type is configured
+                        text_already_buffered = False
+                        if auto_detect_think and not auto_detect_done:
+                            content_buffer += text
+                            text_already_buffered = True
+                            if len(content_buffer) >= 50 or "</think>" in content_buffer.lower():
+                                # Check if stream starts with <think>
+                                if content_buffer.lstrip().lower().startswith("<think>"):
+                                    local_think_filter = True
+                                    # thinking_enabled_gen stays False — silent strip mode
+                                    logger.info("[THINKING AUTO-DETECT] Detected <think> tag in content stream without thinking_model_type configured — activating silent strip filter")
+                                auto_detect_done = True
+                                if not local_think_filter:
+                                    # No think tags detected, flush buffer as content
+                                    content_chars += len(content_buffer)
+                                    yield content_buffer
+                                    content_buffer = ""
+                                    continue
+                                # local_think_filter activated — fall through to process
+                                # buffer (text already in buffer, don't add again)
+                            else:
+                                continue  # Still buffering, wait for more data
+
+                        # Stream filter for local thinking models (e.g., Qwen3, DeepSeek, GLM)
                         # Detects <think>...</think> blocks in the content stream
                         if local_think_filter:
-                            content_buffer += text
+                            if not text_already_buffered:
+                                content_buffer += text
                             # Process buffer for think tags
                             while content_buffer:
                                 if in_think_block:
+                                    # Signal thinking phase to frontend on first thinking chunk
+                                    if not thinking_signaled:
+                                        thinking_signaled = True
+                                        has_reasoning = True
+                                        yield "__THINKING__:"
                                     # Look for </think> closing tag
                                     end_idx = content_buffer.lower().find("</think>")
                                     if end_idx != -1:
-                                        # Yield thinking content up to tag
+                                        # Handle thinking content up to tag
                                         think_text = content_buffer[:end_idx]
                                         if think_text:
                                             reasoning_chars += len(think_text)
-                                            yield f"__THINKING__:{think_text}"
+                                            if thinking_enabled_gen:
+                                                yield f"__THINKING__:{think_text}"
+                                            # else: silently discard
                                         content_buffer = content_buffer[end_idx + 8:]  # skip </think>
                                         in_think_block = False
+                                        logger.info(f"[THINK FILTER] </think> found — stripped {reasoning_chars} chars of thinking content")
                                     elif len(content_buffer) > 50:
+                                        # Safety valve: if we've discarded a huge amount without
+                                        # finding </think>, the model may not be thinking at all.
+                                        # Flush everything as content to avoid eating the whole scene.
+                                        if reasoning_chars > 30000:
+                                            logger.warning(f"[THINK FILTER] No </think> after {reasoning_chars} chars — assuming no thinking, flushing as content")
+                                            content_chars += len(content_buffer)
+                                            yield content_buffer
+                                            content_buffer = ""
+                                            in_think_block = False
+                                            break
                                         # Flush most of buffer as thinking, keep tail for tag detection
                                         flush = content_buffer[:-8]
                                         content_buffer = content_buffer[-8:]
                                         reasoning_chars += len(flush)
-                                        yield f"__THINKING__:{flush}"
+                                        if thinking_enabled_gen:
+                                            yield f"__THINKING__:{flush}"
+                                        # else: silently discard
                                     else:
                                         break  # Wait for more data
                                 else:
@@ -5705,10 +5781,12 @@ Chapter Conclusion:"""
                             yield text
 
             # Flush remaining buffer for local think filter
-            if local_think_filter and content_buffer:
+            if (local_think_filter or auto_detect_think) and content_buffer:
                 if in_think_block:
                     reasoning_chars += len(content_buffer)
-                    yield f"__THINKING__:{content_buffer}"
+                    if thinking_enabled_gen:
+                        yield f"__THINKING__:{content_buffer}"
+                    # else: silently discard
                 else:
                     content_chars += len(content_buffer)
                     yield content_buffer
