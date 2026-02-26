@@ -598,7 +598,8 @@ export default function SceneVariantDisplay({
     }
     
     // Create a key from choices to detect changes (not just count)
-    const currentChoicesKey = JSON.stringify(scene.choices?.map(c => ({ id: c.id, text: c.text, order: c.order })) || []);
+    // scene.choices may be strings (from story state) or objects (from API)
+    const currentChoicesKey = JSON.stringify(scene.choices?.map(c => typeof c === 'string' ? c : ({ id: c.id, text: c.text, order: c.order })) || []);
     const currentChoicesCount = scene.choices?.length || 0;
     
     // For NEW scenes (no variants loaded yet), trigger initial load when choices appear
