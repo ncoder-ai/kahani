@@ -732,23 +732,39 @@ Appearance: {char.get('appearance', '')}
                 min_scene = current_scene_sequence - recent_window
                 query = query.filter(Contradiction.scene_sequence >= min_scene)
 
-            contradictions = query.order_by(Contradiction.detected_at.desc()).limit(10).all()
+            contradictions = query.order_by(Contradiction.detected_at.desc(), Contradiction.id).limit(10).all()
 
-            # Filter by severity, take up to 5
-            filtered = [c for c in contradictions if severity_order.get(c.severity, 0) >= threshold_level][:5]
+            # Filter by severity, take up to 10 (before grouping reduces count)
+            filtered = [c for c in contradictions if severity_order.get(c.severity, 0) >= threshold_level][:10]
             if not filtered:
                 return None
 
-            # Format as concise warning strings
-            warnings = []
+            # Group by (scene_sequence, type, previous_value, current_value) to combine character names
+            from collections import OrderedDict
+            groups: OrderedDict[tuple, list] = OrderedDict()
             for c in filtered:
-                type_label = c.contradiction_type.replace('_', ' ').title()
-                char_part = f" {c.character_name}:" if c.character_name else ""
-                if c.previous_value and c.current_value:
-                    issue = f'was "{c.previous_value}" but now "{c.current_value}"'
+                key = (c.scene_sequence, c.contradiction_type, c.previous_value, c.current_value)
+                if key not in groups:
+                    groups[key] = []
+                if c.character_name:
+                    groups[key].append(c.character_name)
+
+            # Format as concise grouped warning strings
+            warnings = []
+            for (seq, ctype, prev_val, cur_val), char_names in groups.items():
+                type_label = ctype.replace('_', ' ').title()
+                if char_names:
+                    chars = ", ".join(char_names)
+                    char_part = f" {chars}:"
                 else:
-                    issue = c.current_value or c.previous_value or "unknown"
-                warnings.append(f"- [{type_label}]{char_part} {issue} (scene {c.scene_sequence})")
+                    char_part = ""
+                if prev_val and cur_val:
+                    issue = f'moved from "{prev_val}" to "{cur_val}"'
+                else:
+                    issue = cur_val or prev_val or "unknown"
+                warnings.append(f"- [{type_label}]{char_part} {issue} (scene {seq})")
+                if len(warnings) >= 5:
+                    break
 
             logger.info(f"[CONTEXT BUILD] Contradiction context: {len(warnings)} warnings for story {story_id}")
             return warnings
@@ -1716,8 +1732,9 @@ Appearance: {char.get('appearance', '')}
             if branch_id is None:
                 branch_id = self._get_active_branch_id(db, story_id)
             
-            # Build context with chapter_id - this will include base context and chapter summaries
-            context = await self.build_story_context(story_id, db, chapter_id=chapter_id, branch_id=branch_id)
+            # Build context with chapter_id - only need base context fields (genre, tone, summaries etc.)
+            # Force linear strategy to avoid wasteful semantic search — we only read base fields.
+            context = await self._build_linear_context(story_id, db, chapter_id=chapter_id, branch_id=branch_id)
             
             # Get all scenes from the current chapter that are in the ACTIVE story flow
             # This matches how get_active_scene_count works
@@ -2428,7 +2445,7 @@ Appearance: {char.get('appearance', '')}
         if use_entity_states_snapshot and exclude_scene_id:
             context_snapshot = await self._load_entity_states_snapshot(db, exclude_scene_id)
 
-        # --- Intent classification: skip semantic search for direct intents ---
+        # --- Intent classification: skip semantic search for direct/react intents ---
         intent_result = None
         skip_semantic = False
         if user_intent and user_intent.strip() and self.enable_semantic:
@@ -2438,11 +2455,11 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[INTENT CLASSIFY] Result: {intent_type or 'direct (default)'}, "
                            f"queries={intent_result.get('queries', [])}"
                            + (f", keywords={intent_result.get('keywords')}" if intent_result.get('keywords') else ""))
-                if intent_type == "direct" or (not intent_type and not intent_result.get("queries")):
+                if intent_type in ("direct", "react") or (not intent_type and not intent_result.get("queries")):
                     skip_semantic = True
-                    logger.info(f"[INTENT CLASSIFY] Direct intent — skipping semantic search")
+                    logger.info(f"[INTENT CLASSIFY] {intent_type or 'direct'} intent — skipping semantic search")
 
-        # Get semantically relevant scenes (skip for direct intents)
+        # Get semantically relevant scenes (skip for direct/react intents)
         semantic_content, single_query_results = "", []
         if not skip_semantic:
             semantic_content, single_query_results = await self._get_semantic_scenes(

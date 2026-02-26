@@ -44,7 +44,8 @@ class ContradictionService:
         story_id: int,
         branch_id: int,
         scene_sequence: int,
-        new_states: Dict[str, Any]
+        new_states: Dict[str, Any],
+        chapter_location: Optional[str] = None
     ) -> List[Contradiction]:
         """
         Check new extraction against previous state for contradictions.
@@ -54,6 +55,7 @@ class ContradictionService:
             branch_id: Branch ID
             scene_sequence: Current scene sequence number
             new_states: Newly extracted states dict
+            chapter_location: Chapter-level location (e.g. "Saran family home")
 
         Returns:
             List of detected Contradiction objects (not yet committed)
@@ -93,7 +95,8 @@ class ContradictionService:
 
             # Check for location jump
             location_contradiction = self._check_location_jump(
-                char_name, char_state, prev, scene_sequence, story_id, branch_id
+                char_name, char_state, prev, scene_sequence, story_id, branch_id,
+                chapter_location=chapter_location
             )
             if location_contradiction:
                 key = ('location_jump', char_name.lower(), scene_sequence)
@@ -115,7 +118,40 @@ class ContradictionService:
                 else:
                     logger.debug(f"[CONTRADICTION] Skipping duplicate state_regression for {char_name} at scene {scene_sequence}")
 
+        # Auto-resolve stale contradictions superseded by new ones
+        if contradictions:
+            self._auto_resolve_stale(existing, contradictions, scene_sequence)
+
         return contradictions
+
+    def _auto_resolve_stale(
+        self,
+        existing: List[Contradiction],
+        new_contradictions: List[Contradiction],
+        scene_sequence: int
+    ) -> None:
+        """Auto-resolve older unresolved contradictions superseded by new ones."""
+        from datetime import datetime
+
+        # Build set of (type, char_name_lower) from new contradictions
+        new_keys = {
+            (c.contradiction_type, (c.character_name or '').lower())
+            for c in new_contradictions
+        }
+
+        resolved_count = 0
+        for old in existing:
+            if old.resolved:
+                continue
+            old_key = (old.contradiction_type, (old.character_name or '').lower())
+            if old_key in new_keys and old.scene_sequence < scene_sequence:
+                old.resolved = True
+                old.resolution_note = f"Superseded by scene {scene_sequence}"
+                old.resolved_at = datetime.utcnow()
+                resolved_count += 1
+
+        if resolved_count:
+            logger.info(f"[CONTRADICTION] Auto-resolved {resolved_count} stale contradictions superseded by scene {scene_sequence}")
 
     def _find_previous_state(
         self,
@@ -198,6 +234,61 @@ class ContradictionService:
 
         return False
 
+    # Room-level nouns — locations containing these are rooms within a building
+    _ROOM_NOUNS = frozenset({
+        'bedroom', 'bathroom', 'kitchen', 'living room', 'sunroom', 'dining room',
+        'hallway', 'balcony', 'terrace', 'porch', 'garage', 'basement', 'attic',
+        'study', 'office', 'foyer', 'lobby', 'den', 'closet', 'pantry', 'laundry',
+        'nursery', 'corridor', 'staircase', 'landing', 'veranda',
+    })
+
+    # Building-level nouns — chapter locations containing these indicate a building
+    _BUILDING_NOUNS = frozenset({
+        'home', 'house', 'apartment', 'flat', 'condo', 'mansion', 'cottage',
+        'cabin', 'villa', 'bungalow', 'penthouse', 'townhouse', 'duplex',
+        'residence', 'manor', 'estate',
+        'hotel', 'motel', 'inn', 'lodge', 'resort', 'palace', 'castle',
+        'office', 'building', 'hospital', 'school', 'restaurant', 'cafe',
+        'bar', 'club', 'temple', 'church', 'mosque',
+    })
+
+    @classmethod
+    def _is_room_to_room_move(cls, prev_loc: str, new_loc: str, chapter_location: Optional[str]) -> bool:
+        """
+        Check if a location change is just moving between rooms in the same building.
+
+        Suppresses false-positive location jumps for e.g. "sunroom" → "living room"
+        when the chapter location is "Saran family home".
+        """
+        if not chapter_location:
+            return False
+
+        prev_lower = prev_loc.lower()
+        new_lower = new_loc.lower()
+        chapter_lower = chapter_location.lower()
+
+        # Check if both locations contain room-level nouns
+        prev_is_room = any(room in prev_lower for room in cls._ROOM_NOUNS)
+        new_is_room = any(room in new_lower for room in cls._ROOM_NOUNS)
+
+        if prev_is_room and new_is_room:
+            # Check if chapter location is a building
+            chapter_is_building = any(bldg in chapter_lower for bldg in cls._BUILDING_NOUNS)
+            if chapter_is_building:
+                return True
+
+        # Also suppress if both locations share significant keywords with the chapter location
+        chapter_kw = cls._location_keywords(chapter_lower)
+        if len(chapter_kw) >= 1:
+            prev_kw = cls._location_keywords(prev_lower)
+            new_kw = cls._location_keywords(new_lower)
+            prev_shared = prev_kw & chapter_kw
+            new_shared = new_kw & chapter_kw
+            if prev_shared and new_shared:
+                return True
+
+        return False
+
     def _check_location_jump(
         self,
         char_name: str,
@@ -205,7 +296,8 @@ class ContradictionService:
         prev_state: CharacterState,
         scene_sequence: int,
         story_id: int,
-        branch_id: int
+        branch_id: int,
+        chapter_location: Optional[str] = None
     ) -> Optional[Contradiction]:
         """Check if character moved locations without travel."""
         new_location = new_state.get('location', '').strip()
@@ -221,6 +313,12 @@ class ContradictionService:
 
         # Use fuzzy matching to avoid false positives from rewording
         if self._locations_are_similar(new_location, prev_location):
+            return None
+
+        # Suppress room-to-room moves within the same building
+        if self._is_room_to_room_move(prev_location, new_location, chapter_location):
+            logger.debug(f"[CONTRADICTION] Suppressed room-to-room move for {char_name}: "
+                        f'"{prev_location}" → "{new_location}" (chapter: {chapter_location})')
             return None
 
         # Genuinely different locations — flag as potential jump

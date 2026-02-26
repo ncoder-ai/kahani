@@ -4281,9 +4281,9 @@ Chapter Conclusion:"""
                 keywords = cached_intent.get("keywords", [])
                 logger.info(f"[SEMANTIC DECOMPOSE] Reusing cached intent from context_manager: {intent_type or 'direct'}")
 
-                # Direct intent — semantic search was already skipped, nothing to improve
-                if intent_type == "direct" or (not intent_type and not sub_queries):
-                    logger.info("[SEMANTIC DECOMPOSE] Direct intent — no semantic improvement needed")
+                # Direct/react intent — semantic search was already skipped, nothing to improve
+                if intent_type in ("direct", "react") or (not intent_type and not sub_queries):
+                    logger.info(f"[SEMANTIC DECOMPOSE] {intent_type or 'direct'} intent — no semantic improvement needed")
                     return False
             else:
                 # No cached intent — run classification here (fallback path)
@@ -4710,13 +4710,12 @@ Chapter Conclusion:"""
         #   4. CHAPTER DIRECTION (plot milestones - static per chapter)
         #   A. Completed scene batches (stable per batch, cached)
         #   B. CHARACTER INTERACTION HISTORY (rarely changes, often cached)
-        #   F. CONTINUITY WARNINGS (stable between consecutive scenes)
         #   F2. CHARACTER DEVELOPMENT LOG (stable, changes only on extraction)
         #   *. CURRENT CHAPTER (location, time, scenario, progress - updates ~every 10 scenes)
         #   ──── DYNAMIC SECTIONS (change every scene, placed at end) ────
         #   G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE)
-        #   H. RELEVANT CONTEXT (character context)
-        #   I. RELATED PAST SCENES (semantic search)
+        #   G2. CONTINUITY WARNINGS (changes after each extraction)
+        #   H. RELATED PAST SCENES (semantic search — recall intents only)
         #   J. PACING GUIDANCE (adaptive next-beat nudge - LAST before task for max attention)
         #
         # Cache optimization: CURRENT CHAPTER moved after stable sections so its periodic
@@ -4725,17 +4724,12 @@ Chapter Conclusion:"""
         previous_scenes_text = context.get("previous_scenes", "")
 
         # --- Extract structured sections from previous_scenes_text via regex ---
-        relevant_context_match = None
         interaction_history_match = None
         recent_match = None
 
         if previous_scenes_text:
             interaction_history_match = re.search(
                 r'CHARACTER INTERACTION HISTORY:\n(.*?)(?=\n\nRelevant Context:|\n\nRecent Scenes:|$)',
-                previous_scenes_text, re.DOTALL
-            )
-            relevant_context_match = re.search(
-                r'Relevant Context:\n(.*?)(?=\n\nRecent Scenes:|$)',
                 previous_scenes_text, re.DOTALL
             )
             recent_match = re.search(r'Recent Scenes:(.*?)$', previous_scenes_text, re.DOTALL)
@@ -4782,19 +4776,6 @@ Chapter Conclusion:"""
         # Plot events extraction (which fed active_threads) cut. Minimal ROI.
         # Working memory contradictions still available via CONTINUITY WARNINGS.
 
-        # --- F. CONTINUITY WARNINGS (stable between consecutive scenes) ---
-        # Moved BEFORE RECENT SCENES for cache optimization
-        contradiction_context = context.get("contradiction_context")
-        if contradiction_context:
-            messages.append({
-                "role": "user",
-                "content": "=== CONTINUITY WARNINGS ===\n"
-                    "The following continuity issues were detected. "
-                    "Naturally address or acknowledge them in your writing "
-                    "(e.g., mention travel between locations, explain emotional shifts):\n\n"
-                    + "\n".join(contradiction_context)
-            })
-
         # --- F2. CHARACTER DEVELOPMENT LOG (stable, changes only on extraction) ---
         chronicle_context = context.get("chronicle_context")
         if chronicle_context:
@@ -4834,17 +4815,21 @@ Chapter Conclusion:"""
         if recent_scenes_message:
             messages.append(recent_scenes_message)
 
-        # --- H. RELEVANT CONTEXT (character context only now, semantic scenes moved to end) ---
-        if relevant_context_match:
-            # Filter out "Relevant Past Events" if present - they're now in dedicated message
-            relevant_text = relevant_context_match.group(1).strip()
-            # Remove the Relevant Past Events section if it somehow got included
-            relevant_text = re.sub(r'Relevant Past Events:.*?(?=Character Context:|$)', '', relevant_text, flags=re.DOTALL).strip()
-            if relevant_text:
-                messages.append({
-                    "role": "user",
-                    "content": "=== RELEVANT CONTEXT ===\n" + relevant_text
-                })
+        # --- G2. CONTINUITY WARNINGS (changes after each extraction) ---
+        contradiction_context = context.get("contradiction_context")
+        if contradiction_context:
+            messages.append({
+                "role": "user",
+                "content": "=== CONTINUITY WARNINGS ===\n"
+                    "The following continuity issues were detected. "
+                    "Naturally address or acknowledge them in your writing "
+                    "(e.g., mention travel between locations, explain emotional shifts):\n\n"
+                    + "\n".join(contradiction_context)
+            })
+
+        # --- H. RELEVANT CONTEXT — REMOVED ---
+        # _get_character_context() is a stub (always returns None), so this message
+        # was never populated. Kept as placeholder for future CharacterMemoryService.
 
         # --- I. RELATED PAST SCENES (semantic search results) ---
         semantic_scenes_text = context.get("semantic_scenes_text")

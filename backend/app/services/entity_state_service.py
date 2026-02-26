@@ -414,7 +414,8 @@ class EntityStateService:
                         story_id=story_id,
                         branch_id=branch_id,
                         scene_sequence=scene_sequence,
-                        new_states=state_changes
+                        new_states=state_changes,
+                        chapter_location=chapter_location
                     )
 
                     # Filter by severity threshold
