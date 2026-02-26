@@ -206,10 +206,35 @@ def extract_choices_with_regex(text: str) -> Optional[List[str]]:
     return None
 
 
+def _split_mixed_quote_choice(choice: str) -> List[str]:
+    """
+    Split a choice that contains embedded array element boundaries from mixed quotes.
+
+    LLMs sometimes mix single and double quotes in JSON arrays, causing the JSON
+    parser to merge multiple choices into one. E.g.:
+      "Choice A.', 'Choice B.', 'Choice C."
+    parses as a single string but actually contains 3 choices separated by ', '
+
+    Only splits on sentence-ending patterns (period/punctuation + quote boundary)
+    to avoid splitting on apostrophes like "Nishant's".
+    """
+    # Pattern: sentence-ending punctuation followed by quote-comma-quote boundary
+    # Matches: .', ' or !', ' or ?', ' (sentence end → element boundary)
+    parts = re.split(r"""(?<=[.!?])['"]\s*,\s*['"]""", choice)
+    if len(parts) > 1:
+        # Clean up: first part may have trailing quote, last may have leading quote
+        cleaned = [p.strip().strip("'\"").strip() for p in parts]
+        cleaned = [p for p in cleaned if len(p) > 5]
+        if len(cleaned) > 1:
+            logger.info(f"[CHOICES PARSE] Split mixed-quote choice into {len(cleaned)} parts")
+            return cleaned
+    return [choice]
+
+
 def _validate_and_return_choices(choices: Any) -> Optional[List[str]]:
     """Validate parsed choices and return cleaned list"""
     if isinstance(choices, list) and len(choices) >= 2:
-        # Clean and validate each choice
+        # Clean and validate each choice, splitting any that contain mixed-quote boundaries
         cleaned_choices = []
         for i, choice in enumerate(choices):
             if isinstance(choice, str):
@@ -217,7 +242,9 @@ def _validate_and_return_choices(choices: Any) -> Optional[List[str]]:
                 # Remove any leading/trailing quotes that might have been double-escaped
                 cleaned = cleaned.strip('"\'')
                 if len(cleaned) > 5:  # Minimum reasonable choice length
-                    cleaned_choices.append(cleaned)
+                    # Check for mixed-quote boundaries inside this choice
+                    sub_choices = _split_mixed_quote_choice(cleaned)
+                    cleaned_choices.extend(sub_choices)
                 else:
                     logger.debug(f"[CHOICES PARSE] Choice {i+1} too short: {len(cleaned)} chars")
             else:
