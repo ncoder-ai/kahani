@@ -4767,16 +4767,7 @@ Chapter Conclusion:"""
                 "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
             })
 
-        # --- C. CURRENT CHARACTER STATES (physical state for continuity) ---
-        entity_states_text = context.get("entity_states_text")
-        if entity_states_text:
-            messages.append({
-                "role": "user",
-                "content": "=== CURRENT CHARACTER STATES ===\n"
-                    "Physical state of characters as of the most recent scene. "
-                    "Maintain consistency with these states.\n\n"
-                    + entity_states_text
-            })
+        # --- C. CURRENT CHARACTER STATES — moved after cache break (changes every scene) ---
 
         # --- D. CHARACTER RELATIONSHIPS — REMOVED ---
         # Relationship extraction removed — low ROI for the extra LLM call cost.
@@ -4823,6 +4814,17 @@ Chapter Conclusion:"""
         # --- G. RECENT SCENES (active scene batch, changes every scene - CACHE BREAKS HERE) ---
         if recent_scenes_message:
             messages.append(recent_scenes_message)
+
+        # --- C. CURRENT CHARACTER STATES (physical state for continuity, changes every scene) ---
+        entity_states_text = context.get("entity_states_text")
+        if entity_states_text:
+            messages.append({
+                "role": "user",
+                "content": "=== CURRENT CHARACTER STATES ===\n"
+                    "Physical state of characters as of the most recent scene. "
+                    "Maintain consistency with these states.\n\n"
+                    + entity_states_text
+            })
 
         # --- G2. CONTINUITY WARNINGS (changes after each extraction) ---
         contradiction_context = context.get("contradiction_context")
