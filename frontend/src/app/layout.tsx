@@ -16,11 +16,11 @@ const inter = Inter({
 })
 
 export const metadata = {
-  title: 'Make My Story - Interactive Storytelling',
+  title: 'Make My Saga - Interactive Storytelling',
   description: 'Create and explore AI-powered interactive stories',
   icons: {
-    icon: '/kahanilogo.png',
-    apple: '/kahanilogo.png',
+    icon: '/kahani-logo.jpg',
+    apple: '/kahani-logo.jpg',
   },
 }
 
