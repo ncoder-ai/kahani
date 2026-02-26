@@ -1081,7 +1081,8 @@ If no NAMED PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
         character_names: List[str],
         chapter_location: str = None,
         system_prompt: str = None,
-        interaction_types: List[str] = None
+        interaction_types: List[str] = None,
+        previous_states: str = ""
     ) -> Dict[str, Any]:
         """
         Extract entity state changes from a scene
@@ -1111,7 +1112,8 @@ If no NAMED PEOPLE found, return {{"npcs": []}}. Return ONLY JSON."""
                 scene_sequence=scene_sequence,
                 scene_content=scene_content,
                 character_names=', '.join(character_names),
-                chapter_location=chapter_location or "Unknown"
+                chapter_location=chapter_location or "Unknown",
+                previous_states=previous_states or ""
             )
 
             # Add interaction extraction if interaction types are configured

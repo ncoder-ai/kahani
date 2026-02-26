@@ -3244,7 +3244,8 @@ Chapter Conclusion:"""
         user_id: int,
         user_settings: Dict[str, Any],
         db: Optional[Session] = None,
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
+        previous_states: str = ""
     ) -> str:
         """
         Fast entity-only extraction for inline contradiction checking.
@@ -3276,7 +3277,8 @@ Chapter Conclusion:"""
             "entity_only_extraction", "user",
             scene_content=cleaned_scene,
             character_names=character_names_str,
-            chapter_location=chapter_location or "unspecified location"
+            chapter_location=chapter_location or "unspecified location",
+            previous_states=previous_states or ""
         )
 
         if use_extraction_llm or not use_cache:
@@ -4765,9 +4767,16 @@ Chapter Conclusion:"""
                 "content": "=== CHARACTER INTERACTION HISTORY ===\n(Factual record of what has occurred between characters)\n\n" + interaction_history_match.group(1).strip()
             })
 
-        # --- C. CHARACTER STATES — REMOVED ---
-        # Entity states extraction quality was too poor to provide value.
-        # Token budget freed up for semantic search results.
+        # --- C. CURRENT CHARACTER STATES (physical state for continuity) ---
+        entity_states_text = context.get("entity_states_text")
+        if entity_states_text:
+            messages.append({
+                "role": "user",
+                "content": "=== CURRENT CHARACTER STATES ===\n"
+                    "Physical state of characters as of the most recent scene. "
+                    "Maintain consistency with these states.\n\n"
+                    + entity_states_text
+            })
 
         # --- D. CHARACTER RELATIONSHIPS — REMOVED ---
         # Relationship extraction removed — low ROI for the extra LLM call cost.

@@ -775,10 +775,10 @@ entity_only_extraction:
     ]}}
 
     EXAMPLE 2:
-    Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed. He was still in his muddy jeans from the crash."
+    Scene: "She stepped out of her dress, kicking it aside. Now completely naked except for her necklace, she turned to face him. He was still in his jeans, shirt unbuttoned."
     {{"characters": [
-      {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
-      {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": "muddy jeans"}}
+      {{"name": "Elena", "location": "bedroom", "current_position": "standing, facing Marcus", "emotional_state": "bold", "physical_condition": null, "current_attire": "nude, necklace"}},
+      {{"name": "Marcus", "location": "bedroom", "current_position": "standing", "emotional_state": "stunned", "physical_condition": null, "current_attire": "jeans, unbuttoned shirt"}}
     ]}}
 
     RULES:
@@ -786,7 +786,9 @@ entity_only_extraction:
     - current_position: Physical position ("sitting on couch", "standing by door", "lying in bed")
     - emotional_state: 1-2 words max ("nervous", "playful", "torn"). NOT a sentence.
     - physical_condition: Visible injuries, marks, or physical symptoms ONLY. "swollen cheek", "bite mark on neck", "limping". null if healthy/uninjured. NOT emotions, NOT arousal states.
-    - current_attire: What they're wearing at END of scene ("jeans and t-shirt", "nude", "unbuttoned shirt"). null if not mentioned.
+    - current_attire: Report clothing state at END of scene. Use "nude", "partially undressed", "topless" etc. when appropriate. List jewelry/accessories by name only — do NOT describe their condition. If the scene doesn't change attire from previous state, carry forward the previous value. null ONLY if no previous state exists AND clothing is not mentioned.
+
+    {previous_states}
 
     Return ONLY JSON — no explanation, no markdown:
     {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
@@ -1851,13 +1853,13 @@ entity_state_extraction:
       }}
 
       EXAMPLE 2:
-      Scene: "Sofia winced as Diego pressed the ice pack against her swollen cheek. They sat on the bedroom floor, her back against the bed frame. 'It's not that bad,' she lied, pulling her torn blouse closed."
+      Scene: "She stepped out of her dress, kicking it aside. Now completely naked except for her necklace, she turned to face him. He was still in his jeans, shirt unbuttoned."
       Chapter Location: apartment
       Output:
       {{
         "characters": [
-          {{"name": "Sofia", "location": "bedroom", "current_position": "sitting on floor against bed frame", "emotional_state": "pained", "physical_condition": "swollen cheek", "current_attire": "torn blouse"}},
-          {{"name": "Diego", "location": "bedroom", "current_position": "sitting on floor", "emotional_state": "concerned", "physical_condition": null, "current_attire": null}}
+          {{"name": "Elena", "location": "bedroom", "current_position": "standing, facing Marcus", "emotional_state": "bold", "physical_condition": null, "current_attire": "nude, necklace"}},
+          {{"name": "Marcus", "location": "bedroom", "current_position": "standing", "emotional_state": "stunned", "physical_condition": null, "current_attire": "jeans, unbuttoned shirt"}}
         ]
       }}
 
@@ -1866,7 +1868,9 @@ entity_state_extraction:
       - current_position: Physical position ("sitting on couch", "standing by door")
       - emotional_state: 1-2 words max ("nervous", "playful"). NOT a sentence.
       - physical_condition: Visible injuries/marks ONLY ("swollen cheek", "bite mark on neck"). null if healthy.
-      - current_attire: What they're wearing at END of scene. null if not mentioned.
+      - current_attire: Report clothing state at END of scene. Use "nude", "partially undressed", "topless" etc. when appropriate. List jewelry/accessories by name only — do NOT describe their condition. If the scene doesn't change attire from previous state, carry forward the previous value. null ONLY if no previous state exists AND clothing is not mentioned.
+
+      {previous_states}
 
       Return ONLY valid JSON:
       {{"characters": [{{"name": "...", "location": "...", "current_position": "...", "emotional_state": "...", "physical_condition": null, "current_attire": null}}]}}
@@ -1918,7 +1922,7 @@ entity_state_extraction:
       - NPCs: NAMED PEOPLE only, max 5 total. No objects/materials/furniture/unnamed people.
       - Plot events: importance >= 70, confidence >= 80, max 5 total.
       - Entity states: 1-2 word emotional_state, room-level locations, physical_condition = visible injuries/marks ONLY (null if healthy).
-      - Attire: only what's WORN on body at END of scene. Null if not mentioned.
+      - Attire: Report clothing state at END of scene. Use "nude", "partially undressed", "topless" etc. when appropriate. Carry forward previous value if scene doesn't change attire. null ONLY if no previous state AND not mentioned.
 
       Return ONLY valid JSON:
       {{

@@ -562,7 +562,19 @@ class ContextManager:
         except Exception as e:
             logger.warning(f"[CONTEXT BUILD] Failed to build chronicle context: {e}")
 
-        # Entity states removed from prompt — no longer building entity_states_text
+        # Build entity states (character physical states for continuity)
+        # Use 5% of effective max tokens (matches hybrid path allocation)
+        entity_token_budget = int(self.effective_max_tokens * 0.05)
+        try:
+            entity_states_text = await self._get_entity_states(
+                story_id=story_id, token_budget=entity_token_budget, db=db,
+                current_scene_sequence=scene_context.get("current_scene_sequence"),
+                branch_id=branch_id
+            )
+            if entity_states_text:
+                base_context["entity_states_text"] = entity_states_text
+        except Exception as e:
+            logger.warning(f"[CONTEXT BUILD] Failed to build entity states: {e}")
 
         # Merge contexts
         return {**base_context, **scene_context}
@@ -2444,6 +2456,19 @@ Appearance: {char.get('appearance', '')}
         context_snapshot = None
         if use_entity_states_snapshot and exclude_scene_id:
             context_snapshot = await self._load_entity_states_snapshot(db, exclude_scene_id)
+            if context_snapshot and context_snapshot.get("entity_states_text"):
+                entity_states_content = context_snapshot["entity_states_text"]
+
+        # Build live entity states if no snapshot
+        if not entity_states_content:
+            try:
+                _current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+                entity_states_content = await self._get_entity_states(
+                    story_id=story_id, token_budget=entity_tokens, db=db,
+                    current_scene_sequence=_current_seq, branch_id=branch_id
+                )
+            except Exception as e:
+                logger.warning(f"[HYBRID CONTEXT] Failed to build entity states: {e}")
 
         # --- Intent classification: skip semantic search for direct/react intents ---
         intent_result = None
@@ -4920,59 +4945,26 @@ Appearance: {char.get('appearance', '')}
             Formatted entity states or None
         """
         try:
-            from ..models import CharacterState, LocationState, ObjectState
+            from ..models import CharacterState
 
-            # Get all entity states for this story (filtered by branch)
-            # Order by updated_at DESC to ensure we get the latest states
-            # (though typically there's one state per entity, ordering ensures we get most recent if duplicates exist)
-
-            # First try to get states for specific branch
+            # Get character states for this story (filtered by branch)
             char_state_query = db.query(CharacterState).filter(CharacterState.story_id == story_id)
             if branch_id:
                 char_state_query = char_state_query.filter(CharacterState.branch_id == branch_id)
             # Add secondary sort by id for deterministic ordering (cache stability)
             character_states = char_state_query.order_by(CharacterState.updated_at.desc(), CharacterState.id.asc()).all()
 
-            loc_state_query = db.query(LocationState).filter(LocationState.story_id == story_id)
-            if branch_id:
-                loc_state_query = loc_state_query.filter(LocationState.branch_id == branch_id)
-            location_states = loc_state_query.order_by(LocationState.updated_at.desc(), LocationState.id.asc()).all()
-
-            obj_state_query = db.query(ObjectState).filter(ObjectState.story_id == story_id)
-            if branch_id:
-                obj_state_query = obj_state_query.filter(ObjectState.branch_id == branch_id)
-            object_states = obj_state_query.order_by(ObjectState.updated_at.desc(), ObjectState.id.asc()).all()
-
-            if not character_states and not location_states and not object_states:
+            if not character_states:
                 return None
 
-            # Deduplicate: keep only most recent state per entity (ordered by updated_at DESC)
-            if character_states:
-                seen_chars = set()
-                deduped = []
-                for cs in character_states:
-                    if cs.character_id not in seen_chars:
-                        seen_chars.add(cs.character_id)
-                        deduped.append(cs)
-                character_states = deduped
-
-            if location_states:
-                seen_locs = set()
-                deduped = []
-                for ls in location_states:
-                    if ls.location_name not in seen_locs:
-                        seen_locs.add(ls.location_name)
-                        deduped.append(ls)
-                location_states = deduped
-
-            if object_states:
-                seen_objs = set()
-                deduped = []
-                for os_item in object_states:
-                    if os_item.object_name not in seen_objs:
-                        seen_objs.add(os_item.object_name)
-                        deduped.append(os_item)
-                object_states = deduped
+            # Deduplicate: keep only most recent state per character (ordered by updated_at DESC)
+            seen_chars = set()
+            deduped = []
+            for cs in character_states:
+                if cs.character_id not in seen_chars:
+                    seen_chars.add(cs.character_id)
+                    deduped.append(cs)
+            character_states = deduped
 
             # Format entity states
             entity_parts = []
@@ -4992,13 +4984,10 @@ Appearance: {char.get('appearance', '')}
                             include = False  # Scene doesn't exist in current branch context
                         else:
                             scene_age = current_scene_sequence - char_state.last_updated_scene
-                            # Only include if updated within recency window (or if main character)
+                            # Only include if updated within recency window (or has meaningful state)
                             if scene_age > self.location_recency_window:
-                                # Still include if it's likely a main character (has significant state)
-                                # Include appearance to prevent filtering out clothing/attire
-                                if not (char_state.current_goal or char_state.possessions or
-                                       char_state.appearance or
-                                       (char_state.knowledge and len(char_state.knowledge) > 0)):
+                                # Still include if character has attire or physical condition tracked
+                                if not (char_state.appearance or char_state.physical_condition):
                                     include = False
 
                     if include:
@@ -5031,8 +5020,6 @@ Appearance: {char.get('appearance', '')}
                         loc = _val(char_state.current_location)
                         if loc and show_location:
                             char_text += f"\n  Location: {loc}"
-                        elif loc:
-                            logger.debug(f"[ENTITY STATES] Skipping outdated location for {character.name} (last updated scene {char_state.last_updated_scene}, current {current_scene_sequence})")
 
                         # Current position (sub-room arrangement)
                         pos = _val(char_state.current_position)
@@ -5059,31 +5046,6 @@ Appearance: {char.get('appearance', '')}
                         if _val(char_state.appearance):
                             char_text += f"\n  Current Attire: {char_state.appearance}"
 
-                        if char_state.current_goal:
-                            char_text += f"\n  Current Goal: {char_state.current_goal}"
-
-                        if char_state.possessions:
-                            possessions_str = ", ".join(char_state.possessions[:5])  # Limit to 5
-                            char_text += f"\n  Possessions: {possessions_str}"
-
-                        if char_state.knowledge and len(char_state.knowledge) > 0:
-                            # Show most recent 3 knowledge items
-                            recent_knowledge = char_state.knowledge[-3:]
-                            char_text += f"\n  Recent Knowledge: {'; '.join(recent_knowledge)}"
-
-                        # Relationships (show top 3 most relevant)
-                        if char_state.relationships:
-                            char_text += f"\n  Key Relationships:"
-                            count = 0
-                            for rel_char, rel_data in char_state.relationships.items():
-                                if count >= 3:
-                                    break
-                                if isinstance(rel_data, dict):
-                                    status = rel_data.get('status', 'unknown')
-                                    trust = rel_data.get('trust', 'unknown')
-                                    char_text += f"\n    - {rel_char}: {status} (trust: {trust}/10)"
-                                count += 1
-
                         # Check token budget
                         char_tokens = self.count_tokens(char_text)
                         if used_tokens + char_tokens > token_budget:
@@ -5092,174 +5054,7 @@ Appearance: {char.get('appearance', '')}
                         entity_parts.append(char_text)
                         used_tokens += char_tokens
 
-            # Location States (if tokens available)
-            # Filter to only show CURRENT locations (recently updated or with current occupants)
-            if location_states and used_tokens < token_budget * 0.8:
-                # Filter locations by recency and current occupants
-                current_locations = []
-                recent_locations = []
-
-                for loc_state in location_states:
-                    is_current = False
-
-                    # Skip entity states that reference scenes beyond current branch's range
-                    if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
-                        if loc_state.last_updated_scene > current_scene_sequence:
-                            continue  # Scene doesn't exist in current branch context
-
-                    # Check if location was updated recently (within recency window)
-                    if current_scene_sequence is not None and loc_state.last_updated_scene is not None:
-                        scene_age = current_scene_sequence - loc_state.last_updated_scene
-                        if scene_age <= self.location_recency_window:
-                            is_current = True
-
-                    # Check if location has current occupants (active location)
-                    if loc_state.current_occupants and len(loc_state.current_occupants) > 0:
-                        is_current = True
-
-                    if is_current:
-                        current_locations.append(loc_state)
-                    else:
-                        recent_locations.append(loc_state)
-
-                # Prioritize current locations, then recent ones
-                filtered_locations = current_locations + recent_locations[:2]  # Max 2 recent for context
-
-                if filtered_locations:
-                    # Separate current vs recent for clarity
-                    if current_locations:
-                        entity_parts.append("\n\nCURRENT LOCATIONS:")
-                        for loc_state in current_locations[:1]:  # Show only the PRIMARY current location
-                            loc_text = f"\n{loc_state.location_name}:"
-
-                            if loc_state.condition:
-                                loc_text += f"\n  Condition: {loc_state.condition}"
-
-                            if loc_state.atmosphere:
-                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
-
-                            if loc_state.current_occupants:
-                                occupants_str = ", ".join(loc_state.current_occupants[:5])
-                                loc_text += f"\n  Present: {occupants_str}"
-
-                            loc_tokens = self.count_tokens(loc_text)
-                            if used_tokens + loc_tokens > token_budget:
-                                break
-
-                            entity_parts.append(loc_text)
-                            used_tokens += loc_tokens
-
-                    # Show additional recent locations if space and they're relevant
-                    if recent_locations and used_tokens < token_budget * 0.9:
-                        entity_parts.append("\n\nRECENT LOCATIONS (for context):")
-                        for loc_state in recent_locations[:2]:  # Max 2 recent locations
-                            loc_text = f"\n{loc_state.location_name}:"
-
-                            if loc_state.condition:
-                                loc_text += f"\n  Condition: {loc_state.condition}"
-
-                            if loc_state.atmosphere:
-                                loc_text += f"\n  Atmosphere: {loc_state.atmosphere}"
-
-                            if loc_state.current_occupants:
-                                occupants_str = ", ".join(loc_state.current_occupants[:5])
-                                loc_text += f"\n  Present: {occupants_str}"
-
-                            loc_tokens = self.count_tokens(loc_text)
-                            if used_tokens + loc_tokens > token_budget:
-                                break
-
-                            entity_parts.append(loc_text)
-                            used_tokens += loc_tokens
-
-            # Object States (if tokens available)
-            # STRICT FILTERING: Only include objects that are highly relevant to current scene
-            # This prevents LLM fixation on objects mentioned long ago
-            if object_states and used_tokens < token_budget * 0.9:
-                # Collect current character locations for location-based object matching
-                current_character_locations = set()
-
-                # Get locations from character states
-                for char_state in character_states:
-                    if char_state.current_location:
-                        current_character_locations.add(char_state.current_location.lower())
-
-                # Also add current locations from location states (those with occupants)
-                for loc_state in location_states:
-                    if loc_state.current_occupants and len(loc_state.current_occupants) > 0:
-                        if loc_state.location_name:
-                            current_character_locations.add(loc_state.location_name.lower())
-
-                # Apply STRICT object filtering - must meet at least one criterion:
-                # 1. Currently owned/held by a character
-                # 2. Updated in the last 3 scenes (very recent interaction)
-                # 3. In the same location where characters are currently present
-                OBJECT_RECENCY_WINDOW = 3  # Much tighter than general recency window
-                filtered_objects = []
-
-                for obj_state in object_states:
-                    include = False
-                    include_reason = None
-
-                    # Skip entity states that reference scenes beyond current branch's range
-                    if current_scene_sequence is not None and obj_state.last_updated_scene is not None:
-                        if obj_state.last_updated_scene > current_scene_sequence:
-                            continue  # Scene doesn't exist in current branch context
-
-                    # Criterion 1: Currently owned/held by a character (highest priority)
-                    if obj_state.current_owner_id:
-                        include = True
-                        include_reason = "owned"
-
-                    # Criterion 2: Updated very recently (within 3 scenes)
-                    elif current_scene_sequence is not None and obj_state.last_updated_scene is not None:
-                        scene_age = current_scene_sequence - obj_state.last_updated_scene
-                        if scene_age <= OBJECT_RECENCY_WINDOW:
-                            include = True
-                            include_reason = f"recent (age={scene_age})"
-
-                    # Criterion 3: In the same location as current characters
-                    if not include and obj_state.current_location:
-                        obj_location_lower = obj_state.current_location.lower()
-                        if obj_location_lower in current_character_locations:
-                            include = True
-                            include_reason = "same_location"
-
-                    if include:
-                        filtered_objects.append((obj_state, include_reason))
-                        logger.debug(f"[ENTITY STATES] Including object '{obj_state.object_name}': {include_reason}")
-
-                # Limit to 3 most relevant objects
-                filtered_objects = filtered_objects[:3]
-
-                if filtered_objects:
-                    entity_parts.append("\n\nActive Objects:")
-                    for obj_state, reason in filtered_objects:
-                        # Minimal format to reduce object prominence
-                        # Just name + owner OR location, no condition/significance
-                        if obj_state.current_owner_id and db:
-                            try:
-                                owner = db.query(Character).filter(Character.id == obj_state.current_owner_id).first()
-                                if owner:
-                                    obj_text = f"\n- {obj_state.object_name} (held by {owner.name})"
-                                else:
-                                    obj_text = f"\n- {obj_state.object_name}"
-                            except Exception as e:
-                                logger.warning(f"Failed to fetch owner for object {obj_state.object_name}: {e}")
-                                obj_text = f"\n- {obj_state.object_name}"
-                        elif obj_state.current_location:
-                            obj_text = f"\n- {obj_state.object_name} (in {obj_state.current_location})"
-                        else:
-                            obj_text = f"\n- {obj_state.object_name}"
-
-                        obj_tokens = self.count_tokens(obj_text)
-                        if used_tokens + obj_tokens > token_budget:
-                            break
-
-                        entity_parts.append(obj_text)
-                        used_tokens += obj_tokens
-
-                logger.info(f"[ENTITY STATES] Object filtering: {len(object_states)} total -> {len(filtered_objects)} included (char locations: {current_character_locations})")
+            # Location and object states omitted — character physical states only
 
             if len(entity_parts) > 0:
                 return "\n".join(entity_parts)

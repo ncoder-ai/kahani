@@ -459,27 +459,10 @@ export default function EntityStatesModal({
                 {renderStringField('Position', 'current_position', state.current_position, isEditing)}
                 {renderStringField('Emotional State', 'emotional_state', state.emotional_state, isEditing)}
                 {renderStringField('Physical Condition', 'physical_condition', state.physical_condition, isEditing)}
-                {renderStringField('Appearance', 'appearance', state.appearance, isEditing)}
-                {renderStringField('Current Goal', 'current_goal', state.current_goal, isEditing)}
-                {renderStringField('Arc Stage', 'arc_stage', state.arc_stage, isEditing)}
+                {renderStringField('Current Attire', 'appearance', state.appearance, isEditing)}
               </div>
               <div className="space-y-1">
                 {renderArrayField('Holding', 'items_in_hand', state.items_in_hand, isEditing)}
-                {renderArrayField('Possessions', 'possessions', state.possessions, isEditing)}
-                {renderArrayField('Knowledge', 'knowledge', state.knowledge, isEditing)}
-                {renderArrayField('Secrets', 'secrets', state.secrets, isEditing)}
-              </div>
-            </div>
-            <div className="border-t border-slate-700/30 pt-2 mt-2">
-              {renderRelationshipsField(state.relationships, isEditing)}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 border-t border-slate-700/30 pt-2">
-              <div className="space-y-1">
-                {renderArrayField('Active Conflicts', 'active_conflicts', state.active_conflicts, isEditing)}
-                {renderArrayField('Recent Decisions', 'recent_decisions', state.recent_decisions, isEditing)}
-              </div>
-              <div className="space-y-1">
-                {renderArrayField('Recent Actions', 'recent_actions', state.recent_actions, isEditing)}
               </div>
             </div>
           </div>

@@ -293,6 +293,30 @@ class EntityStateService:
                     character_names.append(char.name)
                     character_name_to_id[char.name.lower()] = char.id
 
+            # Query previous character states for carry-forward in extraction prompt
+            previous_states_text = ""
+            try:
+                previous_attire = {}
+                for sc in story_characters:
+                    char = db.query(Character).filter(Character.id == sc.character_id).first()
+                    if not char:
+                        continue
+                    state_q = db.query(CharacterState).filter(
+                        CharacterState.character_id == sc.character_id,
+                        CharacterState.story_id == story_id
+                    )
+                    if branch_id:
+                        state_q = state_q.filter(CharacterState.branch_id == branch_id)
+                    cs = state_q.first()
+                    if cs and cs.appearance and cs.appearance.strip().lower() not in ('null', 'none', ''):
+                        previous_attire[char.name] = cs.appearance
+                if previous_attire:
+                    lines = [f"- {name}: attire={attire}" for name, attire in previous_attire.items()]
+                    previous_states_text = "PREVIOUS KNOWN STATES (carry forward if scene doesn't change them):\n" + "\n".join(lines)
+                    logger.info(f"[ENTITY:PREVIOUS_STATES] trace_id={trace_id} Passing {len(previous_attire)} previous attire states to extraction")
+            except Exception as prev_err:
+                logger.warning(f"[ENTITY:PREVIOUS_STATES:FAIL] trace_id={trace_id} Failed to query previous states: {prev_err}")
+
             # Build context if not provided (for cache-friendly extraction)
             if context is None:
                 try:
@@ -321,7 +345,8 @@ class EntityStateService:
                         context=context,
                         user_id=self.user_id,
                         user_settings=self.user_settings,
-                        db=db
+                        db=db,
+                        previous_states=previous_states_text
                     )
                     logger.info(f"[ENTITY:CACHE_FRIENDLY] trace_id={trace_id} Used cache-friendly extraction")
 
@@ -352,7 +377,8 @@ class EntityStateService:
                     character_names,
                     chapter_location=chapter_location,
                     trace_id=trace_id,
-                    interaction_types=interaction_types
+                    interaction_types=interaction_types,
+                    previous_states=previous_states_text
                 )
 
             # Check if extraction returned meaningful data
@@ -380,7 +406,8 @@ class EntityStateService:
                     character_names,
                     chapter_location=chapter_location,
                     trace_id=f"{trace_id}-retry",
-                    interaction_types=interaction_types
+                    interaction_types=interaction_types,
+                    previous_states=previous_states_text
                 )
 
                 # Check retry result
@@ -1030,7 +1057,8 @@ class EntityStateService:
         character_names: List[str],
         chapter_location: str = None,
         trace_id: Optional[str] = None,
-        interaction_types: List[str] = None
+        interaction_types: List[str] = None,
+        previous_states: str = ""
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to extract state changes from a scene.
@@ -1112,7 +1140,8 @@ class EntityStateService:
                 scene_sequence=scene_sequence,
                 scene_content=scene_content,
                 character_names=', '.join(character_names),
-                chapter_location=chapter_location or "Unknown"
+                chapter_location=chapter_location or "Unknown",
+                previous_states=previous_states or ""
             )
             
             # Append interaction extraction instructions if needed
@@ -1253,14 +1282,22 @@ class EntityStateService:
                 return
             
             # Find character by name in this story (filtered by branch)
-            char_query = db.query(StoryCharacter).join(Character).filter(
-                StoryCharacter.story_id == story_id,
-                Character.name == char_name
+            base_char_query = db.query(StoryCharacter).join(Character).filter(
+                StoryCharacter.story_id == story_id
             )
             if branch_id:
-                char_query = char_query.filter(StoryCharacter.branch_id == branch_id)
-            story_char = char_query.first()
-            
+                base_char_query = base_char_query.filter(StoryCharacter.branch_id == branch_id)
+
+            # Try exact match first
+            story_char = base_char_query.filter(Character.name == char_name).first()
+
+            # Fallback: starts-with match (e.g., "Radhika" matches "Radhika Sharma")
+            if not story_char:
+                story_char = base_char_query.filter(Character.name.ilike(f"{char_name}%")).first()
+                if story_char:
+                    matched_char = db.query(Character).filter(Character.id == story_char.character_id).first()
+                    logger.info(f"Character '{char_name}' fuzzy-matched to '{matched_char.name}' in story {story_id}{trace_suffix}")
+
             if not story_char:
                 logger.warning(f"Character '{char_name}' not found in story {story_id} (branch {branch_id}){trace_suffix}")
                 return
