@@ -2033,7 +2033,7 @@ function StoryPageContent({ storyId }: { storyId: number }) {
               s.id === sceneWithVariant.id
                 ? {
                     ...s,
-                    choices: [...(s.choices || []), ...response.choices]
+                    choices: [...(s.choices || []), ...response.choices.map((c: any) => c.text || c.choice_text || c)]
                   }
                 : s
             )
