@@ -225,7 +225,7 @@ async def process_scene_embeddings(
                 )
                 
                 results['character_moments'] = len(moments) > 0
-                logger.info(f"Extracted {len(moments)} character moments for scene {scene_id}")
+                logger.debug(f"Extracted {len(moments)} character moments for scene {scene_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to extract character moments: {e}")
@@ -257,7 +257,7 @@ async def process_scene_embeddings(
                 )
                 
                 results['plot_events'] = len(events) > 0
-                logger.info(f"Extracted {len(events)} plot events for scene {scene_id}")
+                logger.debug(f"Extracted {len(events)} plot events for scene {scene_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to extract plot events: {e}")
@@ -287,7 +287,7 @@ async def process_scene_embeddings(
                 )
                 
                 results['entity_states'] = entity_results.get('extraction_successful', False)
-                logger.info(f"Entity states updated for scene {scene_id}: {entity_results}")
+                logger.debug(f"Entity states updated for scene {scene_id}: {entity_results}")
                 
             except Exception as e:
                 logger.error(f"Failed to update entity states: {e}")
@@ -316,7 +316,7 @@ async def process_scene_embeddings(
                     )
                     
                     results['npc_tracking'] = npc_results.get('extraction_successful', False)
-                    logger.info(f"NPC tracking completed for scene {scene_id}: {npc_results}")
+                    logger.debug(f"NPC tracking completed for scene {scene_id}: {npc_results}")
                     
                 except Exception as e:
                     logger.error(f"Failed to track NPCs: {e}")
@@ -384,7 +384,7 @@ async def _store_scene_events(
             for event_obj, emb in zip(new_events, embeddings):
                 event_obj.embedding = emb.tolist()
             db.flush()
-            logger.info(f"[SCENE EVENTS] Embedded {stored} events for scene {scene_id}")
+            logger.debug(f"[SCENE EVENTS] Embedded {stored} events for scene {scene_id}")
         except Exception as e:
             logger.warning(f"[SCENE EVENTS] Embedding failed (text stored OK): {e}")
 
@@ -436,10 +436,10 @@ async def _try_combined_extraction(
             logger.warning("[EXTRACTION] No scene_generation_context available, skipping combined extraction")
             return False
 
-        logger.info("[EXTRACTION] Using cache-friendly events+NPCs extraction")
+        logger.debug("[EXTRACTION] Using cache-friendly events+NPCs extraction")
 
         if len(scenes_data) != 1:
-            logger.info(f"[EXTRACTION] Skipping combined extraction for {len(scenes_data)} scenes - using separate batch")
+            logger.debug(f"[EXTRACTION] Skipping combined extraction for {len(scenes_data)} scenes - using separate batch")
             return False
 
         scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
@@ -474,7 +474,7 @@ async def _try_combined_extraction(
                         world_id=_world_id,
                     )
                     results['scene_events'] = results.get('scene_events', 0) + stored
-                    logger.info(f"[SCENE EVENTS] Extracted {stored} events for scene {scene_id}")
+                    logger.debug(f"[SCENE EVENTS] Extracted {stored} events for scene {scene_id}")
 
                 # Store NPCs
                 npcs = extraction_results.get('npcs', [])
@@ -494,7 +494,7 @@ async def _try_combined_extraction(
                         except Exception as e:
                             logger.warning(f"Failed to track NPC: {e}")
 
-                logger.info(f"[EXTRACTION] Events+NPCs extraction successful: events={results.get('scene_events', 0)}, npcs={results['npc_tracking']}")
+                logger.debug(f"[EXTRACTION] Events+NPCs extraction successful: events={results.get('scene_events', 0)}, npcs={results['npc_tracking']}")
                 return True
 
         except Exception as e:
@@ -545,7 +545,7 @@ async def run_inline_entity_extraction(
     import time
 
     start_time = time.perf_counter()
-    logger.info(f"[INLINE_ENTITY] Starting inline entity extraction for scene {scene_sequence}")
+    logger.debug(f"[INLINE_ENTITY] Starting inline entity extraction for scene {scene_sequence}")
 
     results = {
         'entity_states_updated': 0,
@@ -582,7 +582,7 @@ async def run_inline_entity_extraction(
             scene_generation_context = {}
 
         # Call the fast entity-only extraction
-        logger.info(f"[INLINE_ENTITY] Calling extract_entity_states_cache_friendly")
+        logger.debug(f"[INLINE_ENTITY] Calling extract_entity_states_cache_friendly")
         raw_response = await llm_service.extract_entity_states_cache_friendly(
             scene_content=scene_content,
             character_names=character_names,
@@ -594,8 +594,7 @@ async def run_inline_entity_extraction(
         )
 
         extraction_time = (time.perf_counter() - start_time) * 1000
-        logger.info(f"[INLINE_ENTITY] LLM response received in {extraction_time:.0f}ms")
-        logger.info(f"[INLINE_ENTITY] Raw response: {raw_response[:1500] if raw_response else 'None'}")
+        logger.debug(f"[INLINE_ENTITY] LLM response received in {extraction_time:.0f}ms")
 
         # Parse JSON response using robust extractor
         try:
@@ -633,7 +632,7 @@ async def run_inline_entity_extraction(
         results['extraction_time_ms'] = (time.perf_counter() - start_time) * 1000
         results['success'] = True
 
-        logger.info(f"[INLINE_ENTITY] Complete: entities={results['entity_states_updated']}, "
+        logger.debug(f"[INLINE_ENTITY] Complete: entities={results['entity_states_updated']}, "
                    f"contradictions={results['contradictions_found']}, time={results['extraction_time_ms']:.0f}ms")
 
         return results
@@ -682,7 +681,7 @@ async def batch_process_scene_extractions(
         Dictionary with aggregated results from all processed scenes
     """
     # CRITICAL: Log immediately when this function actually starts executing
-    logger.warning(f"[EXTRACTION] batch_process_scene_extractions() STARTED for chapter {chapter_id}, scenes {from_sequence+1} to {to_sequence}")
+    logger.debug(f"[EXTRACTION] batch_process_scene_extractions() STARTED for chapter {chapter_id}, scenes {from_sequence+1} to {to_sequence}")
     
     results = {
         'scenes_processed': 0,
@@ -705,9 +704,9 @@ async def batch_process_scene_extractions(
             )
         ).first()
         branch_id = active_branch.id if active_branch else None
-        logger.warning(f"[EXTRACTION] branch_id was None, looked up active branch: {branch_id} (branch name: {active_branch.name if active_branch else 'N/A'})")
+        logger.debug(f"[EXTRACTION] branch_id was None, looked up active branch: {branch_id} (branch name: {active_branch.name if active_branch else 'N/A'})")
     else:
-        logger.warning(f"[EXTRACTION] branch_id provided: {branch_id}")
+        logger.debug(f"[EXTRACTION] branch_id provided: {branch_id}")
 
     # Look up world_id for cross-story search scope
     _batch_story = db.query(Story).filter(Story.id == story_id).first()
@@ -715,7 +714,7 @@ async def batch_process_scene_extractions(
 
     try:
         # DEBUG: Log query parameters
-        logger.warning(f"[EXTRACTION] Query parameters: story_id={story_id}, chapter_id={chapter_id}, from_sequence={from_sequence}, to_sequence={to_sequence}, branch_id={branch_id}")
+        logger.debug(f"[EXTRACTION] Query parameters: story_id={story_id}, chapter_id={chapter_id}, from_sequence={from_sequence}, to_sequence={to_sequence}, branch_id={branch_id}")
         
         # DEBUG: Check what scenes exist in the database matching each filter condition
         total_scenes_in_story = db.query(Scene).filter(Scene.story_id == story_id, Scene.is_deleted == False).count()
@@ -734,7 +733,7 @@ async def batch_process_scene_extractions(
             Scene.is_deleted == False
         ).count()
         
-        logger.warning(f"[EXTRACTION] Scene counts - Total in story: {total_scenes_in_story}, In chapter: {scenes_in_chapter}, In range: {scenes_in_range}, In chapter+range: {scenes_in_chapter_and_range}")
+        logger.debug(f"[EXTRACTION] Scene counts - Total in story: {total_scenes_in_story}, In chapter: {scenes_in_chapter}, In range: {scenes_in_range}, In chapter+range: {scenes_in_chapter_and_range}")
         
         # DEBUG: Log actual scenes in the range (without chapter filter) to see what we're missing
         scenes_in_range_all_chapters = db.query(Scene).filter(
@@ -745,9 +744,9 @@ async def batch_process_scene_extractions(
         ).order_by(Scene.sequence_number).all()
         
         if scenes_in_range_all_chapters:
-            logger.warning(f"[EXTRACTION] Found {len(scenes_in_range_all_chapters)} scenes in range (all chapters):")
+            logger.debug(f"[EXTRACTION] Found {len(scenes_in_range_all_chapters)} scenes in range (all chapters):")
             for s in scenes_in_range_all_chapters:
-                logger.warning(f"  - Scene {s.id}: seq={s.sequence_number}, chapter_id={s.chapter_id}, is_deleted={s.is_deleted}")
+                logger.debug(f"  - Scene {s.id}: seq={s.sequence_number}, chapter_id={s.chapter_id}, is_deleted={s.is_deleted}")
         
         # DEBUG: Check StoryFlow to see if scenes are active (since scenes_count uses StoryFlow)
         from ..models import StoryFlow
@@ -762,7 +761,7 @@ async def batch_process_scene_extractions(
         if branch_id:
             active_flow_query = active_flow_query.filter(StoryFlow.branch_id == branch_id)
         active_scenes_in_chapter = active_flow_query.count()
-        logger.warning(f"[EXTRACTION] Active scenes in chapter+range (via StoryFlow): {active_scenes_in_chapter}")
+        logger.debug(f"[EXTRACTION] Active scenes in chapter+range (via StoryFlow): {active_scenes_in_chapter}")
 
         # Get all scenes in the chapter within the sequence range
         # Try querying via StoryFlow first (to match how scenes_count is calculated)
@@ -799,7 +798,7 @@ async def batch_process_scene_extractions(
             logger.warning(f"[EXTRACTION] DEBUG: This might be a timing issue - scenes may not be committed yet in this session")
             return results
         
-        logger.warning(f"[EXTRACTION] Batch processing {len(scenes)} scenes for chapter {chapter_id} (sequences {from_sequence+1} to {to_sequence})")
+        logger.debug(f"[EXTRACTION] Batch processing {len(scenes)} scenes for chapter {chapter_id} (sequences {from_sequence+1} to {to_sequence})")
         
         # Prepare scene data for batch extraction
         from ..models import SceneVariant
@@ -869,9 +868,9 @@ async def batch_process_scene_extractions(
                     db=db
                 )
                 if summary_result:
-                    logger.warning(f"[EXTRACTION] Scene location: {summary_result.get('location', '')}, summary: {summary_result.get('summary', '')[:80]}")
+                    logger.debug(f"[EXTRACTION] Scene location: {summary_result.get('location', '')}, summary: {summary_result.get('summary', '')[:80]}")
                 else:
-                    logger.warning("[EXTRACTION] Scene summary generation returned None")
+                    logger.debug("[EXTRACTION] Scene summary generation returned None")
             except Exception as e:
                 logger.warning(f"[EXTRACTION] Scene summary generation failed: {e}")
 
@@ -950,7 +949,7 @@ async def batch_process_scene_extractions(
         combined_success = False
         if enable_combined:
             try:
-                logger.warning(f"[EXTRACTION] Attempting combined extraction for {len(scenes_data)} scenes")
+                logger.debug(f"[EXTRACTION] Attempting combined extraction for {len(scenes_data)} scenes")
                 combined_success = await _try_combined_extraction(
                     scenes_data=scenes_data,
                     story_id=story_id,
@@ -963,19 +962,19 @@ async def batch_process_scene_extractions(
                     skip_entity_states=skip_entity_states
                 )
                 if combined_success:
-                    logger.warning(f"[EXTRACTION] Combined extraction successful!")
+                    logger.debug(f"[EXTRACTION] Combined extraction successful!")
             except Exception as e:
                 logger.warning(f"[EXTRACTION] Combined extraction failed: {e}, falling back to separate calls")
                 combined_success = False
         
         # Fallback to separate calls if combined extraction failed or disabled
         if not combined_success:
-            logger.warning(f"[EXTRACTION] Using separate extraction calls")
+            logger.debug(f"[EXTRACTION] Using separate extraction calls")
 
             # Check if we can use cache-friendly extraction (single scene with context)
             use_cache_friendly = len(scenes_data) == 1 and scene_generation_context is not None
             if use_cache_friendly:
-                logger.info("[EXTRACTION] Using cache-friendly fallback extraction for single scene")
+                logger.debug("[EXTRACTION] Using cache-friendly fallback extraction for single scene")
                 scene_id, sequence_number, chapter_id_local, scene_content = scenes_data[0]
 
                 # Get character names for extraction
@@ -1018,7 +1017,7 @@ async def batch_process_scene_extractions(
                                 results['npc_tracking'] += 1
                             except Exception as e:
                                 logger.warning(f"Failed to track NPC: {e}")
-                        logger.info(f"[EXTRACTION] Cache-friendly extracted {len(npcs)} NPCs")
+                        logger.debug(f"[EXTRACTION] Cache-friendly extracted {len(npcs)} NPCs")
                 except Exception as e:
                     logger.error(f"Cache-friendly NPC extraction failed: {e}")
 
@@ -1047,7 +1046,7 @@ async def batch_process_scene_extractions(
                                 world_id=world_id,
                             )
                             results['scene_events'] = results.get('scene_events', 0) + stored
-                            logger.info(f"[SCENE EVENTS] Fallback extracted {stored} events for scene {scene_id}")
+                            logger.debug(f"[SCENE EVENTS] Fallback extracted {stored} events for scene {scene_id}")
                 except Exception as e:
                     logger.error(f"Cache-friendly scene events extraction failed: {e}")
 
@@ -1066,7 +1065,7 @@ async def batch_process_scene_extractions(
                     )
                     if npc_results.get('extraction_successful'):
                         results['npc_tracking'] += npc_results.get('npcs_tracked', 0)
-                        logger.warning(f"[EXTRACTION] Batch extracted {npc_results.get('npcs_tracked', 0)} NPCs")
+                        logger.debug(f"[EXTRACTION] Batch extracted {npc_results.get('npcs_tracked', 0)} NPCs")
                 except Exception as e:
                     logger.error(f"Failed to batch extract NPCs: {e}")
 
@@ -1122,7 +1121,7 @@ async def batch_process_scene_extractions(
                 # Continue with next scene
                 continue
         
-        logger.warning(f"[EXTRACTION] Batch processing complete: {results}")
+        logger.debug(f"[EXTRACTION] Batch processing complete: {results}")
         return results
         
     except Exception as e:

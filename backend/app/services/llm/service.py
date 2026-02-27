@@ -1033,10 +1033,10 @@ Chapter Conclusion:"""
         # Choose template based on whether we have immediate_situation
         if immediate_situation and immediate_situation.strip():
             template_key = "scene_with_immediate"
-            logger.info(f"[SCENE GENERATION] Using scene_with_immediate template (has immediate_situation)")
+            logger.debug(f"[SCENE GENERATION] Using scene_with_immediate template (has immediate_situation)")
         else:
             template_key = "scene_without_immediate"
-            logger.info(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
+            logger.debug(f"[SCENE GENERATION] Using scene_without_immediate template (no immediate_situation)")
         
         # Get system prompt from template (user prompt will be built from multi-message structure)
         system_prompt = prompt_manager.get_prompt(
@@ -1070,7 +1070,7 @@ Chapter Conclusion:"""
 
         messages.append({"role": "user", "content": task_content})
 
-        logger.info(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages")
+        logger.debug(f"[SCENE GENERATION] Using multi-message structure: {len(messages)} messages")
 
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, None)
@@ -1128,10 +1128,10 @@ Chapter Conclusion:"""
         # Choose template based on whether we have immediate_situation
         if immediate_situation and immediate_situation.strip():
             template_key = "scene_with_immediate"
-            logger.info(f"[SCENE WITH CHOICES] Using scene_with_immediate template (has immediate_situation)")
+            logger.debug(f"[SCENE WITH CHOICES] Using scene_with_immediate template (has immediate_situation)")
         else:
             template_key = "scene_without_immediate"
-            logger.info(f"[SCENE WITH CHOICES] Using scene_without_immediate template (no immediate_situation)")
+            logger.debug(f"[SCENE WITH CHOICES] Using scene_without_immediate template (no immediate_situation)")
         
         # Get system prompt from template
         system_prompt = prompt_manager.get_prompt(
@@ -1167,7 +1167,7 @@ Chapter Conclusion:"""
 
         messages.append({"role": "user", "content": task_content})
 
-        logger.info(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
+        logger.debug(f"[SCENE WITH CHOICES] Using multi-message structure: {len(messages)} messages")
 
         # Get generation parameters
         gen_params = client.get_generation_params(max_tokens, None)
@@ -1189,14 +1189,6 @@ Chapter Conclusion:"""
 
         # Extract content
         response_text = response.choices[0].message.content
-
-        # Print raw LLM response to console for scene generation with choices
-        logger.info("=" * 80)
-        logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (MULTI-MESSAGE)")
-        logger.info("=" * 80)
-        logger.info(f"Full response text ({len(response_text)} chars):")
-        logger.info(response_text)
-        logger.info("=" * 80)
 
         cleaned_response = self._clean_scene_numbers(response_text)
 
@@ -1265,7 +1257,7 @@ Chapter Conclusion:"""
         Returns:
             Tuple of (scene_content, choices_list or None)
         """
-        logger.info(f"[VARIANT NON-STREAMING] Starting variant generation with cache-friendly structure")
+        logger.debug(f"[VARIANT NON-STREAMING] Starting variant generation with cache-friendly structure")
 
         # Get settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -1292,7 +1284,7 @@ Chapter Conclusion:"""
 
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
-        logger.info(f"[VARIANT NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
+        logger.debug(f"[VARIANT NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
 
         # Generate with multi-message structure
         response = await self._generate_with_messages(
@@ -1337,7 +1329,7 @@ Chapter Conclusion:"""
         Returns:
             Tuple of (continuation_content, choices_list or None)
         """
-        logger.info(f"[CONTINUATION NON-STREAMING] Starting continuation generation with cache-friendly structure")
+        logger.debug(f"[CONTINUATION NON-STREAMING] Starting continuation generation with cache-friendly structure")
 
         # Get settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -1363,7 +1355,7 @@ Chapter Conclusion:"""
 
         max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
 
-        logger.info(f"[CONTINUATION NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
+        logger.debug(f"[CONTINUATION NON-STREAMING] Using {len(messages)} messages, max_tokens={max_tokens}")
 
         # Generate with multi-message structure
         response = await self._generate_with_messages(
@@ -1468,10 +1460,10 @@ Chapter Conclusion:"""
         # Choose template based on whether we have immediate_situation
         if immediate_situation and immediate_situation.strip():
             template_key = "scene_with_immediate"
-            logger.info(f"[SCENE GENERATION STREAMING] Using scene_with_immediate template (has immediate_situation)")
+            logger.debug(f"[SCENE GENERATION STREAMING] Using scene_with_immediate template (has immediate_situation)")
         else:
             template_key = "scene_without_immediate"
-            logger.info(f"[SCENE GENERATION STREAMING] Using scene_without_immediate template (no immediate_situation)")
+            logger.debug(f"[SCENE GENERATION STREAMING] Using scene_without_immediate template (no immediate_situation)")
         
         # Get system prompt from template
         system_prompt = prompt_manager.get_prompt(
@@ -1504,7 +1496,7 @@ Chapter Conclusion:"""
 
         messages.append({"role": "user", "content": task_content})
 
-        logger.info(f"[SCENE GENERATION STREAMING] Using multi-message structure: {len(messages)} messages")
+        logger.debug(f"[SCENE GENERATION STREAMING] Using multi-message structure: {len(messages)} messages")
         
         # Collect all raw chunks for raw response capture (before cleaning)
         raw_chunks = []
@@ -1593,7 +1585,7 @@ Chapter Conclusion:"""
         scene_length = generation_prefs.get("scene_length", "medium")
         choices_count = generation_prefs.get("choices_count", 4)
         separate_choice_generation = generation_prefs.get("separate_choice_generation", False)
-        logger.info(f"[SCENE GEN STREAMING] separate_choice_generation={separate_choice_generation}, generation_prefs={generation_prefs}")
+        logger.debug(f"[SCENE GEN STREAMING] separate_choice_generation={separate_choice_generation}, generation_prefs={generation_prefs}")
         scene_length_description = self._get_scene_length_description(scene_length)
 
         # Extract immediate_situation from context for template variable
@@ -1602,7 +1594,7 @@ Chapter Conclusion:"""
         
         # Determine if we have an immediate situation (for task instruction selection)
         has_immediate = bool(immediate_situation and immediate_situation.strip())
-        logger.info(f"[SCENE GEN STREAMING] has_immediate={has_immediate}")
+        logger.debug(f"[SCENE GEN STREAMING] has_immediate={has_immediate}")
         
         # Get POV from writing preset (default to third person)
         pov = 'third'
@@ -1652,7 +1644,7 @@ Chapter Conclusion:"""
         saved_full_prompt = context.get("_saved_full_prompt")
         if saved_full_prompt:
             messages = saved_full_prompt
-            logger.info(f"[SCENE GEN STREAMING] Using saved full prompt ({len(messages)} messages)")
+            logger.debug(f"[SCENE GEN STREAMING] Using saved full prompt ({len(messages)} messages)")
         else:
             # === MULTI-MESSAGE STRUCTURE FOR BETTER CACHING ===
             # Use helper to build cache-friendly prefix (system + context messages)
@@ -1700,7 +1692,7 @@ Chapter Conclusion:"""
         # from scratch — potentially getting a different system prompt (cache break).
         context['_saved_prompt_prefix'] = list(messages[:-1])
 
-        logger.info(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
+        logger.debug(f"[SCENE WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -1833,14 +1825,6 @@ Chapter Conclusion:"""
         full_response = full_scene_content + (''.join(choices_buffer) if choices_buffer else '')
         raw_full_response = ''.join(raw_chunks)  # Combined raw chunks before cleaning
         
-        # Print raw LLM response to console for scene generation with choices (streaming)
-        logger.info("=" * 80)
-        logger.info("RAW LLM RESPONSE - SCENE GENERATION WITH CHOICES (STREAMING)")
-        logger.info("=" * 80)
-        logger.info(f"Full response text ({len(raw_full_response)} chars, {total_chunks} chunks):")
-        logger.info(raw_full_response)
-        logger.info("=" * 80)
-        
         # Write raw response to file (using raw chunks before cleaning, only if prompt_debug is enabled)
         if settings.prompt_debug:
             try:
@@ -1909,7 +1893,7 @@ Chapter Conclusion:"""
         CHOICES_MARKER = "###CHOICES###"
         
         # Log inputs for debugging
-        logger.info(f"Variant generation - context type: {type(context)}")
+        logger.debug(f"Variant generation - context type: {type(context)}")
         
         # Get scene length, choices count, and separate choice generation setting from user settings
         generation_prefs = user_settings.get("generation_preferences", {})
@@ -1967,7 +1951,7 @@ Chapter Conclusion:"""
                 skip_choices_reminder=separate_choice_generation,
                 chapter_plot_for_choices=chapter_plot_for_choices
             )
-            logger.info(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
+            logger.debug(f"[GUIDED ENHANCEMENT] Using multi-message structure with enhancement task")
         else:
             # Simple variant: use same task instruction as scene generation
             immediate_situation = context.get("current_situation") or ""
@@ -2000,7 +1984,7 @@ Chapter Conclusion:"""
 
         max_tokens = prompt_manager.get_max_tokens("scene_generation", user_settings)
 
-        logger.info(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
+        logger.debug(f"[VARIANT WITH CHOICES STREAMING] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2229,7 +2213,7 @@ Write approximately {scene_length_description} in length.
 
         max_tokens = prompt_manager.get_max_tokens("scene_continuation", user_settings)
 
-        logger.info(f"[CONTINUATION] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
+        logger.debug(f"[CONTINUATION] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}")
         
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2413,7 +2397,7 @@ Chapter Conclusion:"""
         messages.append({"role": "user", "content": final_message})
         
         max_tokens = prompt_manager.get_max_tokens("chapter_conclusion", user_settings)
-        logger.info(f"[CONCLUDING SCENE] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
+        logger.debug(f"[CONCLUDING SCENE] Using multi-message structure: {len(messages)} messages, max_tokens={max_tokens}")
         
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2697,7 +2681,7 @@ Chapter Conclusion:"""
         dynamic_max_tokens = max(base_max_tokens, choices_count * 75)
         max_tokens = dynamic_max_tokens
         
-        logger.info(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}, requested_choices={choices_count}")
+        logger.debug(f"[CHOICES] Using multi-message structure for cache optimization: {len(messages)} messages, max_tokens={max_tokens}, requested_choices={choices_count}")
         
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2727,8 +2711,6 @@ Chapter Conclusion:"""
         )
         
         # Log raw response for debugging
-        logger.info(f"[CHOICES] Raw LLM response for choice generation: {response}")
-
         # Parse choices from response using JSON format
         choices = self._parse_choices_from_json(response)
 
@@ -2796,7 +2778,7 @@ Chapter Conclusion:"""
                 "You analyze story scenes to identify which planned plot events have occurred. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[PLOT_EXTRACTION] Simple structure: {len(messages)} messages, checking {len(key_events)} events")
+            logger.debug(f"[PLOT_EXTRACTION] Simple structure: {len(messages)} messages, checking {len(key_events)} events")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -2805,7 +2787,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
+            logger.debug(f"[PLOT_EXTRACTION] Cache-friendly structure: {len(messages)} messages, checking {len(key_events)} events")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -2832,7 +2814,7 @@ Chapter Conclusion:"""
                 task_type="extraction", force_main_llm=force_main_llm_plot,
             )
 
-            logger.info(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
+            logger.debug(f"[PLOT_EXTRACTION] Raw response: {response[:300] if response else 'None'}...")
 
             # Parse response as JSON object {"1": true, "2": false}
             from ..chapter_progress_service import clean_llm_json
@@ -2930,7 +2912,7 @@ Chapter Conclusion:"""
                 "You are a precise story analysis assistant. Extract characters, NPCs, plot events, and entity states. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[COMBINED_EXTRACTION] Simple structure: {len(messages)} messages")
+            logger.debug(f"[COMBINED_EXTRACTION] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -2939,7 +2921,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[COMBINED_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3030,7 +3012,7 @@ Chapter Conclusion:"""
                 "You are a precise story analysis assistant. Extract characters, NPCs, plot events, and entity states from scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[BATCH_EXTRACTION] Simple structure: {len(messages)} messages, {num_scenes} scenes")
+            logger.debug(f"[BATCH_EXTRACTION] Simple structure: {len(messages)} messages, {num_scenes} scenes")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3039,7 +3021,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[BATCH_EXTRACTION] Cache-friendly structure: {len(messages)} messages, {num_scenes} scenes")
+            logger.debug(f"[BATCH_EXTRACTION] Cache-friendly structure: {len(messages)} messages, {num_scenes} scenes")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3106,7 +3088,7 @@ Chapter Conclusion:"""
                 "You extract factual events and named NPCs from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[EVENTS_NPCS] Simple structure: {len(messages)} messages")
+            logger.debug(f"[EVENTS_NPCS] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3115,7 +3097,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[EVENTS_NPCS] Cache-friendly structure: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -3160,7 +3142,7 @@ Chapter Conclusion:"""
                 "You extract factual events from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[SCENE_EVENTS] Simple structure: {len(messages)} messages")
+            logger.debug(f"[SCENE_EVENTS] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3169,7 +3151,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[SCENE_EVENTS] Cache-friendly structure: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -3232,7 +3214,7 @@ Chapter Conclusion:"""
                 "You are a skilled story analyst. Create concise, accurate chapter summaries that capture key events and character developments.",
                 final_message
             )
-            logger.info(f"[CHAPTER_SUMMARY] Simple structure: {len(messages)} messages, chapter {chapter_number}")
+            logger.debug(f"[CHAPTER_SUMMARY] Simple structure: {len(messages)} messages, chapter {chapter_number}")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3241,7 +3223,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[CHAPTER_SUMMARY] Cache-friendly structure: {len(messages)} messages, chapter {chapter_number}")
+            logger.debug(f"[CHAPTER_SUMMARY] Cache-friendly structure: {len(messages)} messages, chapter {chapter_number}")
 
         try:
             return await self.generate_for_task(
@@ -3304,7 +3286,7 @@ Chapter Conclusion:"""
                 "You extract entity states (characters, locations, objects) from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[ENTITY_ONLY_EXTRACTION] Simple structure: {len(messages)} messages")
+            logger.debug(f"[ENTITY_ONLY_EXTRACTION] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3313,7 +3295,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[ENTITY_ONLY_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[ENTITY_ONLY_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3379,7 +3361,7 @@ Chapter Conclusion:"""
                 "You extract relationship changes between characters from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[RELATIONSHIP_EXTRACTION] Simple structure: {len(messages)} messages")
+            logger.debug(f"[RELATIONSHIP_EXTRACTION] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3388,7 +3370,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[RELATIONSHIP_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[RELATIONSHIP_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         try:
             response = await self.generate_for_task(
@@ -3467,7 +3449,7 @@ Chapter Conclusion:"""
                 "You extract working memory updates (narrative focus and character spotlight) from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[WORKING_MEMORY] Simple structure: {len(messages)} messages")
+            logger.debug(f"[WORKING_MEMORY] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3476,7 +3458,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[WORKING_MEMORY] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3554,7 +3536,7 @@ Chapter Conclusion:"""
                 "You generate concise factual summaries and location descriptions for story scenes.",
                 final_message
             )
-            logger.info(f"[SCENE_SUMMARY] Simple structure: {len(messages)} messages")
+            logger.debug(f"[SCENE_SUMMARY] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3563,7 +3545,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[SCENE_SUMMARY] Cache-friendly structure: {len(messages)} messages")
 
         try:
             response = await self.generate_for_task(
@@ -3652,7 +3634,7 @@ Chapter Conclusion:"""
                 "You extract named NPCs (non-player characters) from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[NPC_EXTRACTION] Simple structure: {len(messages)} messages")
+            logger.debug(f"[NPC_EXTRACTION] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3661,7 +3643,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[NPC_EXTRACTION] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3744,7 +3726,7 @@ Chapter Conclusion:"""
                 "You extract significant character moments from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[CHARACTER_MOMENTS] Simple structure: {len(messages)} messages")
+            logger.debug(f"[CHARACTER_MOMENTS] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3753,7 +3735,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[CHARACTER_MOMENTS] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3838,7 +3820,7 @@ Chapter Conclusion:"""
                 "You extract significant plot events from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[PLOT_EVENTS_FALLBACK] Simple structure: {len(messages)} messages")
+            logger.debug(f"[PLOT_EVENTS_FALLBACK] Simple structure: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3847,7 +3829,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
+            logger.debug(f"[PLOT_EVENTS_FALLBACK] Cache-friendly structure: {len(messages)} messages")
 
         # Write debug output for debugging cache issues
         from ...config import settings
@@ -3934,7 +3916,7 @@ Chapter Conclusion:"""
                 "You extract character chronicle entries and location lorebook events from story scenes. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[CHRONICLE] Simple extraction: {len(messages)} messages")
+            logger.debug(f"[CHRONICLE] Simple extraction: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -3943,7 +3925,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[CHRONICLE] Cache-friendly extraction: {len(messages)} messages")
+            logger.debug(f"[CHRONICLE] Cache-friendly extraction: {len(messages)} messages")
 
         # Debug log
         from ...config import settings
@@ -4003,7 +3985,7 @@ Chapter Conclusion:"""
                 "You validate chronicle and lorebook entries against story scene content. Return only valid JSON.",
                 final_message
             )
-            logger.info(f"[CHRONICLE_VALIDATION] Simple validation: {len(messages)} messages")
+            logger.debug(f"[CHRONICLE_VALIDATION] Simple validation: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -4012,7 +3994,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[CHRONICLE_VALIDATION] Cache-friendly validation: {len(messages)} messages")
+            logger.debug(f"[CHRONICLE_VALIDATION] Cache-friendly validation: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -4057,7 +4039,7 @@ Chapter Conclusion:"""
                 "You generate concise character snapshot paragraphs that summarize a character's current state based on chronicle entries.",
                 final_message
             )
-            logger.info(f"[SNAPSHOT] Simple generation for {character_name}: {len(messages)} messages")
+            logger.debug(f"[SNAPSHOT] Simple generation for {character_name}: {len(messages)} messages")
         else:
             messages = await self._build_cache_friendly_message_prefix(
                 context=context,
@@ -4066,7 +4048,7 @@ Chapter Conclusion:"""
                 db=db,
             )
             messages.append({"role": "user", "content": final_message})
-            logger.info(f"[SNAPSHOT] Cache-friendly generation for {character_name}: {len(messages)} messages")
+            logger.debug(f"[SNAPSHOT] Cache-friendly generation for {character_name}: {len(messages)} messages")
 
         try:
             return await self.generate_for_task(
@@ -4122,16 +4104,6 @@ Chapter Conclusion:"""
             system_prompt=system_prompt,
             max_tokens=max_tokens
         )
-        
-        # Log raw LLM response for debugging
-        logger.warning("=" * 80)
-        logger.warning("RAW LLM RESPONSE - PLOT GENERATION")
-        logger.warning("=" * 80)
-        logger.warning(f"Plot Type: {plot_type}")
-        logger.warning(f"Response Length: {len(response)} characters")
-        logger.warning("-" * 80)
-        logger.warning(f"RAW RESPONSE:\n{response}")
-        logger.warning("=" * 80)
         
         if plot_type == "complete":
             parsed_points = self._parse_plot_points_json(response)
@@ -4253,7 +4225,7 @@ Chapter Conclusion:"""
             # Skip if already improved in this request cycle (e.g., scene gen already ran,
             # now choices/variant gen is calling — context already has improved text)
             if context.get("_semantic_improved"):
-                logger.info("[SEMANTIC DECOMPOSE] Skipped: already improved in this request cycle")
+                logger.debug("[SEMANTIC DECOMPOSE] Skipped: already improved in this request cycle")
                 return True
 
             # Get user_intent
@@ -4264,12 +4236,12 @@ Chapter Conclusion:"""
             if not user_intent:
                 user_intent = context.get("current_situation")
             if not user_intent or not user_intent.strip():
-                logger.info(f"[SEMANTIC DECOMPOSE] Skipped: no user_intent (search_state={'present' if search_state else 'missing'}, current_situation={bool(context.get('current_situation'))})")
+                logger.debug(f"[SEMANTIC DECOMPOSE] Skipped: no user_intent (search_state={'present' if search_state else 'missing'}, current_situation={bool(context.get('current_situation'))})")
                 return False
 
             # Gate: need db for boost/filter
             if db is None:
-                logger.info("[SEMANTIC DECOMPOSE] Skipped: db is None")
+                logger.debug("[SEMANTIC DECOMPOSE] Skipped: db is None")
                 return False
 
             # Route to extraction LLM if available, otherwise main LLM
@@ -4280,7 +4252,7 @@ Chapter Conclusion:"""
             # Gate: need context_manager ref and search state
             ctx_mgr = context.get("_context_manager_ref")
             if not ctx_mgr or not search_state:
-                logger.info(f"[SEMANTIC DECOMPOSE] Skipped: ctx_mgr={bool(ctx_mgr)}, search_state={bool(search_state)}")
+                logger.debug(f"[SEMANTIC DECOMPOSE] Skipped: ctx_mgr={bool(ctx_mgr)}, search_state={bool(search_state)}")
                 return False
 
             # Build char_context early — needed by both cached and fresh paths
@@ -4299,11 +4271,11 @@ Chapter Conclusion:"""
                 temporal_type = cached_intent.get("temporal")
                 sub_queries = cached_intent.get("queries", [])
                 keywords = cached_intent.get("keywords", [])
-                logger.info(f"[SEMANTIC DECOMPOSE] Reusing cached intent from context_manager: {intent_type or 'direct'}")
+                logger.debug(f"[SEMANTIC DECOMPOSE] Reusing cached intent from context_manager: {intent_type or 'direct'}")
 
                 # Direct/react intent — semantic search was already skipped, nothing to improve
                 if intent_type in ("direct", "react") or (not intent_type and not sub_queries):
-                    logger.info(f"[SEMANTIC DECOMPOSE] {intent_type or 'direct'} intent — no semantic improvement needed")
+                    logger.debug(f"[SEMANTIC DECOMPOSE] {intent_type or 'direct'} intent — no semantic improvement needed")
                     return False
             else:
                 # No cached intent — run classification here (fallback path)
@@ -4354,7 +4326,7 @@ Chapter Conclusion:"""
                 if extraction_service:
                     _allow_thinking_decompose = ext_settings.get('thinking_enabled_memory', True)
                     decompose_messages = [{"role": "user", "content": char_context + decompose_task}]
-                    logger.info(f"[SEMANTIC DECOMPOSE] Using extraction LLM (allow_thinking={_allow_thinking_decompose})")
+                    logger.debug(f"[SEMANTIC DECOMPOSE] Using extraction LLM (allow_thinking={_allow_thinking_decompose})")
                     response = await extraction_service.generate_with_messages(
                         messages=decompose_messages,
                         max_tokens=300,
@@ -4367,7 +4339,7 @@ Chapter Conclusion:"""
                     decompose_settings = copy.deepcopy(user_settings)
                     decompose_settings.setdefault('llm_settings', {})['temperature'] = 0.3
                     decompose_settings['llm_settings']['reasoning_effort'] = 'disabled'
-                    logger.info("[SEMANTIC DECOMPOSE] Using main LLM with cache-friendly prefix")
+                    logger.debug("[SEMANTIC DECOMPOSE] Using main LLM with cache-friendly prefix")
                     from ...config import settings as app_settings
                     if app_settings.prompt_debug:
                         try:
@@ -4409,7 +4381,7 @@ Chapter Conclusion:"""
                             keywords.append(w)
                 if keywords:
                     keywords = list(dict.fromkeys(keywords))  # deduplicate preserving order
-                    logger.info(f"[SEMANTIC DECOMPOSE] Generated fallback keywords from sub-queries: {keywords}")
+                    logger.debug(f"[SEMANTIC DECOMPOSE] Generated fallback keywords from sub-queries: {keywords}")
 
             logger.info(f"[SEMANTIC DECOMPOSE] Intent: {intent_type or 'direct (default)'}, "
                        f"Temporal: {temporal_type or 'any (default)'}, "
@@ -5012,20 +4984,20 @@ Chapter Conclusion:"""
         if story_so_far:
             # Clean scene numbers from summary to avoid teaching LLM to generate them
             story_so_far = clean_scene_numbers_from_summary(story_so_far)
-            logger.info(f"[CONTEXT FORMAT] Including story_so_far ({len(story_so_far)} chars)")
+            logger.debug(f"[CONTEXT FORMAT] Including story_so_far ({len(story_so_far)} chars)")
             context_parts.append(f"Story So Far:\n{story_so_far}")
         else:
-            logger.info("[CONTEXT FORMAT] story_so_far is None or empty, not including")
+            logger.debug("[CONTEXT FORMAT] story_so_far is None or empty, not including")
 
         # Add current chapter summary if available (summary of this chapter's progress so far)
         current_chapter_summary = context.get("current_chapter_summary")
         if current_chapter_summary:
             # Clean scene numbers from summary to avoid teaching LLM to generate them
             current_chapter_summary = clean_scene_numbers_from_summary(current_chapter_summary)
-            logger.info(f"[CONTEXT FORMAT] Including current_chapter_summary ({len(current_chapter_summary)} chars)")
+            logger.debug(f"[CONTEXT FORMAT] Including current_chapter_summary ({len(current_chapter_summary)} chars)")
             context_parts.append(f"Current Chapter Summary:\n{current_chapter_summary}")
         else:
-            logger.info("[CONTEXT FORMAT] current_chapter_summary is None or empty, not including")
+            logger.debug("[CONTEXT FORMAT] current_chapter_summary is None or empty, not including")
         
         # Parse and organize previous_scenes into clear sections
         if context.get("previous_scenes"):

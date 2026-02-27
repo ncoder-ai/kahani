@@ -179,12 +179,7 @@ async def login(
     origin = request.headers.get("origin", "unknown")
     referer = request.headers.get("referer", "unknown")
 
-    logger.info(f"=== LOGIN ATTEMPT ===")
-    logger.info(f"Identifier: {user_data.identifier}")
-    logger.info(f"Client IP: {client_host}")
-    logger.info(f"User-Agent: {user_agent}")
-    logger.info(f"Origin: {origin}")
-    logger.info(f"Referer: {referer}")
+    logger.debug(f"Login attempt: identifier={user_data.identifier} client_ip={client_host} user_agent={user_agent} origin={origin}")
 
     try:
         # Check if user exists by email or username
@@ -222,7 +217,7 @@ async def login(
             )
         
         # Create access token
-        logger.info(f"Creating access token for user {user.id} ({user.email})")
+        logger.debug(f"Creating access token for user {user.id} ({user.email})")
         access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
         access_token = create_access_token(
             data={"sub": str(user.id)}, expires_delta=access_token_expires
@@ -231,13 +226,13 @@ async def login(
         # Create refresh token if remember_me is True
         refresh_token = None
         if user_data.remember_me:
-            logger.info(f"Creating refresh token for user {user.id} ({user.email})")
+            logger.debug(f"Creating refresh token for user {user.id} ({user.email})")
             refresh_token = create_refresh_token(data={"sub": str(user.id)})
         
         logger.info(f"Login successful: User {user.id} ({user.email}) from {client_host}")
-        logger.info(f"Token expires in {settings.access_token_expire_minutes} minutes")
+        logger.debug(f"Token expires in {settings.access_token_expire_minutes} minutes")
         if refresh_token:
-            logger.info(f"Refresh token created, expires in {settings.refresh_token_expire_days} days")
+            logger.debug(f"Refresh token created, expires in {settings.refresh_token_expire_days} days")
         
         response_data = {
             "access_token": access_token,
@@ -268,7 +263,6 @@ async def login(
         if refresh_token:
             response_data["refresh_token"] = refresh_token
         
-        logger.info(f"Returning response with token length: {len(access_token)}")
         return response_data
         
     except HTTPException:

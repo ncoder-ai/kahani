@@ -75,7 +75,7 @@ def fix_incomplete_json_array(json_str: str) -> Optional[str]:
         # If we found any complete entries, reconstruct the JSON array
         if entries:
             fixed_json = '[' + ', '.join(entries) + ']'
-            logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: extracted {len(entries)} complete entries")
+            logger.debug(f"[CHOICES PARSE] Fixed incomplete JSON: extracted {len(entries)} complete entries")
             return fixed_json
 
         # Fallback: try to close the last incomplete string if we're in one
@@ -85,7 +85,7 @@ def fix_incomplete_json_array(json_str: str) -> Optional[str]:
             # Remove trailing comma if present
             incomplete_entry = re.sub(r',\s*$', '', incomplete_entry)
             fixed_json = '[' + incomplete_entry + ']'
-            logger.info(f"[CHOICES PARSE] Fixed incomplete JSON: closed last string")
+            logger.debug(f"[CHOICES PARSE] Fixed incomplete JSON: closed last string")
             return fixed_json
 
         return None
@@ -200,7 +200,7 @@ def extract_choices_with_regex(text: str) -> Optional[List[str]]:
                 choices.append(cleaned)
 
     if len(choices) >= 2:
-        logger.info(f"[CHOICES PARSE] Regex fallback extracted {len(choices)} choices")
+        logger.debug(f"[CHOICES PARSE] Regex fallback extracted {len(choices)} choices")
         return choices[:6]  # Limit to reasonable number
 
     return None
@@ -226,7 +226,7 @@ def _split_mixed_quote_choice(choice: str) -> List[str]:
         cleaned = [p.strip().strip("'\"").strip() for p in parts]
         cleaned = [p for p in cleaned if len(p) > 5]
         if len(cleaned) > 1:
-            logger.info(f"[CHOICES PARSE] Split mixed-quote choice into {len(cleaned)} parts")
+            logger.debug(f"[CHOICES PARSE] Split mixed-quote choice into {len(cleaned)} parts")
             return cleaned
     return [choice]
 
@@ -251,7 +251,7 @@ def _validate_and_return_choices(choices: Any) -> Optional[List[str]]:
                 logger.debug(f"[CHOICES PARSE] Choice {i+1} not a string: {type(choice)}")
 
         if len(cleaned_choices) >= 2:
-            logger.info(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} choices")
+            logger.debug(f"[CHOICES PARSE] Successfully parsed {len(cleaned_choices)} choices")
             return cleaned_choices
         else:
             logger.warning(f"[CHOICES PARSE] Not enough valid choices: {len(cleaned_choices)} < 2")
@@ -331,12 +331,12 @@ def parse_choices_from_json(text: str) -> Optional[List[str]]:
                     choices = parsed["choices"]
                     result = _validate_and_return_choices(choices)
                     if result:
-                        logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping")
+                        logger.debug("[CHOICES PARSE] Succeeded after fixing malformed escaping")
                         return result
                 elif isinstance(parsed, list):
                     result = _validate_and_return_choices(parsed)
                     if result:
-                        logger.info("[CHOICES PARSE] Succeeded after fixing malformed escaping (array)")
+                        logger.debug("[CHOICES PARSE] Succeeded after fixing malformed escaping (array)")
                         return result
             except json.JSONDecodeError:
                 pass
@@ -372,7 +372,7 @@ def parse_choices_from_json(text: str) -> Optional[List[str]]:
                     choices = json.loads(fixed_json_str)
                     result = _validate_and_return_choices(choices)
                     if result:
-                        logger.info("[CHOICES PARSE] Succeeded after fixing array escaping")
+                        logger.debug("[CHOICES PARSE] Succeeded after fixing array escaping")
                         return result
                 except json.JSONDecodeError:
                     pass
@@ -404,7 +404,7 @@ def parse_choices_from_json(text: str) -> Optional[List[str]]:
                     logger.warning(f"[CHOICES PARSE] Failed to parse fixed incomplete JSON: {e}")
 
         # === STRATEGY 4: Regex fallback - extract quoted strings directly ===
-        logger.info("[CHOICES PARSE] Trying regex fallback to extract choices")
+        logger.debug("[CHOICES PARSE] Trying regex fallback to extract choices")
         regex_choices = extract_choices_with_regex(original_text)
         if regex_choices:
             return regex_choices
@@ -506,7 +506,7 @@ def detect_json_array_in_prose(text: str, min_scene_length: int = 200) -> Tuple[
         parsed = parse_choices_from_json(json_str)
         if parsed and len(parsed) >= 2:
             scene_content = text[:start_pos].strip()
-            logger.info(f"[CHOICES DETECTION] Found JSON array in prose at position {start_pos}")
+            logger.debug(f"[CHOICES DETECTION] Found JSON array in prose at position {start_pos}")
             return (scene_content, parsed)
 
     return (text, None)
@@ -545,7 +545,7 @@ def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[Lis
             choices_text = full_text[marker_pos + len(match.group()):].strip()
             parsed = parse_choices_from_json(choices_text)
             if parsed:
-                logger.info(f"[CHOICES EXTRACTION] Found marker '{match.group().strip()}' at position {marker_pos}")
+                logger.debug(f"[CHOICES EXTRACTION] Found marker '{match.group().strip()}' at position {marker_pos}")
                 return (scene, parsed)
 
     # Special case: Handle "CHOICES [...]" format (LLM outputs choices word followed by JSON array)
@@ -556,7 +556,7 @@ def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[Lis
         choices_json = choices_word_match.group(1)
         parsed = parse_choices_from_json(choices_json)
         if parsed:
-            logger.info(f"[CHOICES EXTRACTION] Found 'CHOICES [...]' format at position {marker_pos}")
+            logger.debug(f"[CHOICES EXTRACTION] Found 'CHOICES [...]' format at position {marker_pos}")
             return (scene, parsed)
 
     # === IMPROVED FALLBACK: Robust JSON array detection ===
@@ -584,7 +584,7 @@ def extract_choices_from_response_end(full_text: str) -> Tuple[str, Optional[Lis
             if parsed and len(parsed) >= 2:
                 marker_pos = search_start + json_match.start()
                 scene = full_text[:marker_pos].strip()
-                logger.info(f"[CHOICES EXTRACTION] Found JSON array at position {marker_pos} (improved pattern)")
+                logger.debug(f"[CHOICES EXTRACTION] Found JSON array at position {marker_pos} (improved pattern)")
                 return (scene, parsed)
 
     # Pattern 2: Use the prose detection as final fallback

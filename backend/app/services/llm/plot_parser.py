@@ -65,11 +65,6 @@ def parse_plot_points_json(response: str) -> List[str]:
     """Parse plot points from JSON response"""
     plot_points = []
 
-    logger.warning("=" * 80)
-    logger.warning("PARSING PLOT POINTS FROM JSON")
-    logger.warning("=" * 80)
-    logger.warning(f"Input response length: {len(response)} characters")
-
     try:
         # Clean response - remove markdown code blocks if present
         response_clean = response.strip()
@@ -84,7 +79,7 @@ def parse_plot_points_json(response: str) -> List[str]:
                 if response_clean.startswith("json"):
                     response_clean = response_clean[4:].strip()
 
-        logger.warning(f"Cleaned response (first 200 chars): {response_clean[:200]}...")
+        logger.debug(f"Cleaned response (first 200 chars): {response_clean[:200]}...")
 
         # Parse JSON
         try:
@@ -112,7 +107,7 @@ def parse_plot_points_json(response: str) -> List[str]:
 
                 if json_end > json_start:
                     json_str = response_clean[json_start:json_end]
-                    logger.warning("Found JSON-like structure, attempting to parse...")
+                    logger.debug("Found JSON-like structure, attempting to parse...")
                     try:
                         # Replace single quotes with double quotes if needed
                         if "'" in json_str and '"' not in json_str:
@@ -146,13 +141,13 @@ def parse_plot_points_json(response: str) -> List[str]:
 
                 if point and len(point) > 10:  # Minimum length check
                     cleaned_points.append(point)
-                    logger.warning(f"Extracted plot point #{len(cleaned_points)}: {point[:100]}...")
+                    logger.debug(f"Extracted plot point #{len(cleaned_points)}: {point[:100]}...")
                 else:
-                    logger.warning(f"Rejected plot point #{i+1} (too short or empty): '{point[:50] if point else 'empty'}...'")
+                    logger.debug(f"Rejected plot point #{i+1} (too short or empty): '{point[:50] if point else 'empty'}...'")
 
             plot_points = cleaned_points
 
-            logger.warning(f"Total plot points extracted from JSON: {len(plot_points)}")
+            logger.debug(f"Total plot points extracted from JSON: {len(plot_points)}")
         else:
             raise ValueError(f"JSON does not contain 'plot_points' key. Keys found: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
 
@@ -164,14 +159,11 @@ def parse_plot_points_json(response: str) -> List[str]:
 
     # Ensure we have exactly 5 plot points
     if len(plot_points) < 5:
-        logger.warning(f"WARNING: Only {len(plot_points)} plot points extracted from JSON, using fallback for remaining")
+        logger.warning(f"Only {len(plot_points)} plot points extracted from JSON, using fallback for remaining")
         plot_points.extend(FALLBACK_PLOT_POINTS[len(plot_points):])
 
-    logger.warning("-" * 80)
-    logger.warning("FINAL PARSED PLOT POINTS FROM JSON:")
     for i, point in enumerate(plot_points[:5], 1):
-        logger.warning(f"{i}. {point[:150]}...")
-    logger.warning("=" * 80)
+        logger.debug(f"Final plot point {i}. {point[:150]}...")
 
     return plot_points[:5]
 
@@ -179,12 +171,6 @@ def parse_plot_points_json(response: str) -> List[str]:
 def parse_plot_points(response: str) -> List[str]:
     """Parse plot points from response - handles multiple formats"""
     plot_points = []
-
-    logger.warning("=" * 80)
-    logger.warning("PARSING PLOT POINTS")
-    logger.warning("=" * 80)
-    logger.warning(f"Input response length: {len(response)} characters")
-    logger.warning(f"Input response lines: {len(response.split(chr(10)))} lines")
 
     # Plot point names for pattern matching
     plot_point_pattern = "|".join(PLOT_POINT_NAMES)
@@ -202,7 +188,7 @@ def parse_plot_points(response: str) -> List[str]:
                 clean_point = clean_plot_point(current_point, PLOT_POINT_NAMES)
                 if clean_point and len(clean_point) > 20:
                     plot_points.append(clean_point)
-                    logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
+                    logger.debug(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
                 current_point = ""
                 found_any_marker = False
             continue
@@ -214,25 +200,25 @@ def parse_plot_points(response: str) -> List[str]:
         if re.match(r'^\d+\.\s*', line):
             is_new_point = True
             found_any_marker = True
-            logger.warning(f"Found numbered marker: {line[:50]}...")
+            logger.debug(f"Found numbered marker: {line[:50]}...")
 
         # Check for plot point name at start
         elif re.match(r'^(' + plot_point_pattern + r')\s*:?\s*', line, re.IGNORECASE):
             is_new_point = True
             found_any_marker = True
-            logger.warning(f"Found named marker: {line[:50]}...")
+            logger.debug(f"Found named marker: {line[:50]}...")
 
         # Check for markdown bold
         elif re.search(r'\*\*(' + plot_point_pattern + r')\*\*', line, re.IGNORECASE):
             is_new_point = True
             found_any_marker = True
-            logger.warning(f"Found markdown marker: {line[:50]}...")
+            logger.debug(f"Found markdown marker: {line[:50]}...")
 
         # Check for bullet points
         elif re.match(r'^[\-\*\•]\s+', line):
             is_new_point = True
             found_any_marker = True
-            logger.warning(f"Found bullet marker: {line[:50]}...")
+            logger.debug(f"Found bullet marker: {line[:50]}...")
 
         if is_new_point:
             # Save previous point if exists
@@ -240,9 +226,9 @@ def parse_plot_points(response: str) -> List[str]:
                 clean_point = clean_plot_point(current_point, PLOT_POINT_NAMES)
                 if clean_point and len(clean_point) > 20:
                     plot_points.append(clean_point)
-                    logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
+                    logger.debug(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
                 else:
-                    logger.warning(f"Rejected plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
+                    logger.debug(f"Rejected plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
             current_point = line
         else:
             # Continuation of current point
@@ -260,9 +246,9 @@ def parse_plot_points(response: str) -> List[str]:
         clean_point = clean_plot_point(current_point, PLOT_POINT_NAMES)
         if clean_point and len(clean_point) > 20:
             plot_points.append(clean_point)
-            logger.warning(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
+            logger.debug(f"Extracted plot point #{len(plot_points)}: {clean_point[:100]}...")
         else:
-            logger.warning(f"Rejected final plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
+            logger.debug(f"Rejected final plot point (too short): '{clean_point[:50] if clean_point else 'empty'}...'")
 
     # If we didn't find any markers, try to split by common separators
     if len(plot_points) == 0:
@@ -276,21 +262,18 @@ def parse_plot_points(response: str) -> List[str]:
                 clean_section = clean_plot_point(section, PLOT_POINT_NAMES)
                 if clean_section and len(clean_section) > 20:
                     plot_points.append(clean_section)
-                    logger.warning(f"Extracted plot point #{len(plot_points)} (alternative method): {clean_section[:100]}...")
+                    logger.debug(f"Extracted plot point #{len(plot_points)} (alternative method): {clean_section[:100]}...")
 
-    logger.warning(f"Total plot points extracted: {len(plot_points)}")
+    logger.debug(f"Total plot points extracted: {len(plot_points)}")
 
     # Ensure we have exactly 5 plot points
     if len(plot_points) < 5:
-        logger.warning(f"WARNING: Only {len(plot_points)} plot points extracted, using fallback for remaining")
-        logger.warning(f"Response format analysis: Found markers={found_any_marker}, Response preview: {response[:200]}...")
+        logger.warning(f"Only {len(plot_points)} plot points extracted, using fallback for remaining")
+        logger.debug(f"Response format analysis: Found markers={found_any_marker}, Response preview: {response[:200]}...")
         plot_points.extend(FALLBACK_PLOT_POINTS[len(plot_points):])
 
-    logger.warning("-" * 80)
-    logger.warning("FINAL PARSED PLOT POINTS:")
     for i, point in enumerate(plot_points[:5], 1):
-        logger.warning(f"{i}. {point[:150]}...")
-    logger.warning("=" * 80)
+        logger.debug(f"Final plot point {i}. {point[:150]}...")
 
     return plot_points[:5]
 

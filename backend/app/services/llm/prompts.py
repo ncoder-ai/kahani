@@ -320,12 +320,10 @@ class PromptManager:
             # Priority 1: YAML file (locked)
             prompt_text = self._get_yaml_prompt(template_key, "user")
             if prompt_text:
-                logger.info(f"[GET_PROMPT] Using YAML user prompt for template {template_key}")
-                logger.info(f"[GET_PROMPT] Prompt text length: {len(prompt_text)}")
-                logger.info(f"[GET_PROMPT] Template vars provided: {list(template_vars.keys())}")
+                logger.debug(f"[GET_PROMPT] Using YAML user prompt for template {template_key}, length={len(prompt_text)}, vars={list(template_vars.keys())}")
                 # Check if prompt contains the variables we're trying to substitute
                 if "{immediate_situation}" in prompt_text:
-                    logger.info(f"[GET_PROMPT] Prompt contains {{immediate_situation}} variable")
+                    logger.debug(f"[GET_PROMPT] Prompt contains {{immediate_situation}} variable")
                     # Ensure immediate_situation is in template_vars if the prompt needs it
                     if "immediate_situation" not in template_vars:
                         logger.error(f"[GET_PROMPT] CRITICAL: Prompt requires immediate_situation but it's not in template_vars!")
@@ -333,10 +331,9 @@ class PromptManager:
                         # Add it as empty string to prevent KeyError
                         template_vars["immediate_situation"] = ""
                     else:
-                        logger.info(f"[GET_PROMPT] immediate_situation is in template_vars, value: '{template_vars.get('immediate_situation', 'NOT FOUND')}'")
+                        logger.debug(f"[GET_PROMPT] immediate_situation is in template_vars")
                 if "{scene_length_description}" in prompt_text:
-                    logger.info(f"[GET_PROMPT] Prompt contains {{scene_length_description}} variable")
-                logger.info(f"[GET_PROMPT] About to call _substitute_variables with keys: {list(template_vars.keys())}")
+                    logger.debug(f"[GET_PROMPT] Prompt contains {{scene_length_description}} variable")
                 return self._substitute_variables(prompt_text, **template_vars)
             
             # Priority 2: Built-in fallback
@@ -1261,7 +1258,7 @@ Chapter Conclusion:"""
             try:
                 user_max_tokens = user_settings.get("llm_settings", {}).get("max_tokens")
                 if user_max_tokens is not None and isinstance(user_max_tokens, int):
-                    logger.info(f"Using user max_tokens setting: {user_max_tokens} for {template_key}")
+                    logger.debug(f"Using user max_tokens setting: {user_max_tokens} for {template_key}")
                     return user_max_tokens
             except (KeyError, TypeError, AttributeError):
                 pass
@@ -1351,7 +1348,7 @@ Chapter Conclusion:"""
         Returns:
             Tuple of (system_prompt, user_prompt)
         """
-        logger.info(f"[GET_PROMPT_PAIR] Received template_vars keys: {list(template_vars.keys())}")
+        logger.debug(f"[GET_PROMPT_PAIR] Received template_vars keys: {list(template_vars.keys())}")
         
         system_prompt = self.get_prompt(
             template_key, 
@@ -1361,7 +1358,7 @@ Chapter Conclusion:"""
             **template_vars
         )
         
-        logger.info(f"[GET_PROMPT_PAIR] Calling get_prompt for user prompt with template_vars keys: {list(template_vars.keys())}")
+        logger.debug(f"[GET_PROMPT_PAIR] Calling get_prompt for user prompt with template_vars keys: {list(template_vars.keys())}")
         user_prompt = self.get_prompt(
             user_prompt_key, 
             "user", 

@@ -293,7 +293,7 @@ class ContextManager:
                 if branch_id:
                     scene_query = scene_query.filter(Scene.branch_id == branch_id)
                 scenes = scene_query.order_by(Scene.sequence_number).all()
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number} ({len(scenes)} scenes)")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter_id} (Chapter {active_chapter.chapter_number}): Including scenes from chapters 1-{active_chapter.chapter_number} ({len(scenes)} scenes)")
             else:
                 # Fallback: if chapter not found, only get scenes from that chapter_id
                 scene_query = db.query(Scene).filter(
@@ -414,9 +414,9 @@ class ContextManager:
 
             logger.info(f"[CONTEXT BUILD] Added {len(active_npc_characters)} active NPCs and {len(inactive_npc_characters)} inactive NPCs to context")
             if active_npc_characters:
-                logger.info(f"[CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
+                logger.debug(f"[CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
             if inactive_npc_characters:
-                logger.info(f"[CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
+                logger.debug(f"[CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
 
@@ -453,13 +453,13 @@ class ContextManager:
             # Add chapter plot guidance if available (from brainstorming)
             if hasattr(chapter, 'chapter_plot') and chapter.chapter_plot:
                 base_context["chapter_plot"] = chapter.chapter_plot
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
 
             # Add plot progress (completed events) if available
             if hasattr(chapter, 'plot_progress') and chapter.plot_progress:
                 base_context["plot_progress"] = chapter.plot_progress
                 completed_count = len(chapter.plot_progress.get("completed_events", []))
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
 
             # Add arc phase details if available
             if hasattr(chapter, 'arc_phase_id') and chapter.arc_phase_id:
@@ -468,19 +468,19 @@ class ContextManager:
                     arc_phase = story.get_arc_phase(chapter.arc_phase_id)
                     if arc_phase:
                         base_context["arc_phase"] = arc_phase
-                        logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including arc phase '{arc_phase.get('name', 'Unknown')}'")
-            
+                        logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including arc phase '{arc_phase.get('name', 'Unknown')}'")
+
             # Check if chapter continues from previous (controls summary inclusion)
             continues_from_previous = getattr(chapter, 'continues_from_previous', True)
-            
+
             # Include story_so_far if it exists AND chapter continues from previous
             if chapter.story_so_far and continues_from_previous:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including story_so_far ({len(chapter.story_so_far)} chars)")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including story_so_far ({len(chapter.story_so_far)} chars)")
                 base_context["story_so_far"] = chapter.story_so_far
             elif chapter.story_so_far and not continues_from_previous:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding story_so_far (continues_from_previous=False)")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding story_so_far (continues_from_previous=False)")
             else:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
             
             # Include previous chapter's summary if available AND chapter continues from previous
             if chapter.chapter_number > 1 and continues_from_previous:
@@ -491,23 +491,23 @@ class ContextManager:
                     ChapterModel.auto_summary.isnot(None)
                 ).first()
                 if previous_chapter and previous_chapter.auto_summary:
-                    logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
+                    logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
                     base_context["previous_chapter_summary"] = previous_chapter.auto_summary
                 else:
-                    logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+                    logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
             elif chapter.chapter_number > 1 and not continues_from_previous:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
             else:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
-            
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
+
             # Include current chapter's auto_summary for context on this chapter's progress
             # This should only include scenes that have been summarized (up to last_summary_scene_count)
             # Recent scenes beyond last_summary_scene_count will be included separately in the scene context
             if chapter.auto_summary:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars, last_summary_scene_count={chapter.last_summary_scene_count})")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars, last_summary_scene_count={chapter.last_summary_scene_count})")
                 base_context["current_chapter_summary"] = chapter.auto_summary
             else:
-                logger.info(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
+                logger.debug(f"[CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
         
         # Calculate base context tokens
         base_tokens = self._calculate_base_context_tokens(base_context)
@@ -1551,11 +1551,11 @@ Appearance: {char.get('appearance', '')}
         """
         # DEBUG: Log custom_prompt at entry point
         if custom_prompt is None:
-            logger.warning(f"[CONTEXT_MANAGER] build_scene_generation_context: custom_prompt=None, is_variant={is_variant_generation}")
+            logger.debug(f"[CONTEXT_MANAGER] build_scene_generation_context: custom_prompt=None, is_variant={is_variant_generation}")
         elif not custom_prompt.strip():
             logger.warning(f"[CONTEXT_MANAGER] build_scene_generation_context: custom_prompt=EMPTY, is_variant={is_variant_generation}")
         else:
-            logger.info(f"[CONTEXT_MANAGER] build_scene_generation_context: custom_prompt='{custom_prompt[:80]}', is_variant={is_variant_generation}")
+            logger.debug(f"[CONTEXT_MANAGER] build_scene_generation_context: custom_prompt='{custom_prompt[:80]}', is_variant={is_variant_generation}")
 
         # Get full context with chapter_id for character separation and branch_id for branch filtering
         # Pass custom_prompt as user_intent so semantic search can find scenes relevant to the user's choice
@@ -1575,7 +1575,7 @@ Appearance: {char.get('appearance', '')}
                 # New scene generation with continue option - set current_situation
                 # This triggers "IMMEDIATE SITUATION" formatting
                 full_context["current_situation"] = custom_prompt.strip()
-                logger.info(f"[CONTEXT_MANAGER] Set current_situation from custom_prompt: '{full_context['current_situation']}'")
+                logger.debug(f"[CONTEXT_MANAGER] Set current_situation from custom_prompt: '{full_context['current_situation']}'")
                 if is_first_scene:
                     full_context["is_first_scene"] = True
                     full_context["user_prompt_provided"] = True
@@ -1657,11 +1657,11 @@ Appearance: {char.get('appearance', '')}
         # Log what's in the context
         logger.info(f"[CONTEXT BUILD] Scene generation context - story_so_far: {'present' if scene_context.get('story_so_far') else 'None'}, previous_chapter_summary: {'present' if scene_context.get('previous_chapter_summary') else 'None'}, current_chapter_summary: {'present' if scene_context.get('current_chapter_summary') else 'None'}")
         if scene_context.get("story_so_far"):
-            logger.info(f"[CONTEXT BUILD] story_so_far length: {len(scene_context['story_so_far'])} chars")
+            logger.debug(f"[CONTEXT BUILD] story_so_far length: {len(scene_context['story_so_far'])} chars")
         if scene_context.get("previous_chapter_summary"):
-            logger.info(f"[CONTEXT BUILD] previous_chapter_summary length: {len(scene_context['previous_chapter_summary'])} chars")
+            logger.debug(f"[CONTEXT BUILD] previous_chapter_summary length: {len(scene_context['previous_chapter_summary'])} chars")
         if scene_context.get("current_chapter_summary"):
-            logger.info(f"[CONTEXT BUILD] current_chapter_summary length: {len(scene_context['current_chapter_summary'])} chars")
+            logger.debug(f"[CONTEXT BUILD] current_chapter_summary length: {len(scene_context['current_chapter_summary'])} chars")
         
         return scene_context
 
@@ -2395,7 +2395,7 @@ Appearance: {char.get('appearance', '')}
         elif not user_intent.strip():
             logger.warning(f"[HYBRID CONTEXT] _build_hybrid_scene_context received user_intent: EMPTY STRING")
         else:
-            logger.info(f"[HYBRID CONTEXT] _build_hybrid_scene_context received user_intent: '{user_intent[:80]}'")
+            logger.debug(f"[HYBRID CONTEXT] _build_hybrid_scene_context received user_intent: '{user_intent[:80]}'")
 
         total_scenes = len(scenes)
 
@@ -2404,7 +2404,7 @@ Appearance: {char.get('appearance', '')}
         # 1. Complete batches (stable, maximizes cache hits)
         # 2. Active batch (all scenes in the current incomplete batch)
         recent_scenes = self._get_batch_aligned_recent_scenes(scenes)
-        logger.info(f"[HYBRID CONTEXT] Batch-aligned selection: {len(recent_scenes)} scenes "
+        logger.debug(f"[HYBRID CONTEXT] Batch-aligned selection: {len(recent_scenes)} scenes "
                    f"(batch_size={self.scene_batch_size}, requested={self.keep_recent_scenes})")
 
         recent_content = await self._get_scene_content(recent_scenes, db, branch_id=branch_id)
@@ -2444,9 +2444,9 @@ Appearance: {char.get('appearance', '')}
                 scenes, len(recent_scenes), estimated_remaining_for_recent, db
             )
             all_recent_scene_sequences.extend([s.sequence_number for s in estimated_additional_scenes])
-            logger.info(f"[HYBRID CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
+            logger.debug(f"[HYBRID CONTEXT] Excluding {len(all_recent_scene_sequences)} scenes from semantic search (recent: {len(recent_scenes)}, additional: {len(estimated_additional_scenes)})")
         else:
-            logger.info(f"[HYBRID CONTEXT] Fill remaining context disabled - excluding only {len(recent_scenes)} recent scenes from semantic search")
+            logger.debug(f"[HYBRID CONTEXT] Fill remaining context disabled - excluding only {len(recent_scenes)} recent scenes from semantic search")
 
         # Remove duplicates and sort for clarity
         all_recent_scene_sequences = sorted(set(all_recent_scene_sequences))
@@ -2456,7 +2456,7 @@ Appearance: {char.get('appearance', '')}
         entity_tokens = int(remaining_tokens * 0.05)
         summary_tokens = int(remaining_tokens * 0.05)
 
-        logger.info(f"[HYBRID CONTEXT] Token budget - remaining: {remaining_tokens}, semantic: {semantic_tokens}, character: {character_tokens}")
+        logger.debug(f"[HYBRID CONTEXT] Token budget - remaining: {remaining_tokens}, semantic: {semantic_tokens}, character: {character_tokens}")
 
         # Load context snapshot early — needed for semantic_scenes_text override below
         entity_states_content = None
@@ -2544,7 +2544,7 @@ Appearance: {char.get('appearance', '')}
             story_id, db, branch_id=branch_id
         )
         interaction_used_tokens = self.count_tokens(interaction_history_content) if interaction_history_content else 0
-        logger.info(f"[HYBRID CONTEXT] Interaction history: {interaction_used_tokens} tokens, included={interaction_history_content is not None}")
+        logger.debug(f"[HYBRID CONTEXT] Interaction history: {interaction_used_tokens} tokens, included={interaction_history_content is not None}")
 
         # Get chapter summaries (only current chapter summary - story_so_far and previous_chapter_summary
         # are handled as direct fields in base_context to avoid duplication)
@@ -2568,9 +2568,9 @@ Appearance: {char.get('appearance', '')}
             additional_recent_content, additional_recent_scenes = await self._add_recent_scenes_dynamically(
                 scenes, len(recent_scenes), remaining_for_recent, db
             )
-            logger.info(f"[HYBRID CONTEXT] Fill remaining context enabled: added {len(additional_recent_scenes)} additional scenes")
+            logger.debug(f"[HYBRID CONTEXT] Fill remaining context enabled: added {len(additional_recent_scenes)} additional scenes")
         else:
-            logger.info(f"[HYBRID CONTEXT] Fill remaining context disabled: using only {len(recent_scenes)} recent scenes")
+            logger.debug(f"[HYBRID CONTEXT] Fill remaining context disabled: using only {len(recent_scenes)} recent scenes")
 
         # Combine initial recent scenes with additional scenes for the Recent Scenes section
         # Exclude duplicates (additional_recent_scenes already excludes scenes in recent_scenes)
@@ -2587,9 +2587,9 @@ Appearance: {char.get('appearance', '')}
 
         # Log what we got from _get_chapter_summaries
         if summary_content:
-            logger.info(f"[HYBRID CONTEXT] _get_chapter_summaries returned content ({len(summary_content)} chars): {summary_content[:200]}...")
+            logger.debug(f"[HYBRID CONTEXT] _get_chapter_summaries returned content ({len(summary_content)} chars): {summary_content[:200]}...")
         else:
-            logger.info("[HYBRID CONTEXT] _get_chapter_summaries returned None")
+            logger.debug("[HYBRID CONTEXT] _get_chapter_summaries returned None")
 
         # Assemble final context
         context_parts = []
@@ -2785,9 +2785,9 @@ Appearance: {char.get('appearance', '')}
 
             logger.info(f"[HYBRID CONTEXT BUILD] Added {len(active_npc_characters)} active NPCs and {len(inactive_npc_characters)} inactive NPCs to context")
             if active_npc_characters:
-                logger.info(f"[HYBRID CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Active NPCs: {[npc.get('name', 'Unknown') for npc in active_npc_characters]}")
             if inactive_npc_characters:
-                logger.info(f"[HYBRID CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Inactive NPCs: {[npc.get('name', 'Unknown') for npc in inactive_npc_characters]}")
         except Exception as e:
             logger.warning(f"Failed to include NPCs in context: {e}")
 
@@ -2823,13 +2823,13 @@ Appearance: {char.get('appearance', '')}
             # Add chapter plot guidance if available (from brainstorming)
             if hasattr(chapter, 'chapter_plot') and chapter.chapter_plot:
                 base_context["chapter_plot"] = chapter.chapter_plot
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including chapter_plot guidance")
 
             # Add plot progress (completed events) if available
             if hasattr(chapter, 'plot_progress') and chapter.plot_progress:
                 base_context["plot_progress"] = chapter.plot_progress
                 completed_count = len(chapter.plot_progress.get("completed_events", []))
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including plot_progress ({completed_count} completed events)")
 
             # Add arc phase details if available
             if hasattr(chapter, 'arc_phase_id') and chapter.arc_phase_id:
@@ -2838,19 +2838,19 @@ Appearance: {char.get('appearance', '')}
                     arc_phase = story.get_arc_phase(chapter.arc_phase_id)
                     if arc_phase:
                         base_context["arc_phase"] = arc_phase
-                        logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including arc phase '{arc_phase.get('name', 'Unknown')}'")
+                        logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including arc phase '{arc_phase.get('name', 'Unknown')}'")
 
             # Check if chapter continues from previous (controls summary inclusion)
             continues_from_previous = getattr(chapter, 'continues_from_previous', True)
 
             # Include story_so_far if it exists AND chapter continues from previous
             if chapter.story_so_far and continues_from_previous:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including story_so_far ({len(chapter.story_so_far)} chars)")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including story_so_far ({len(chapter.story_so_far)} chars)")
                 base_context["story_so_far"] = chapter.story_so_far
             elif chapter.story_so_far and not continues_from_previous:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding story_so_far (continues_from_previous=False)")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding story_so_far (continues_from_previous=False)")
             else:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: story_so_far is None")
 
             # Include previous chapter's summary if available AND chapter continues from previous
             if chapter.chapter_number > 1 and continues_from_previous:
@@ -2861,21 +2861,21 @@ Appearance: {char.get('appearance', '')}
                     ChapterModel.auto_summary.isnot(None)
                 ).first()
                 if previous_chapter and previous_chapter.auto_summary:
-                    logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
+                    logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Found previous chapter {previous_chapter.chapter_number} summary ({len(previous_chapter.auto_summary)} chars)")
                     base_context["previous_chapter_summary"] = previous_chapter.auto_summary
                 else:
-                    logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
+                    logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: No previous chapter summary found (previous_chapter={previous_chapter is not None}, has_auto_summary={previous_chapter.auto_summary if previous_chapter else 'N/A'})")
             elif chapter.chapter_number > 1 and not continues_from_previous:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Excluding previous_chapter_summary (continues_from_previous=False)")
             else:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: First chapter, no previous chapter summary")
 
             # Include current chapter's auto_summary for context on this chapter's progress
             if chapter.auto_summary:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars)")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: Including current_chapter_summary ({len(chapter.auto_summary)} chars)")
                 base_context["current_chapter_summary"] = chapter.auto_summary
             else:
-                logger.info(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
+                logger.debug(f"[HYBRID CONTEXT BUILD] Chapter {chapter.chapter_number}: current_chapter_summary is None")
 
         return base_context
 
@@ -2951,12 +2951,12 @@ Appearance: {char.get('appearance', '')}
             query_parts = []
 
             # DEBUG: Log user_intent value
-            logger.info(f"[SEMANTIC SEARCH] user_intent received: '{user_intent[:100] if user_intent else 'None'}...'")
+            logger.debug(f"[SEMANTIC SEARCH] user_intent received: '{user_intent[:100] if user_intent else 'None'}...'")
 
             # Add user intent FIRST (highest priority) - this is what the user wants to happen next
             if user_intent and user_intent.strip():
                 query_parts.append(user_intent.strip())
-                logger.info(f"[SEMANTIC SEARCH] Including user intent in query: '{user_intent[:100]}...'")
+                logger.debug(f"[SEMANTIC SEARCH] Including user intent in query: '{user_intent[:100]}...'")
 
             # Add last 2-3 scenes for context
             query_scenes = recent_scenes[-3:] if len(recent_scenes) >= 3 else recent_scenes
@@ -3062,7 +3062,7 @@ Appearance: {char.get('appearance', '')}
                 if extracted_keywords:
                     # Deduplicate and show unique keywords
                     unique_keywords = list(set(name for _, name, _ in extracted_keywords))[:15]
-                    logger.info(f"[SEMANTIC SEARCH] Extracted keywords for boosting: {unique_keywords}")
+                    logger.debug(f"[SEMANTIC SEARCH] Extracted keywords for boosting: {unique_keywords}")
 
             # Apply keyword boosting with IDF weighting to similar_scenes
             if extracted_keywords:
@@ -3163,7 +3163,7 @@ Appearance: {char.get('appearance', '')}
             filtered_results = []
 
             # Log how many scenes we're starting with
-            logger.info(f"[SEMANTIC SEARCH] Processing {len(similar_scenes)} candidates for story {story_id}, branch_id filter: {branch_id}")
+            logger.debug(f"[SEMANTIC SEARCH] Processing {len(similar_scenes)} candidates for story {story_id}, branch_id filter: {branch_id}")
 
             filtered_by_similarity = 0
             filtered_by_branch = 0
@@ -3224,7 +3224,7 @@ Appearance: {char.get('appearance', '')}
             # Log which scenes were selected with similarity scores
             if filtered_results_with_scenes:
                 selected_info = [(r['similarity_score'], s.sequence_number) for r, s in filtered_results_with_scenes]
-                logger.info(f"[SEMANTIC SEARCH] Top {len(selected_info)} candidates (score, seq#): {selected_info}")
+                logger.debug(f"[SEMANTIC SEARCH] Top {len(selected_info)} candidates (score, seq#): {selected_info}")
 
             # Get scene content within token budget (now using chronologically sorted results)
             # No per-scene truncation — include full scene content; token budget controls total inclusion
@@ -3263,7 +3263,7 @@ Appearance: {char.get('appearance', '')}
                 logger.info(f"[SEMANTIC SEARCH] Selected {len(relevant_parts)}/{self.semantic_scenes_in_context} semantic scenes (similarity >= {self.semantic_min_similarity}) for story {story_id}, total chars: {sum(len(p) for p in relevant_parts)}")
                 # Log first 200 chars of each semantic scene for debugging
                 for i, part in enumerate(relevant_parts):
-                    logger.info(f"[SEMANTIC SEARCH] Scene {i+1} preview: {part[:200]}...")
+                    logger.debug(f"[SEMANTIC SEARCH] Scene {i+1} preview: {part[:200]}...")
                 # Only pass the top selected results (not all 200 candidates) to multi-query merge.
                 # Passing all candidates causes the merge to upgrade ~130 multi-query scores with
                 # keyword-boosted single-query scores, effectively bypassing content verification.
@@ -4985,10 +4985,10 @@ Appearance: {char.get('appearance', '')}
             # Character States
             # Filter to only show characters with recent state updates
             if character_states:
-                logger.info(f"[ENTITY_STATES] Found {len(character_states)} character states, current_scene_sequence={current_scene_sequence}, recency_window={self.location_recency_window}")
+                logger.debug(f"[ENTITY_STATES] Found {len(character_states)} character states, current_scene_sequence={current_scene_sequence}, recency_window={self.location_recency_window}")
                 for _cs in character_states:
                     _char = db.query(Character).filter(Character.id == _cs.character_id).first()
-                    logger.info(f"[ENTITY_STATES] {_char.name if _char else _cs.character_id}: last_updated={_cs.last_updated_scene}, appearance={_cs.appearance}")
+                    logger.debug(f"[ENTITY_STATES] {_char.name if _char else _cs.character_id}: last_updated={_cs.last_updated_scene}, appearance={_cs.appearance}")
 
                 # Filter character states by recency (only show if updated recently)
                 filtered_char_states = []

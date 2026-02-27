@@ -263,7 +263,7 @@ class LLMClient:
                 enabled_count += 1
         
         if enabled_count > 0:
-            logger.info(f"Added {enabled_count} enabled samplers to extra_body")
+            logger.debug(f"Added {enabled_count} enabled samplers to extra_body")
             logger.debug(f"Enabled samplers: {[k for k, v in self.sampler_settings.items() if isinstance(v, dict) and v.get('enabled')]}")
         
         return extra_body
@@ -275,7 +275,7 @@ class LLMClient:
         }
         
         # Log what settings we're using
-        logger.info(f"Building generation params - user settings: temp={self.temperature}, top_p={self.top_p}, top_k={self.top_k}, rep_penalty={self.repetition_penalty}")
+        logger.debug(f"Building generation params - user settings: temp={self.temperature}, top_p={self.top_p}, top_k={self.top_k}, rep_penalty={self.repetition_penalty}")
         
         # Only add parameters if they're provided (either as args or in user settings)
         # Use provided values first, then user settings, then skip if neither
@@ -340,20 +340,20 @@ class LLMClient:
             if "extra_body" not in params:
                 params["extra_body"] = {}
             params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
-            logger.info(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
+            logger.debug(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
         elif self.reasoning_effort == "disabled":
             if "extra_body" not in params:
                 params["extra_body"] = {}
             if is_openrouter:
                 # OpenRouter accepts reasoning.effort="none" to suppress thinking
                 params["extra_body"]["reasoning"] = {"effort": "none"}
-                logger.info("Reasoning disabled for OpenRouter via reasoning.effort=none")
+                logger.debug("Reasoning disabled for OpenRouter via reasoning.effort=none")
             else:
                 # For local servers, include_reasoning=False is safe
                 params["extra_body"]["include_reasoning"] = False
-                logger.info("Reasoning disabled via include_reasoning=False")
+                logger.debug("Reasoning disabled via include_reasoning=False")
         
-        logger.info(f"Final generation params: {params}")
+        logger.debug(f"Final generation params: {params}")
         return params
     
     def get_streaming_params(self, max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Dict[str, Any]:

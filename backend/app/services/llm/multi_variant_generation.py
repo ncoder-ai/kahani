@@ -79,7 +79,7 @@ class MultiVariantGeneration:
         user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
         gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
 
-        logger.info(f"[MULTI-GEN] Starting streaming with n={n}")
+        logger.debug(f"[MULTI-GEN] Starting streaming with n={n}")
 
         try:
             response = await acompletion(**gen_params)
@@ -107,7 +107,7 @@ class MultiVariantGeneration:
 
             logger.info(f"[MULTI-GEN] Streaming complete: {chunk_count} chunks, {n} completions")
             for i, content in enumerate(contents):
-                logger.info(f"[MULTI-GEN] Content {i}: {len(content)} chars")
+                logger.debug(f"[MULTI-GEN] Content {i}: {len(content)} chars")
 
             # Yield final result with all contents
             yield ("", True, contents)
@@ -159,7 +159,7 @@ class MultiVariantGeneration:
         user_timeout = user_settings.get('llm_settings', {}).get('timeout_total') if user_settings else None
         gen_params["timeout"] = user_timeout if user_timeout is not None else settings.llm_timeout_total
 
-        logger.info(f"[MULTI-GEN] Starting non-streaming with n={n}")
+        logger.debug(f"[MULTI-GEN] Starting non-streaming with n={n}")
 
         try:
             response = await acompletion(**gen_params)
@@ -274,7 +274,7 @@ class MultiVariantGeneration:
                         "choices": parsed_choices or []
                     })
 
-                    logger.info(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
+                    logger.debug(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
 
                 yield ("", True, variants_data)
 
@@ -345,7 +345,7 @@ class MultiVariantGeneration:
                 "choices": parsed_choices or []
             })
 
-            logger.info(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
+            logger.debug(f"[MULTI-GEN SCENE] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
 
         return variants_data
 
@@ -489,7 +489,7 @@ class MultiVariantGeneration:
                 all_choices.append([])
             else:
                 all_choices.append(result)
-                logger.info(f"[MULTI-GEN CHOICES] Variant {idx}: {len(result)} choices")
+                logger.debug(f"[MULTI-GEN CHOICES] Variant {idx}: {len(result)} choices")
 
         return all_choices
 
@@ -770,7 +770,7 @@ class MultiVariantGeneration:
                         "choices": parsed_choices or []
                     })
 
-                    logger.info(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
+                    logger.debug(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
 
                 yield ("", True, variants_data)
 
@@ -877,6 +877,6 @@ class MultiVariantGeneration:
                 "choices": parsed_choices or []
             })
 
-            logger.info(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
+            logger.debug(f"[MULTI-GEN VARIANT] Variant {idx}: {len(scene_content)} chars, {len(parsed_choices or [])} choices")
 
         return variants_data

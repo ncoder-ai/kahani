@@ -978,14 +978,14 @@ async def generate_and_stream_chunks(
     6. Handles errors gracefully
     """
     # SAFETY CHECK: Prevent duplicate generation
-    logger.info(f"[GEN] Step 1: generate_and_stream_chunks called for session {session_id}")
+    logger.debug(f"[GEN] Step 1: generate_and_stream_chunks called for session {session_id}")
     
     session = tts_session_manager.get_session(session_id)
     if not session:
         logger.error(f"[GEN] Step 1 FAILED: Session {session_id} not found")
         return
     
-    logger.info(f"[GEN] Step 2: Session found, is_generating={session.is_generating}, auto_play={session.auto_play}")
+    logger.debug(f"[GEN] Step 2: Session found, is_generating={session.is_generating}, auto_play={session.auto_play}")
     
     if session.is_generating:
         logger.warning(f"[GEN] Step 2 EXIT: Session {session_id} is already generating - skipping duplicate call")
@@ -993,14 +993,14 @@ async def generate_and_stream_chunks(
     
     # IMMEDIATELY set flag to prevent race condition
     tts_session_manager.set_generating(session_id, True)
-    logger.info(f"[GEN] Step 2b: Set is_generating=True to prevent race condition")
+    logger.debug(f"[GEN] Step 2b: Set is_generating=True to prevent race condition")
     
-    logger.info(f"[GEN] Step 3: Querying database for all needed data")
+    logger.debug(f"[GEN] Step 3: Querying database for all needed data")
     
     # Query all data upfront and close DB connection immediately
     # This prevents holding the connection during long-running TTS generation
     with get_background_db() as db:
-        logger.info(f"[GEN] Step 4: Querying scene {scene_id}")
+        logger.debug(f"[GEN] Step 4: Querying scene {scene_id}")
         
         # Get the scene
         scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -1008,7 +1008,7 @@ async def generate_and_stream_chunks(
             logger.error(f"[GEN] Step 4 FAILED: Scene {scene_id} not found")
             return
         
-        logger.info(f"[GEN] Step 5: Scene found, querying active variant")
+        logger.debug(f"[GEN] Step 5: Scene found, querying active variant")
         
         # Get the story to determine branch_id
         from app.models.story import Story
@@ -1023,7 +1023,7 @@ async def generate_and_stream_chunks(
         
         # Get branch_id (prefer story's current_branch_id, fallback to scene's branch_id)
         branch_id = story.current_branch_id if story.current_branch_id else scene.branch_id
-        logger.info(f"[GEN] Step 5b: Using branch_id={branch_id} for scene {scene_id}")
+        logger.debug(f"[GEN] Step 5b: Using branch_id={branch_id} for scene {scene_id}")
         
         # Get the active variant content from story flow (filtered by branch_id)
         from app.models.story_flow import StoryFlow
@@ -1048,7 +1048,7 @@ async def generate_and_stream_chunks(
             })
             return
         
-        logger.info(f"[GEN] Step 6: Flow entry found, variant_id={flow_entry.scene_variant_id}")
+        logger.debug(f"[GEN] Step 6: Flow entry found, variant_id={flow_entry.scene_variant_id}")
         
         variant = db.query(SceneVariant).filter(
             SceneVariant.id == flow_entry.scene_variant_id
@@ -1062,7 +1062,7 @@ async def generate_and_stream_chunks(
             })
             return
         
-        logger.info(f"[GEN] Step 7: Variant found, content length={len(variant.content)}")
+        logger.debug(f"[GEN] Step 7: Variant found, content length={len(variant.content)}")
         
         # Extract scene content
         scene_content = variant.content
@@ -1123,40 +1123,40 @@ async def generate_and_stream_chunks(
                     logger.error(f"[GEN] Failed to fetch voices: {e}, keeping 'default'")
     
     # DB connection is now closed - proceed with TTS generation
-    logger.info(f"[GEN] Step 7b: Database queries complete, connection closed")
+    logger.debug(f"[GEN] Step 7b: Database queries complete, connection closed")
     
     try:
         # Check if this is an auto-play session
         session = tts_session_manager.get_session(session_id)
         is_auto_play = session and session.auto_play
         
-        logger.info(f"[GEN] Step 8: Checking WebSocket connection (auto_play={is_auto_play})")
+        logger.debug(f"[GEN] Step 8: Checking WebSocket connection (auto_play={is_auto_play})")
         
         if is_auto_play:
             # For auto-play: Start generating immediately, don't wait for WebSocket
             # Audio chunks will be buffered and sent when WebSocket connects
-            logger.info(f"[GEN] Step 9 (AUTO-PLAY): Starting immediately, no WebSocket wait")
+            logger.debug(f"[GEN] Step 9 (AUTO-PLAY): Starting immediately, no WebSocket wait")
         else:
             # For manual TTS: Wait for WebSocket to connect (up to 10 seconds)
-            logger.info(f"[GEN] Step 9 (MANUAL): Waiting for WebSocket connection...")
+            logger.debug(f"[GEN] Step 9 (MANUAL): Waiting for WebSocket connection...")
             for i in range(20):  # 20 attempts × 0.5s = 10 seconds max
                 session = tts_session_manager.get_session(session_id)
                 if session and session.websocket:
-                    logger.info(f"[GEN] Step 9 SUCCESS: WebSocket connected after {i*0.5}s")
+                    logger.debug(f"[GEN] Step 9 SUCCESS: WebSocket connected after {i*0.5}s")
                     break
                 if i % 4 == 0:  # Log every 2 seconds
-                    logger.info(f"[GEN] Step 9: Still waiting... ({i*0.5}s elapsed)")
+                    logger.debug(f"[GEN] Step 9: Still waiting... ({i*0.5}s elapsed)")
                 await asyncio.sleep(0.5)
             else:
                 logger.error(f"[GEN] Step 9 TIMEOUT: WebSocket never connected after 10s")
                 return
         
-        logger.info(f"[GEN] Step 10: Setting is_generating=True")
+        logger.debug(f"[GEN] Step 10: Setting is_generating=True")
         
         # Mark session as generating
         tts_session_manager.set_generating(session_id, True)
         
-        logger.info(f"[GEN] Step 11: Starting TTS generation (no DB connection held)")
+        logger.debug(f"[GEN] Step 11: Starting TTS generation (no DB connection held)")
         
         if is_progressive:
             # Generate chunks and stream them

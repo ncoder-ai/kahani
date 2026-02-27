@@ -70,11 +70,10 @@ async def get_current_user_websocket(
     """Get current authenticated user for WebSocket connections"""
     from .models import User
     
-    logger.info(f"WebSocket auth attempt - Token: {token[:20]}...")
+    logger.debug(f"WebSocket auth attempt - Token: {token[:20]}...")
     
     try:
         payload = verify_token(token)
-        logger.info(f"WebSocket token verification result: {payload}")
         
         if payload is None:
             logger.error("WebSocket token verification failed")
@@ -82,7 +81,7 @@ async def get_current_user_websocket(
             return None
         
         user_id: int = payload.get("sub")
-        logger.info(f"WebSocket extracted user_id: {user_id}")
+        logger.debug(f"WebSocket extracted user_id: {user_id}")
         
         if user_id is None:
             logger.error("No user_id in WebSocket token payload")
@@ -98,14 +97,14 @@ async def get_current_user_websocket(
             return None
         
         user = db.query(User).filter(User.id == user_id).first()
-        logger.info(f"WebSocket user lookup result: {user}")
+        logger.debug(f"WebSocket user lookup result: {user}")
         
         if user is None:
             logger.error(f"No user found with id: {user_id}")
             await websocket.close(code=1008, reason="User not found")
             return None
         
-        logger.info(f"WebSocket authentication successful for user: {user.email}")
+        logger.debug(f"WebSocket authentication successful for user: {user.email}")
         return user
         
     except Exception as e:

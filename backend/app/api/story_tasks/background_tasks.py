@@ -369,8 +369,8 @@ async def run_interaction_extraction_background(
                     npc_name_to_virtual_id[first_name] = npc_virtual_id_counter
                 npc_virtual_id_counter -= 1
 
-        logger.info(f"[INTERACTION_EXTRACT] Character lookup keys: {list(character_name_to_id.keys())}")
-        logger.info(f"[INTERACTION_EXTRACT] Including {len(significant_npcs)} significant NPCs")
+        logger.debug(f"[INTERACTION_EXTRACT] Character lookup keys: {list(character_name_to_id.keys())}")
+        logger.debug(f"[INTERACTION_EXTRACT] Including {len(significant_npcs)} significant NPCs")
 
         interactions_found = 0
         batches_processed = 0
@@ -624,7 +624,7 @@ Do NOT explain why an interaction does not occur - simply omit it from the list.
                     # Validate that the LLM actually found a real interaction
                     # (reject self-contradicting responses like "this interaction does not occur")
                     if not is_valid_interaction(interaction):
-                        logger.info(f"[INTERACTION_EXTRACT] Rejected self-contradicting: {interaction_type} - '{description[:80]}...'")
+                        logger.debug(f"[INTERACTION_EXTRACT] Rejected self-contradicting: {interaction_type} - '{description[:80]}...'")
                         continue
 
                     # Get character IDs
@@ -632,13 +632,13 @@ Do NOT explain why an interaction does not occur - simply omit it from the list.
                     char_b_id = character_name_to_id.get(char_b_name)
 
                     if not char_a_id or not char_b_id:
-                        logger.warning(f"[INTERACTION_EXTRACT] Unknown character(s): {char_a_name}, {char_b_name}")
+                        logger.debug(f"[INTERACTION_EXTRACT] Unknown character(s): {char_a_name}, {char_b_name}")
                         continue
 
                     # Check if either character is an NPC (negative ID)
                     # We can only store interactions between main characters (positive IDs)
                     if char_a_id < 0 or char_b_id < 0:
-                        logger.info(f"[INTERACTION_EXTRACT] NPC interaction (not stored): {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_number}")
+                        logger.debug(f"[INTERACTION_EXTRACT] NPC interaction (not stored): {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_number}")
                         continue
 
                     # Normalize order (lower ID first)
@@ -671,7 +671,7 @@ Do NOT explain why an interaction does not occur - simply omit it from the list.
                         # Add to existing_interactions list so next batch knows about it
                         existing_interactions.append(new_interaction)
                         interactions_found += 1
-                        logger.info(f"[INTERACTION_EXTRACT] Found: {interaction_type} at scene {scene_number}")
+                        logger.debug(f"[INTERACTION_EXTRACT] Found: {interaction_type} at scene {scene_number}")
                     else:
                         logger.debug(f"[INTERACTION_EXTRACT] Already exists: {interaction_type}")
 
@@ -822,10 +822,10 @@ async def run_extractions_in_background(
                 logger.warning(f"[EXTRACTION] Skipping extraction for chapter {chapter_id}")
                 return
 
-            logger.warning(f"[EXTRACTION] Background task - Reloaded chapter {chapter_id}:")
-            logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
-            logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
-            logger.warning(f"  - Original params: from={from_sequence}, to={to_sequence}")
+            logger.info(f"[EXTRACTION] Background task - Reloaded chapter {chapter_id}:")
+            logger.info(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
+            logger.info(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
+            logger.info(f"  - Original params: from={from_sequence}, to={to_sequence}")
 
             # Import here to avoid circular imports
             try:
@@ -853,19 +853,19 @@ async def run_extractions_in_background(
                 # Update last extraction count with actual sequence number (not count)
                 extraction_chapter.last_extraction_scene_count = actual_to_sequence
                 extraction_db.commit()
-                logger.warning(f"[EXTRACTION] Updated last_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
+                logger.info(f"[EXTRACTION] Updated last_extraction_scene_count to {actual_to_sequence} for chapter {chapter_id}")
             else:
                 # No scenes processed - don't update last_extraction_scene_count to prevent loops
                 # This can happen if scenes were deleted or if there's a timing issue
-                logger.warning(f"[EXTRACTION] No scenes processed, keeping last_extraction_scene_count at {extraction_chapter.last_extraction_scene_count} for chapter {chapter_id}")
+                logger.info(f"[EXTRACTION] No scenes processed, keeping last_extraction_scene_count at {extraction_chapter.last_extraction_scene_count} for chapter {chapter_id}")
 
-            logger.warning(f"[EXTRACTION] Background extraction complete for chapter {chapter_id}")
-            logger.warning(f"  - Scenes processed: {scenes_processed}")
-            logger.warning(f"  - Character moments: {batch_results.get('character_moments', 0)}")
-            logger.warning(f"  - Plot events: {batch_results.get('plot_events', 0)}")
-            logger.warning(f"  - Entity states: {batch_results.get('entity_states', 0)}")
-            logger.warning(f"  - NPC tracking: {batch_results.get('npc_tracking', 0)}")
-            logger.warning(f"  - Scene embeddings: {batch_results.get('scene_embeddings', 0)}")
+            logger.info(f"[EXTRACTION] Background extraction complete for chapter {chapter_id}")
+            logger.info(f"  - Scenes processed: {scenes_processed}")
+            logger.info(f"  - Character moments: {batch_results.get('character_moments', 0)}")
+            logger.info(f"  - Plot events: {batch_results.get('plot_events', 0)}")
+            logger.info(f"  - Entity states: {batch_results.get('entity_states', 0)}")
+            logger.info(f"  - NPC tracking: {batch_results.get('npc_tracking', 0)}")
+            logger.info(f"  - Scene embeddings: {batch_results.get('scene_embeddings', 0)}")
 
             # Note: Plot progress extraction now runs independently via run_plot_extraction_in_background
             # based on plot_event_extraction_threshold setting
@@ -1033,9 +1033,9 @@ async def run_plot_extraction_in_background(
                     logger.warning(f"[PLOT_EXTRACTION] No scenes to process: from_sequence ({actual_from_sequence}) >= to_sequence ({actual_to_sequence})")
                     return
 
-                logger.warning(f"[PLOT_EXTRACTION] Background task - Processing chapter {chapter_id}:")
-                logger.warning(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
-                logger.warning(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
+                logger.info(f"[PLOT_EXTRACTION] Background task - Processing chapter {chapter_id}:")
+                logger.info(f"  - Scenes in chapter: {len(scenes_in_chapter)} (sequences {min_sequence_in_chapter} to {max_sequence_in_chapter})")
+                logger.info(f"  - Using from_sequence={actual_from_sequence}, to_sequence={actual_to_sequence}")
 
                 # Extract plot progress for each scene in the range
                 # Collect all extracted events first, then create a single batch
@@ -1139,7 +1139,7 @@ async def run_plot_extraction_in_background(
                     # Update last_plot_extraction_scene_count
                     extraction_chapter.last_plot_extraction_scene_count = actual_to_sequence
                     extraction_db.commit()
-                    logger.warning(f"[PLOT_EXTRACTION] Created batch for scenes {batch_start_sequence}-{batch_end_sequence} with {len(all_extracted_events)} new events")
+                    logger.info(f"[PLOT_EXTRACTION] Created batch for scenes {batch_start_sequence}-{batch_end_sequence} with {len(all_extracted_events)} new events")
 
                 # Get updated progress for logging
                 extraction_db.refresh(extraction_chapter)
@@ -1176,14 +1176,14 @@ async def restore_npc_tracking_in_background(
 
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
-        logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delay_complete")
+        logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delay_complete")
 
         # Retry loop for DB connection acquisition
         last_error = None
         for attempt in range(max_retries):
             try:
                 with get_background_db() as bg_db:
-                    logger.info(f"[DELETE-BG:NPC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
+                    logger.debug(f"[DELETE-BG:NPC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
 
                     # Phase 1: Find the last remaining scene's sequence number (filtered by branch)
                     phase_start = time.perf_counter()
@@ -1194,7 +1194,7 @@ async def restore_npc_tracking_in_background(
                     if branch_id is not None:
                         last_remaining_scene_query = last_remaining_scene_query.filter(Scene.branch_id == branch_id)
                     last_remaining_scene = last_remaining_scene_query.order_by(Scene.sequence_number.desc()).first()
-                    logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
+                    logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_last_scene duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={last_remaining_scene is not None}")
 
                     if last_remaining_scene:
                         # Phase 2: Get snapshot for the last remaining scene (filtered by branch)
@@ -1206,13 +1206,13 @@ async def restore_npc_tracking_in_background(
                         if branch_id is not None:
                             snapshot_query = snapshot_query.filter(NPCTrackingSnapshot.branch_id == branch_id)
                         snapshot = snapshot_query.first()
-                        logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_snapshot duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={snapshot is not None}")
+                        logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=query_snapshot duration_ms={(time.perf_counter()-phase_start)*1000:.2f} found={snapshot is not None}")
 
                         if snapshot:
                             # Restore NPCTracking from snapshot
                             snapshot_data = snapshot.snapshot_data or {}
                             npc_count = len(snapshot_data)
-                            logger.info(f"[DELETE-BG:NPC:CONTEXT] trace_id={trace_id} snapshot_scene={last_remaining_scene.sequence_number} npcs_in_snapshot={npc_count}")
+                            logger.debug(f"[DELETE-BG:NPC:CONTEXT] trace_id={trace_id} snapshot_scene={last_remaining_scene.sequence_number} npcs_in_snapshot={npc_count}")
 
                             # Phase 3: Delete all existing NPC tracking records for this story and branch
                             phase_start = time.perf_counter()
@@ -1222,7 +1222,7 @@ async def restore_npc_tracking_in_background(
                             if branch_id is not None:
                                 npc_delete_query = npc_delete_query.filter(NPCTracking.branch_id == branch_id)
                             deleted_count = npc_delete_query.delete()
-                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delete_existing duration_ms={(time.perf_counter()-phase_start)*1000:.2f} deleted={deleted_count}")
+                            logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=delete_existing duration_ms={(time.perf_counter()-phase_start)*1000:.2f} deleted={deleted_count}")
 
                             # Phase 4: Restore from snapshot
                             phase_start = time.perf_counter()
@@ -1250,12 +1250,12 @@ async def restore_npc_tracking_in_background(
                                 )
                                 bg_db.add(tracking)
                                 restored_count += 1
-                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=restore_npcs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} restored={restored_count}")
+                            logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=restore_npcs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} restored={restored_count}")
 
                             # Phase 5: Commit
                             phase_start = time.perf_counter()
                             bg_db.commit()
-                            logger.info(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=commit duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                            logger.debug(f"[DELETE-BG:NPC:PHASE] trace_id={trace_id} phase=commit duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
 
                             total_duration = (time.perf_counter() - task_start) * 1000
                             logger.info(f"[DELETE-BG:NPC:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} restored_from_scene={last_remaining_scene.sequence_number} npcs_restored={restored_count}")
@@ -1328,7 +1328,7 @@ async def cleanup_semantic_data_in_background(
 
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
-        logger.info(f"[DELETE-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
+        logger.debug(f"[DELETE-BG:SEMANTIC:PHASE] trace_id={trace_id} phase=delay_complete")
 
         from ...services.semantic_integration import cleanup_scene_embeddings
 
@@ -1337,7 +1337,7 @@ async def cleanup_semantic_data_in_background(
         for attempt in range(max_retries):
             try:
                 with get_background_db() as bg_db:
-                    logger.info(f"[DELETE-BG:SEMANTIC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
+                    logger.debug(f"[DELETE-BG:SEMANTIC:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
 
                     # Determine logging interval (every 10% or every scene if < 10)
                     batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1
@@ -1356,7 +1356,7 @@ async def cleanup_semantic_data_in_background(
                             # Log progress at intervals or if cleanup takes > 500ms
                             if (i + 1) % batch_log_interval == 0 or scene_duration > 500:
                                 elapsed_ms = (time.perf_counter() - cleanup_start) * 1000
-                                logger.info(f"[DELETE-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene_id}")
+                                logger.debug(f"[DELETE-BG:SEMANTIC:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene_id}")
                         except Exception as e:
                             failed_count += 1
                             logger.warning(f"[DELETE-BG:SEMANTIC:SCENE_ERROR] trace_id={trace_id} scene_id={scene_id} error={e}")
@@ -1427,7 +1427,7 @@ async def restore_entity_states_in_background(
 
         # Delay to ensure database commits from main session are visible
         await asyncio.sleep(0.3)
-        logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=delay_complete")
+        logger.debug(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=delay_complete")
 
         from ...services.entity_state_service import EntityStateService
 
@@ -1436,7 +1436,7 @@ async def restore_entity_states_in_background(
         for attempt in range(max_retries):
             try:
                 with get_background_db() as bg_db:
-                    logger.info(f"[DELETE-BG:ENTITY:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
+                    logger.debug(f"[DELETE-BG:ENTITY:DB] trace_id={trace_id} attempt={attempt+1}/{max_retries} connection_acquired")
 
                     # Phase 1: Get user settings if not provided
                     phase_start = time.perf_counter()
@@ -1450,7 +1450,7 @@ async def restore_entity_states_in_background(
                         else:
                             logger.warning(f"[DELETE-BG:ENTITY:WARNING] trace_id={trace_id} no_user_settings user_id={user_id}")
                             return
-                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=get_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                    logger.debug(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=get_settings duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
 
                     entity_service = EntityStateService(
                         user_id=user_id,
@@ -1463,7 +1463,7 @@ async def restore_entity_states_in_background(
                         bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
                     )
                     bg_db.commit()
-                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
+                    logger.debug(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
 
                     # Phase 3: Restore character states from last valid batch before deleted scene
                     phase_start = time.perf_counter()
@@ -1471,7 +1471,7 @@ async def restore_entity_states_in_background(
                         bg_db, story_id, min_deleted_seq, branch_id=branch_id
                     )
                     bg_db.commit()
-                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore duration_ms={(time.perf_counter()-phase_start)*1000:.2f} result={restore_result}")
+                    logger.debug(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore duration_ms={(time.perf_counter()-phase_start)*1000:.2f} result={restore_result}")
 
                     total_duration = (time.perf_counter() - task_start) * 1000
                     logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=restored")
@@ -1550,8 +1550,8 @@ async def rollback_plot_progress_in_background(
                 chapter = bg_db.query(Chapter).filter(Chapter.id == scene_near_deletion.chapter_id).first()
                 if chapter:
                     chapters = [chapter]
-                    logger.info(f"[DELETE-BG:PLOT:CONTEXT] trace_id={trace_id} chapter_id={chapter.id} "
-                               f"branch_id={branch_id} from_scene_seq={scene_near_deletion.sequence_number}")
+                    logger.debug(f"[DELETE-BG:PLOT:CONTEXT] trace_id={trace_id} chapter_id={chapter.id} "
+                                f"branch_id={branch_id} from_scene_seq={scene_near_deletion.sequence_number}")
 
             for chapter in chapters:
                 needs_update = False
@@ -1586,7 +1586,7 @@ async def rollback_plot_progress_in_background(
                     for batch in batches_to_delete:
                         bg_db.delete(batch)
 
-                    logger.info(f"[DELETE-BG:PLOT:INVALIDATE] trace_id={trace_id} chapter_id={chapter.id} deleted_batches={deleted_count}")
+                    logger.debug(f"[DELETE-BG:PLOT:INVALIDATE] trace_id={trace_id} chapter_id={chapter.id} deleted_batches={deleted_count}")
                     needs_update = True
 
                 # Also check if plot_progress.scene_count exceeds actual max scene
@@ -1594,8 +1594,8 @@ async def rollback_plot_progress_in_background(
                 current_progress = chapter.plot_progress or {}
                 current_scene_count = current_progress.get("scene_count", 0)
                 if current_scene_count > actual_max_seq:
-                    logger.info(f"[DELETE-BG:PLOT:STALE] trace_id={trace_id} chapter_id={chapter.id} "
-                               f"progress_scene_count={current_scene_count} > actual_max_seq={actual_max_seq}")
+                    logger.debug(f"[DELETE-BG:PLOT:STALE] trace_id={trace_id} chapter_id={chapter.id} "
+                                f"progress_scene_count={current_scene_count} > actual_max_seq={actual_max_seq}")
                     needs_update = True
 
                 if needs_update:
@@ -1617,7 +1617,7 @@ async def rollback_plot_progress_in_background(
                             "last_updated": datetime.utcnow().isoformat()
                         }
                         chapter.last_plot_extraction_scene_count = actual_max_seq
-                        logger.info(f"[DELETE-BG:PLOT:RESTORE] trace_id={trace_id} chapter_id={chapter.id} events={len(all_events)} scene_count={actual_max_seq}")
+                        logger.debug(f"[DELETE-BG:PLOT:RESTORE] trace_id={trace_id} chapter_id={chapter.id} events={len(all_events)} scene_count={actual_max_seq}")
                     else:
                         # No remaining batches - clear progress
                         chapter.plot_progress = {
@@ -1626,7 +1626,7 @@ async def rollback_plot_progress_in_background(
                             "last_updated": datetime.utcnow().isoformat()
                         }
                         chapter.last_plot_extraction_scene_count = actual_max_seq
-                        logger.info(f"[DELETE-BG:PLOT:CLEAR] trace_id={trace_id} chapter_id={chapter.id} no_batches scene_count={actual_max_seq}")
+                        logger.debug(f"[DELETE-BG:PLOT:CLEAR] trace_id={trace_id} chapter_id={chapter.id} no_batches scene_count={actual_max_seq}")
 
                     flag_modified(chapter, "plot_progress")
 
@@ -2193,7 +2193,7 @@ async def run_scene_event_extraction_background(
                     'total_scenes': total_scenes,
                     'events_found': events_found,
                 }
-                logger.info(f"[EVENT_EXTRACT] {scenes_processed}/{total_scenes} scenes: {events_found} events total")
+                logger.debug(f"[EVENT_EXTRACT] {scenes_processed}/{total_scenes} scenes: {events_found} events total")
 
             # Rate limit
             await asyncio.sleep(0.3)
@@ -2276,8 +2276,8 @@ async def run_chronicle_extraction_in_background(
                 logger.warning(f"[CHRONICLE] No scenes to process: from={actual_from} >= to={actual_to}")
                 return
 
-            logger.warning(f"[CHRONICLE] Background extraction: chapter {chapter_id}, "
-                           f"scenes {actual_from+1}-{actual_to}")
+            logger.info(f"[CHRONICLE] Background extraction: chapter {chapter_id}, "
+                       f"scenes {actual_from+1}-{actual_to}")
 
             from ...services.chronicle_extraction_service import extract_chronicle_and_lorebook
             result = await extract_chronicle_and_lorebook(
@@ -2296,7 +2296,7 @@ async def run_chronicle_extraction_in_background(
             extraction_chapter.last_chronicle_scene_count = actual_to
             extraction_db.commit()
 
-            logger.warning(f"[CHRONICLE] Background complete: {result}")
+            logger.info(f"[CHRONICLE] Background complete: {result}")
 
             # Generate character snapshots if enough new entries accumulated
             if result.get("chronicle_entries", 0) > 0:
@@ -2310,7 +2310,7 @@ async def run_chronicle_extraction_in_background(
                         branch_id=extraction_chapter.branch_id,
                         scene_generation_context=scene_generation_context,
                     )
-                    logger.warning(f"[SNAPSHOT] Background complete: {snapshot_result}")
+                    logger.info(f"[SNAPSHOT] Background complete: {snapshot_result}")
                 except Exception as snap_err:
                     logger.error(f"[SNAPSHOT] Background generation failed: {snap_err}")
                     import traceback

@@ -358,7 +358,7 @@ class SceneDatabaseOperations:
             if branch_id:
                 flow_delete_query = flow_delete_query.filter(StoryFlow.branch_id == branch_id)
             story_flows_deleted = flow_delete_query.delete()
-            logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=delete_story_flows duration_ms={(time.perf_counter()-phase_start)*1000:.2f} flows_deleted={story_flows_deleted}")
+            logger.debug(f"[DELETE:PHASE] trace_id={trace_id} phase=delete_story_flows duration_ms={(time.perf_counter()-phase_start)*1000:.2f} flows_deleted={story_flows_deleted}")
 
             # Phase 2: Get scenes to delete (don't use bulk delete to ensure cascades work) - filtered by branch
             phase_start = time.perf_counter()
@@ -369,12 +369,12 @@ class SceneDatabaseOperations:
             if branch_id:
                 scene_query = scene_query.filter(Scene.branch_id == branch_id)
             scenes_to_delete = scene_query.all()
-            logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={len(scenes_to_delete)}")
+            logger.debug(f"[DELETE:PHASE] trace_id={trace_id} phase=query_scenes duration_ms={(time.perf_counter()-phase_start)*1000:.2f} scenes_found={len(scenes_to_delete)}")
 
             # NOTE: Semantic cleanup (embeddings, character moments, plot events) is now handled
             # as a background task by the API endpoint to avoid blocking the response.
             # This method only handles fast database deletions.
-            logger.info(f"[DELETE:CONTEXT] trace_id={trace_id} scenes_to_delete={len(scenes_to_delete)} sequence_start={sequence_number} scene_ids={[s.id for s in scenes_to_delete[:5]]}{'...' if len(scenes_to_delete) > 5 else ''}")
+            logger.debug(f"[DELETE:CONTEXT] trace_id={trace_id} scenes_to_delete={len(scenes_to_delete)} sequence_start={sequence_number} scene_ids={[s.id for s in scenes_to_delete[:5]]}{'...' if len(scenes_to_delete) > 5 else ''}")
 
             # Restore NPCTracking from snapshot after scene deletion (skip if doing in background)
             if not skip_restoration:
@@ -395,7 +395,7 @@ class SceneDatabaseOperations:
             for scene in scenes_to_delete:
                 if scene.chapter_id:
                     affected_chapter_ids.add(scene.chapter_id)
-            logger.info(f"[DELETE:CONTEXT] trace_id={trace_id} affected_chapters={list(affected_chapter_ids)}")
+            logger.debug(f"[DELETE:CONTEXT] trace_id={trace_id} affected_chapters={list(affected_chapter_ids)}")
 
             # Phase 2.5: Clear leads_to_scene_id references in SceneChoice before deleting scenes
             # This prevents foreign key constraint violations
@@ -406,7 +406,7 @@ class SceneDatabaseOperations:
                 leads_to_cleared = db.query(SceneChoice).filter(
                     SceneChoice.leads_to_scene_id.in_(scene_ids_to_delete)
                 ).update({SceneChoice.leads_to_scene_id: None}, synchronize_session='fetch')
-                logger.info(f"[DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
+                logger.debug(f"[DELETE:PHASE] trace_id={trace_id} phase=clear_leads_to_refs duration_ms={(time.perf_counter()-phase_start)*1000:.2f} refs_cleared={leads_to_cleared}")
 
             # Phase 3: Delete each scene individually to trigger cascade relationships
             phase_start = time.perf_counter()
@@ -414,7 +414,7 @@ class SceneDatabaseOperations:
             total_scenes = len(scenes_to_delete)
             batch_log_interval = max(1, total_scenes // 10) if total_scenes > 10 else 1  # Log every 10% or every scene if < 10
 
-            logger.info(f"[DELETE:SCENE_LOOP:START] trace_id={trace_id} total_scenes={total_scenes}")
+            logger.debug(f"[DELETE:SCENE_LOOP:START] trace_id={trace_id} total_scenes={total_scenes}")
             for i, scene in enumerate(scenes_to_delete):
                 scene_start = time.perf_counter()
                 db.delete(scene)
@@ -424,10 +424,10 @@ class SceneDatabaseOperations:
                 # Log progress every batch_log_interval scenes or if a single delete takes > 100ms
                 if (i + 1) % batch_log_interval == 0 or scene_duration > 100:
                     elapsed_ms = (time.perf_counter() - phase_start) * 1000
-                    logger.info(f"[DELETE:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene.id}")
+                    logger.debug(f"[DELETE:PROGRESS] trace_id={trace_id} progress={i+1}/{total_scenes} ({((i+1)/total_scenes*100):.1f}%) elapsed_ms={elapsed_ms:.2f} last_scene_ms={scene_duration:.2f} scene_id={scene.id}")
 
             loop_duration = (time.perf_counter() - phase_start) * 1000
-            logger.info(f"[DELETE:SCENE_LOOP:END] trace_id={trace_id} scenes_deleted={scenes_deleted} duration_ms={loop_duration:.2f} avg_per_scene_ms={loop_duration/max(1,scenes_deleted):.2f}")
+            logger.debug(f"[DELETE:SCENE_LOOP:END] trace_id={trace_id} scenes_deleted={scenes_deleted} duration_ms={loop_duration:.2f} avg_per_scene_ms={loop_duration/max(1,scenes_deleted):.2f}")
 
             # Phase 4: Recalculate scenes_count and invalidate affected batches for affected chapters
             self._update_affected_chapters(
@@ -444,10 +444,10 @@ class SceneDatabaseOperations:
 
             # Phase 5: Commit the transaction
             phase_start = time.perf_counter()
-            logger.info(f"[DELETE:COMMIT:START] trace_id={trace_id} story_id={story_id}")
+            logger.debug(f"[DELETE:COMMIT:START] trace_id={trace_id} story_id={story_id}")
             db.commit()
             commit_duration = (time.perf_counter() - phase_start) * 1000
-            logger.info(f"[DELETE:COMMIT:END] trace_id={trace_id} commit_duration_ms={commit_duration:.2f}")
+            logger.debug(f"[DELETE:COMMIT:END] trace_id={trace_id} commit_duration_ms={commit_duration:.2f}")
             status = "success"
 
             total_duration = (time.perf_counter() - start_time) * 1000
@@ -559,13 +559,13 @@ class SceneDatabaseOperations:
         from ...models import Chapter, ChapterSummaryBatch, Scene
         from ..chapter_summary_service import update_chapter_summary_from_batches
 
-        logger.info(f"[DELETE:CHAPTER_UPDATE:START] trace_id={trace_id} chapters_to_update={len(affected_chapter_ids)}")
+        logger.debug(f"[DELETE:CHAPTER_UPDATE:START] trace_id={trace_id} chapters_to_update={len(affected_chapter_ids)}")
         for chapter_idx, chapter_id in enumerate(affected_chapter_ids):
             chapter_start = time.perf_counter()
             chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
             if chapter:
                 chapter.scenes_count = self.get_active_scene_count(db, story_id, chapter_id, branch_id=chapter.branch_id)
-                logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} new_scenes_count={chapter.scenes_count}")
+                logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} new_scenes_count={chapter.scenes_count}")
 
                 # Invalidate summary batches that overlap with deleted scenes
                 affected_batches = db.query(ChapterSummaryBatch).filter(
@@ -577,12 +577,12 @@ class SceneDatabaseOperations:
                 if affected_batches:
                     for batch in affected_batches:
                         db.delete(batch)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_batches_invalidated={len(affected_batches)}")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_batches_invalidated={len(affected_batches)}")
 
                     # Recalculate summary from remaining batches
                     summary_start = time.perf_counter()
                     update_chapter_summary_from_batches(chapter_id, db)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_recalc_ms={(time.perf_counter()-summary_start)*1000:.2f}")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_recalc_ms={(time.perf_counter()-summary_start)*1000:.2f}")
 
                 # Invalidate plot progress batches that overlap with deleted scenes
                 from ...models import ChapterPlotProgressBatch
@@ -595,13 +595,13 @@ class SceneDatabaseOperations:
                 if affected_plot_batches:
                     for batch in affected_plot_batches:
                         db.delete(batch)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_batches_invalidated={len(affected_plot_batches)}")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_batches_invalidated={len(affected_plot_batches)}")
 
                     # Rollback plot progress to last valid batch (before deleted scenes)
                     from ..chapter_progress_service import ChapterProgressService
                     progress_service = ChapterProgressService(db)
                     progress_service.restore_from_last_valid_batch(chapter_id, min_deleted_seq)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_rolled_back")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_rolled_back")
 
                 # Update last_extraction_scene_count and last_summary_scene_count to max remaining sequence
                 # This prevents extraction/summary from being skipped due to negative scene counts
@@ -619,22 +619,22 @@ class SceneDatabaseOperations:
                     # Only lower them, never raise them (scenes were deleted, not added)
                     if chapter.last_extraction_scene_count and chapter.last_extraction_scene_count > max_remaining_seq:
                         chapter.last_extraction_scene_count = max_remaining_seq
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_count_updated_to={max_remaining_seq}")
+                        logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_count_updated_to={max_remaining_seq}")
                     if chapter.last_summary_scene_count and chapter.last_summary_scene_count > max_remaining_seq:
                         chapter.last_summary_scene_count = max_remaining_seq
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_count_updated_to={max_remaining_seq}")
+                        logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} summary_count_updated_to={max_remaining_seq}")
                     if chapter.last_plot_extraction_scene_count and chapter.last_plot_extraction_scene_count > max_remaining_seq:
                         chapter.last_plot_extraction_scene_count = max_remaining_seq
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_extraction_count_updated_to={max_remaining_seq}")
+                        logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_extraction_count_updated_to={max_remaining_seq}")
                     if chapter.last_chronicle_scene_count and chapter.last_chronicle_scene_count > max_remaining_seq:
                         chapter.last_chronicle_scene_count = max_remaining_seq
-                        logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chronicle_count_updated_to={max_remaining_seq}")
+                        logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chronicle_count_updated_to={max_remaining_seq}")
                     # Restore plot_progress from batches instead of resetting to None
                     # This preserves events from earlier batches that are still valid
                     from ..chapter_progress_service import ChapterProgressService
                     progress_service = ChapterProgressService(db)
                     progress_service.update_plot_progress_from_batches(chapter.id)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_restored_from_batches")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} plot_progress_restored_from_batches")
                 else:
                     chapter.last_extraction_scene_count = 0
                     chapter.last_summary_scene_count = 0
@@ -644,13 +644,13 @@ class SceneDatabaseOperations:
                     from ..chapter_progress_service import ChapterProgressService
                     progress_service = ChapterProgressService(db)
                     progress_service.update_plot_progress_from_batches(chapter.id)
-                    logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_summary_plot_count_reset_to=0")
+                    logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} extraction_summary_plot_count_reset_to=0")
 
                 chapter_duration = (time.perf_counter() - chapter_start) * 1000
-                logger.info(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chapter_update_ms={chapter_duration:.2f}")
+                logger.debug(f"[DELETE:CHAPTER] trace_id={trace_id} chapter_id={chapter_id} chapter_update_ms={chapter_duration:.2f}")
 
         chapter_phase_duration = (time.perf_counter() - phase_start) * 1000
-        logger.info(f"[DELETE:CHAPTER_UPDATE:END] trace_id={trace_id} chapters_updated={len(affected_chapter_ids)} duration_ms={chapter_phase_duration:.2f}")
+        logger.debug(f"[DELETE:CHAPTER_UPDATE:END] trace_id={trace_id} chapters_updated={len(affected_chapter_ids)} duration_ms={chapter_phase_duration:.2f}")
 
     async def _restore_entity_states(
         self, db: Session, story_id: int, sequence_number: int, branch_id: int,

@@ -225,7 +225,7 @@ async def generate_scene(
             # If choices weren't parsed (or separate generation is enabled), generate separately
             if not parsed_choices or len(parsed_choices) < 2:
                 if separate_choice_generation:
-                    logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
+                    logger.debug("Separate choice generation enabled - generating choices in dedicated LLM call")
                 else:
                     logger.warning("Choice parsing failed, using fallback generation")
                 # Reuse the existing scene generation context - don't rebuild it
@@ -321,7 +321,7 @@ async def generate_scene(
                         story_id, active_chapter.id, db
                     )
                     active_chapter.context_tokens_used = actual_context_size
-                    logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
+                    logger.debug(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
                 except Exception as e:
                     logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
                     # Fallback: use scene tokens as before (but log the issue)
@@ -333,7 +333,7 @@ async def generate_scene(
                 active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
 
                 db.commit()
-                logger.info(f"[CHAPTER] Updated chapter {active_chapter.id} stats ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+                logger.debug(f"[CHAPTER] Updated chapter {active_chapter.id} stats ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
 
                 # AUTO-GENERATE SUMMARIES if enabled and threshold reached
                 if user_settings:
@@ -524,7 +524,7 @@ async def generate_scene_streaming_endpoint(
     trace_id = f"scene-stream-{uuid.uuid4()}"
     start_time = time.perf_counter()
     logger.info(f"[SCENE:STREAM:START] trace_id={trace_id} story_id={story_id} content_mode={content_mode} is_concluding={is_concluding}")
-    logger.warning(f"[SCENE:STREAM:PARAMS] trace_id={trace_id} custom_prompt='{custom_prompt[:100] if custom_prompt else 'EMPTY'}' user_content='{user_content[:100] if user_content else 'EMPTY'}'")
+    logger.debug(f"[SCENE:STREAM:PARAMS] trace_id={trace_id} custom_prompt='{custom_prompt[:100] if custom_prompt else 'EMPTY'}' user_content='{user_content[:100] if user_content else 'EMPTY'}'")
 
     # Check if scene generation is already in progress for this story
     # Use non-blocking check since this is a streaming endpoint
@@ -634,7 +634,7 @@ async def generate_scene_streaming_endpoint(
     chapter_id = active_chapter.id
 
     # Use context manager to build optimized context
-    logger.warning(f"[SCENE:STREAM:CONTEXT] Building context with effective_custom_prompt='{effective_custom_prompt[:100] if effective_custom_prompt else 'EMPTY'}'")
+    logger.debug(f"[SCENE:STREAM:CONTEXT] Building context with effective_custom_prompt='{effective_custom_prompt[:100] if effective_custom_prompt else 'EMPTY'}'")
     try:
         context = await context_manager.build_scene_generation_context(
             story_id, db, effective_custom_prompt, is_variant_generation=False, chapter_id=chapter_id, branch_id=active_branch_id
@@ -1029,12 +1029,12 @@ async def generate_scene_streaming_endpoint(
 
                 if parsed_choices and len(parsed_choices) >= 2 and not separate_choice_generation:
                     # Use parsed choices from combined generation
-                    logger.info(f"Using parsed choices from combined generation: {len(parsed_choices)} choices")
+                    logger.debug(f"Using parsed choices from combined generation: {len(parsed_choices)} choices")
                     choices = parsed_choices
                 else:
                     # Separate choice generation (intentional or fallback)
                     if separate_choice_generation:
-                        logger.info("Separate choice generation enabled - generating choices in dedicated LLM call")
+                        logger.debug("Separate choice generation enabled - generating choices in dedicated LLM call")
                     else:
                         logger.warning("Choice parsing failed or no choices found, using fallback generation")
                     # Reuse the scene generation context (scene_context, not context) so the
@@ -1074,7 +1074,7 @@ async def generate_scene_streaming_endpoint(
                         story_id, active_chapter.id, db
                     )
                     active_chapter.context_tokens_used = actual_context_size
-                    logger.info(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
+                    logger.debug(f"[CHAPTER] Calculated actual context size for chapter {active_chapter.id}: {actual_context_size} tokens")
                 except Exception as e:
                     logger.error(f"[CHAPTER] Failed to calculate actual context size for chapter {active_chapter.id}: {e}")
                     # Fallback: use scene tokens as before (but log the issue)
@@ -1086,7 +1086,7 @@ async def generate_scene_streaming_endpoint(
                 active_chapter.scenes_count = llm_service.get_active_scene_count(db, story_id, branch_id=active_branch_id, chapter_id=active_chapter.id)
 
                 db.commit()
-                logger.info(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
+                logger.debug(f"[CHAPTER] Linked scene {scene.id} to chapter {active_chapter.id} ({active_chapter.scenes_count} scenes, {active_chapter.context_tokens_used} tokens)")
 
                 # Log scene generation status after chapter update
                 try:
@@ -1115,10 +1115,10 @@ async def generate_scene_streaming_endpoint(
                         scenes_since_summary = 0
                         scenes_since_extraction = 0
 
-                    logger.warning(f"[SCENE GENERATION] Chapter {active_chapter.id} status after scene {next_sequence}:")
-                    logger.warning(f"  - Total scenes: {active_chapter.scenes_count}")
-                    logger.warning(f"  - Scenes since last summary: {scenes_since_summary} (threshold: {summary_threshold}, last_summary_sequence: {active_chapter.last_summary_scene_count or 0})")
-                    logger.warning(f"  - Scenes since last extraction: {scenes_since_extraction} (threshold: {extraction_threshold}, last_extraction_sequence: {active_chapter.last_extraction_scene_count or 0})")
+                    logger.info(f"[SCENE GENERATION] Chapter {active_chapter.id} status after scene {next_sequence}:")
+                    logger.info(f"  - Total scenes: {active_chapter.scenes_count}")
+                    logger.info(f"  - Scenes since last summary: {scenes_since_summary} (threshold: {summary_threshold}, last_summary_sequence: {active_chapter.last_summary_scene_count or 0})")
+                    logger.info(f"  - Scenes since last extraction: {scenes_since_extraction} (threshold: {extraction_threshold}, last_extraction_sequence: {active_chapter.last_extraction_scene_count or 0})")
 
                     # Check NPC tracking status (filtered by branch)
                     try:
@@ -1134,7 +1134,7 @@ async def generate_scene_streaming_endpoint(
                             NPCTracking.crossed_threshold == True,
                             NPCTracking.converted_to_character == False
                         ).count()
-                        logger.warning(f"  - NPC tracking: {npc_count} total NPCs, {npc_threshold_crossed} crossed threshold")
+                        logger.debug(f"  - NPC tracking: {npc_count} total NPCs, {npc_threshold_crossed} crossed threshold")
                     except Exception as npc_error:
                         logger.debug(f"Could not get NPC stats: {npc_error}")
                 except Exception as log_error:
@@ -1304,13 +1304,13 @@ async def generate_scene_streaming_endpoint(
                         # Count scenes with sequence > last_extraction_sequence
                         scenes_since_extraction = len([s for s in scene_sequence_numbers if s > last_extraction_sequence])
 
-                        logger.warning(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{effective_threshold} for chapter {active_chapter.id} (inline_check={enable_inline_check})")
-                        logger.warning(f"[EXTRACTION] Chapter {active_chapter.id} has {len(scenes_in_chapter)} scenes (sequences {min(scene_sequence_numbers)} to {max_sequence_in_chapter}), last extracted: {last_extraction_sequence}")
+                        logger.debug(f"[EXTRACTION] Scenes since last extraction: {scenes_since_extraction}/{effective_threshold} for chapter {active_chapter.id} (inline_check={enable_inline_check})")
+                        logger.debug(f"[EXTRACTION] Chapter {active_chapter.id} has {len(scenes_in_chapter)} scenes (sequences {min(scene_sequence_numbers)} to {max_sequence_in_chapter}), last extracted: {last_extraction_sequence}")
 
                         # === INLINE CONTRADICTION CHECK (if enabled) ===
                         # Uses FastAPI background_tasks for sequential execution with other LLM tasks
                         if enable_inline_check:
-                            logger.warning(f"[INLINE_CHECK] Scheduling background entity extraction for contradiction check")
+                            logger.debug(f"[INLINE_CHECK] Scheduling background entity extraction for contradiction check")
                             _emit({'type': 'contradiction_check', 'status': 'scheduled'})
 
                             # Schedule inline check FIRST so it runs before other extractions
@@ -1331,7 +1331,7 @@ async def generate_scene_streaming_endpoint(
                         # Character moments, plot events, NPCs, scene embeddings
                         # (Entity states already done by inline check if enabled)
                         if scenes_since_extraction >= extraction_threshold:
-                            logger.warning(f"[EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_extraction}/{extraction_threshold})")
+                            logger.info(f"[EXTRACTION] Scheduled: threshold reached ({scenes_since_extraction}/{extraction_threshold})")
 
                             # Schedule extraction to run after response completes
                             # Use actual sequence numbers, not scenes_count
@@ -1354,10 +1354,10 @@ async def generate_scene_streaming_endpoint(
                             # Threshold not reached - skip extraction with clear reason
                             # Show extraction_threshold (not effective_threshold) since that's what full extraction uses
                             skip_msg = f"Skipped ({scenes_since_extraction}/{extraction_threshold})"
-                            logger.warning(f"[EXTRACTION] ✗ SKIPPED: {skip_msg}")
+                            logger.debug(f"[EXTRACTION] Skipped: {skip_msg}")
                             _emit({'type': 'extraction_status', 'status': 'skipped', 'message': skip_msg})
                     else:
-                        logger.warning(f"[EXTRACTION] No scenes found in chapter {active_chapter.id}, skipping extraction")
+                        logger.debug(f"[EXTRACTION] No scenes found in chapter {active_chapter.id}, skipping extraction")
                 except Exception as e:
                     logger.error(f"[EXTRACTION] Failed to process extraction: {e}")
                     import traceback
@@ -1397,10 +1397,10 @@ async def generate_scene_streaming_endpoint(
                             # Count scenes since last plot extraction
                             scenes_since_plot_extraction = len([s for s in scene_sequence_numbers if s > last_plot_extraction_sequence])
 
-                            logger.warning(f"[PLOT_EXTRACTION] Scenes since last plot extraction: {scenes_since_plot_extraction}/{plot_extraction_threshold} for chapter {active_chapter.id}")
+                            logger.debug(f"[PLOT_EXTRACTION] Scenes since last plot extraction: {scenes_since_plot_extraction}/{plot_extraction_threshold} for chapter {active_chapter.id}")
 
                             if scenes_since_plot_extraction >= plot_extraction_threshold:
-                                logger.warning(f"[PLOT_EXTRACTION] ✓ SCHEDULED: Threshold reached ({scenes_since_plot_extraction}/{plot_extraction_threshold})")
+                                logger.info(f"[PLOT_EXTRACTION] Scheduled: threshold reached ({scenes_since_plot_extraction}/{plot_extraction_threshold})")
 
                                 # Schedule plot extraction as asyncio task
                                 asyncio.create_task(run_plot_extraction_in_background(
@@ -1419,7 +1419,7 @@ async def generate_scene_streaming_endpoint(
                             else:
                                 # Threshold not reached
                                 skip_msg = f"Plot tracking skipped ({scenes_since_plot_extraction}/{plot_extraction_threshold})"
-                                logger.warning(f"[PLOT_EXTRACTION] ✗ SKIPPED: {skip_msg}")
+                                logger.debug(f"[PLOT_EXTRACTION] Skipped: {skip_msg}")
                                 _emit({'type': 'plot_extraction_status', 'status': 'skipped', 'message': skip_msg})
                 except Exception as e:
                     logger.error(f"[PLOT_EXTRACTION] Failed to check plot extraction: {e}")
@@ -1447,7 +1447,7 @@ async def generate_scene_streaming_endpoint(
 
                     if scenes_since_chronicle >= chronicle_threshold:
                         max_seq_chapter = max(chronicle_scene_seqs) if chronicle_scene_seqs else 0
-                        logger.warning(f"[CHRONICLE] ✓ SCHEDULED: Threshold reached ({scenes_since_chronicle}/{chronicle_threshold})")
+                        logger.info(f"[CHRONICLE] Scheduled: threshold reached ({scenes_since_chronicle}/{chronicle_threshold})")
                         asyncio.create_task(run_chronicle_extraction_in_background(
                             story_id=story_id,
                             chapter_id=active_chapter.id,

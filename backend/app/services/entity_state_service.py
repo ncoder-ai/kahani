@@ -313,7 +313,7 @@ class EntityStateService:
                 if previous_attire:
                     lines = [f"- {name}: attire={attire}" for name, attire in previous_attire.items()]
                     previous_states_text = "PREVIOUS KNOWN STATES (carry forward if scene doesn't change them):\n" + "\n".join(lines)
-                    logger.info(f"[ENTITY:PREVIOUS_STATES] trace_id={trace_id} Passing {len(previous_attire)} previous attire states to extraction")
+                    logger.debug(f"[ENTITY:PREVIOUS_STATES] trace_id={trace_id} Passing {len(previous_attire)} previous attire states to extraction")
             except Exception as prev_err:
                 logger.warning(f"[ENTITY:PREVIOUS_STATES:FAIL] trace_id={trace_id} Failed to query previous states: {prev_err}")
 
@@ -330,7 +330,7 @@ class EntityStateService:
                         chapter_id=chapter_id,
                         branch_id=branch_id
                     )
-                    logger.info(f"[ENTITY:CONTEXT] trace_id={trace_id} Built context for cache-friendly extraction")
+                    logger.debug(f"[ENTITY:CONTEXT] trace_id={trace_id} Built context for cache-friendly extraction")
                 except Exception as ctx_err:
                     logger.warning(f"[ENTITY:CONTEXT:FAIL] trace_id={trace_id} Failed to build context: {ctx_err}, using fallback")
                     context = None
@@ -348,7 +348,7 @@ class EntityStateService:
                         db=db,
                         previous_states=previous_states_text
                     )
-                    logger.info(f"[ENTITY:CACHE_FRIENDLY] trace_id={trace_id} Used cache-friendly extraction")
+                    logger.debug(f"[ENTITY:CACHE_FRIENDLY] trace_id={trace_id} Used cache-friendly extraction")
 
                     # Parse the response
                     response_clean = raw_response.strip()
@@ -557,7 +557,7 @@ class EntityStateService:
         from ..models import WorkingMemory
 
         trace_id = f"working-memory-{uuid.uuid4()}"
-        logger.info(f"[WORKING_MEMORY:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence}")
+        logger.debug(f"[WORKING_MEMORY:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence}")
 
         try:
             # Get or create working memory for this story/branch
@@ -622,7 +622,7 @@ class EntityStateService:
 
         # === CACHE-FRIENDLY PATH: Use unified service method ===
         if scene_generation_context is not None:
-            logger.info("[WORKING_MEMORY] Using cache-friendly extraction with scene generation context")
+            logger.debug("[WORKING_MEMORY] Using cache-friendly extraction with scene generation context")
             llm_service = UnifiedLLMService()
             return await llm_service.extract_working_memory_cache_friendly(
                 scene_content=scene_content,
@@ -634,7 +634,7 @@ class EntityStateService:
             )
 
         # === FALLBACK PATH: Original 2-message structure ===
-        logger.info("[WORKING_MEMORY] Using fallback extraction (no scene context - cache may miss)")
+        logger.debug("[WORKING_MEMORY] Using fallback extraction (no scene context - cache may miss)")
         extraction_service = self._get_extraction_service()
 
         template_vars = {
@@ -781,11 +781,11 @@ class EntityStateService:
         from ..models import CharacterRelationship, RelationshipSummary
 
         if not characters or len(characters) < 2:
-            logger.info(f"[RELATIONSHIP:SKIP] story_id={story_id} scene={scene_sequence} - less than 2 characters")
+            logger.debug(f"[RELATIONSHIP:SKIP] story_id={story_id} scene={scene_sequence} - less than 2 characters")
             return []
 
         trace_id = f"relationship-{uuid.uuid4()}"
-        logger.info(f"[RELATIONSHIP:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence} characters={characters}")
+        logger.debug(f"[RELATIONSHIP:START] trace_id={trace_id} story_id={story_id} scene={scene_sequence} characters={characters}")
 
         try:
             # Fetch canonical character names for normalization
@@ -900,7 +900,7 @@ class EntityStateService:
 
         # === CACHE-FRIENDLY PATH: Use unified service method ===
         if scene_generation_context is not None:
-            logger.info("[RELATIONSHIP] Using cache-friendly extraction with scene generation context")
+            logger.debug("[RELATIONSHIP] Using cache-friendly extraction with scene generation context")
             llm_service = UnifiedLLMService()
             return await llm_service.extract_relationship_cache_friendly(
                 scene_content=scene_content,
@@ -916,7 +916,7 @@ class EntityStateService:
         # === FALLBACK PATH: No scene generation context available ===
         # Cache-friendly path requires scene_generation_context. Without it,
         # relationship extraction is skipped (no standalone prompt template exists).
-        logger.info("[RELATIONSHIP] No scene generation context available, skipping relationship extraction")
+        logger.debug("[RELATIONSHIP] No scene generation context available, skipping relationship extraction")
         return []
 
     def _store_relationship_event(
@@ -1075,7 +1075,7 @@ class EntityStateService:
         extraction_service = self._get_extraction_service()
         if extraction_service:
             try:
-                logger.info(f"[ENTITY:LLM:START] trace_id={trace_id} mode=extraction_model user={self.user_id} scene_sequence={scene_sequence}")
+                logger.debug(f"[ENTITY:LLM:START] trace_id={trace_id} mode=extraction_model user={self.user_id} scene_sequence={scene_sequence}")
                 state_changes = await extraction_service.extract_entity_states(
                     scene_content=scene_content,
                     scene_sequence=scene_sequence,
@@ -1088,7 +1088,7 @@ class EntityStateService:
                 validated = self._validate_state_changes(state_changes)
                 if validated:
                     duration_ms = (time.perf_counter() - op_start) * 1000
-                    logger.info(f"[ENTITY:LLM:END] trace_id={trace_id} mode=extraction_model status=success duration_ms={duration_ms:.2f}")
+                    logger.debug(f"[ENTITY:LLM:END] trace_id={trace_id} mode=extraction_model status=success duration_ms={duration_ms:.2f}")
                     return validated
                 else:
                     logger.warning(f"[ENTITY:LLM:EMPTY] trace_id={trace_id} mode=extraction_model duration_ms={(time.perf_counter() - op_start) * 1000:.2f} fallback=main")
@@ -1104,7 +1104,7 @@ class EntityStateService:
         
         try:
             llm_start = time.perf_counter()
-            logger.info(f"[ENTITY:LLM:START] trace_id={trace_id} mode=main_llm user={self.user_id} scene_sequence={scene_sequence}")
+            logger.debug(f"[ENTITY:LLM:START] trace_id={trace_id} mode=main_llm user={self.user_id} scene_sequence={scene_sequence}")
             
             # Build interaction types section for prompt
             interaction_section = ""
@@ -1151,7 +1151,6 @@ class EntityStateService:
             )
             llm_duration_ms = (time.perf_counter() - llm_start) * 1000
             
-            logger.warning(f"RAW LLM RESPONSE - ENTITY STATES:\n{response}")
             
             # Parse JSON response
             # Clean up response (remove markdown code blocks if present)
@@ -1170,7 +1169,7 @@ class EntityStateService:
             state_changes = json.loads(response_clean)
             validated = self._validate_state_changes(state_changes)
             if validated:
-                logger.info(f"[ENTITY:LLM:END] trace_id={trace_id} mode=main_llm status=success duration_ms={llm_duration_ms:.2f}")
+                logger.debug(f"[ENTITY:LLM:END] trace_id={trace_id} mode=main_llm status=success duration_ms={llm_duration_ms:.2f}")
             else:
                 logger.warning(f"[ENTITY:LLM:EMPTY] trace_id={trace_id} mode=main_llm duration_ms={llm_duration_ms:.2f}")
             return validated
@@ -1289,7 +1288,7 @@ class EntityStateService:
                 story_char = base_char_query.filter(Character.name.ilike(f"{char_name}%")).first()
                 if story_char:
                     matched_char = db.query(Character).filter(Character.id == story_char.character_id).first()
-                    logger.info(f"Character '{char_name}' fuzzy-matched to '{matched_char.name}' in story {story_id}{trace_suffix}")
+                    logger.debug(f"Character '{char_name}' fuzzy-matched to '{matched_char.name}' in story {story_id}{trace_suffix}")
 
             if not story_char:
                 logger.warning(f"Character '{char_name}' not found in story {story_id} (branch {branch_id}){trace_suffix}")
@@ -1482,7 +1481,7 @@ class EntityStateService:
             db.add(new_interaction)
             try:
                 db.flush()
-                logger.info(f"[INTERACTION:RECORDED] {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_sequence}{trace_suffix}")
+                logger.debug(f"[INTERACTION:RECORDED] {interaction_type} between {char_a_name} and {char_b_name} at scene {scene_sequence}{trace_suffix}")
                 return True
             except IntegrityError:
                 db.rollback()

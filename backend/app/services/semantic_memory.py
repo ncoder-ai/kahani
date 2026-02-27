@@ -317,7 +317,7 @@ class SemanticMemoryService:
             for sid, raw in zip(scene_ids, raw_scores):
                 scores[sid] = 1.0 / (1.0 + math.exp(-float(raw)))
 
-            logger.info(f"[RERANK] Reranked {len(scores)} scenes. "
+            logger.debug(f"[RERANK] Reranked {len(scores)} scenes. "
                        f"Score range: [{min(scores.values()):.3f}, {max(scores.values()):.3f}]")
             return scores
 
@@ -383,7 +383,7 @@ class SemanticMemoryService:
             # Generate embedding (async)
             embedding = await self.generate_embedding(content)
 
-            logger.info(f"Generated scene embedding: {embedding_id}")
+            logger.debug(f"Generated scene embedding: {embedding_id}")
             return embedding_id, embedding
 
         except Exception as e:
@@ -522,7 +522,7 @@ class SemanticMemoryService:
                         valid_candidates.sort(key=lambda x: x['rerank_score'], reverse=True)
                         candidates = valid_candidates
 
-                        logger.info(f"Reranked {len(candidates)} candidates for story {story_id}")
+                        logger.debug(f"Reranked {len(candidates)} candidates for story {story_id}")
                     else:
                         # No texts found for reranking, fall back to bi-encoder scores
                         for candidate in candidates:
@@ -544,7 +544,7 @@ class SemanticMemoryService:
             # Return top_k results
             final_results = candidates[:top_k]
 
-            logger.info(f"Returning {len(final_results)} similar scenes for story {story_id}")
+            logger.debug(f"Returning {len(final_results)} similar scenes for story {story_id}")
             return final_results
 
         except Exception as e:
@@ -771,7 +771,7 @@ class SemanticMemoryService:
 
             candidates = sorted(scene_best.values(), key=lambda x: x['similarity_score'], reverse=True)
 
-            logger.info(f"Returning {len(candidates[:top_k])} event-based scenes for story {story_id}")
+            logger.debug(f"Returning {len(candidates[:top_k])} event-based scenes for story {story_id}")
             return candidates[:top_k]
 
         except Exception as e:
@@ -947,7 +947,7 @@ class SemanticMemoryService:
             # Generate embedding (async)
             embedding = await self.generate_embedding(content)
 
-            logger.info(f"Generated character moment embedding: {embedding_id}")
+            logger.debug(f"Generated character moment embedding: {embedding_id}")
             return embedding_id, embedding
 
         except Exception as e:
@@ -1055,7 +1055,7 @@ class SemanticMemoryService:
                                 candidate['similarity_score'] = candidate['bi_encoder_score']
 
                         candidates.sort(key=lambda x: x['similarity_score'], reverse=True)
-                        logger.info(f"Reranked {len(candidates)} character moments")
+                        logger.debug(f"Reranked {len(candidates)} character moments")
                     else:
                         for c in candidates:
                             c['similarity_score'] = c['bi_encoder_score']
@@ -1076,7 +1076,7 @@ class SemanticMemoryService:
                 result = {k: v for k, v in c.items() if k != 'document_text'}
                 final_results.append(result)
 
-            logger.info(f"Returning {len(final_results)} character moments for character {character_id}")
+            logger.debug(f"Returning {len(final_results)} character moments for character {character_id}")
             return final_results
 
         except Exception as e:
@@ -1121,7 +1121,7 @@ class SemanticMemoryService:
                     return moments
 
             moments = await asyncio.to_thread(_db_get)
-            logger.info(f"Retrieved {len(moments)} moments for character arc")
+            logger.debug(f"Retrieved {len(moments)} moments for character arc")
             return moments
 
         except Exception as e:
@@ -1161,7 +1161,7 @@ class SemanticMemoryService:
             # Generate embedding (async)
             embedding = await self.generate_embedding(description)
 
-            logger.info(f"Generated plot event embedding: {embedding_id}")
+            logger.debug(f"Generated plot event embedding: {embedding_id}")
             return embedding_id, embedding
 
         except Exception as e:
@@ -1269,7 +1269,7 @@ class SemanticMemoryService:
                                 candidate['similarity_score'] = candidate['bi_encoder_score']
 
                         candidates.sort(key=lambda x: x['similarity_score'], reverse=True)
-                        logger.info(f"Reranked {len(candidates)} plot events")
+                        logger.debug(f"Reranked {len(candidates)} plot events")
                     else:
                         for c in candidates:
                             c['similarity_score'] = c['bi_encoder_score']
@@ -1290,7 +1290,7 @@ class SemanticMemoryService:
                 result = {k: v for k, v in c.items() if k != 'document_text'}
                 final_results.append(result)
 
-            logger.info(f"Returning {len(final_results)} plot events for story {story_id}")
+            logger.debug(f"Returning {len(final_results)} plot events for story {story_id}")
             return final_results
 
         except Exception as e:

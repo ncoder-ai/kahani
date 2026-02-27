@@ -156,8 +156,8 @@ async def extract_chronicle_and_lorebook(
     existing_section = _build_existing_state_section(db, world_id, story_id, branch_id, char_id_map)
 
     # === PASS 1: Extraction (main LLM, generous) ===
-    logger.warning(f"[CHRONICLE] Pass 1: Extracting from scenes {from_sequence+1}-{to_sequence} "
-                   f"({len(scenes_content_parts)} scenes, {len(char_names)} characters)")
+    logger.info(f"[CHRONICLE] Pass 1: Extracting from scenes {from_sequence+1}-{to_sequence} "
+                f"({len(scenes_content_parts)} scenes, {len(char_names)} characters)")
 
     from .llm.service import UnifiedLLMService
     llm_service = UnifiedLLMService()
@@ -196,7 +196,7 @@ async def extract_chronicle_and_lorebook(
     raw_chronicle = raw_data.get("character_chronicle", [])
     raw_lorebook = raw_data.get("location_lorebook", [])
 
-    logger.warning(f"[CHRONICLE] Pass 1 results: {len(raw_chronicle)} chronicle, {len(raw_lorebook)} lorebook candidates")
+    logger.info(f"[CHRONICLE] Pass 1 results: {len(raw_chronicle)} chronicle, {len(raw_lorebook)} lorebook candidates")
 
     if not raw_chronicle and not raw_lorebook:
         _write_debug_log({
@@ -231,7 +231,7 @@ async def extract_chronicle_and_lorebook(
     validation_verdicts = []
 
     try:
-        logger.warning(f"[CHRONICLE] Pass 2: Validating {len(all_candidates)} candidates")
+        logger.info(f"[CHRONICLE] Pass 2: Validating {len(all_candidates)} candidates")
         validation_response = await llm_service.validate_chronicle_cache_friendly(
             scenes_content=scenes_content,
             candidate_entries_json=candidate_entries_json,
@@ -248,7 +248,7 @@ async def extract_chronicle_and_lorebook(
             validation_verdicts = validation_data
         else:
             validation_verdicts = validation_data.get("validated", [])
-        logger.warning(f"[CHRONICLE] Pass 2 results: {len(validation_verdicts)} verdicts")
+        logger.info(f"[CHRONICLE] Pass 2 results: {len(validation_verdicts)} verdicts")
 
     except Exception as e:
         logger.error(f"[CHRONICLE] Validation failed: {e}")
@@ -286,8 +286,8 @@ async def extract_chronicle_and_lorebook(
             result["rejected"] += 1
             rejected_entries.append(verdict)
 
-    logger.warning(f"[CHRONICLE] Validation: {result['validated']} kept, {result['rejected']} rejected, "
-                   f"{len(all_candidates) - len(validation_verdicts)} unmatched (dropped)")
+    logger.info(f"[CHRONICLE] Validation: {result['validated']} kept, {result['rejected']} rejected, "
+                f"{len(all_candidates) - len(validation_verdicts)} unmatched (dropped)")
 
     # === PASS 3: Programmatic checks + storage ===
     programmatic_rejections = []
@@ -458,8 +458,8 @@ async def extract_chronicle_and_lorebook(
     result["lorebook_entries"] = stored_lorebook_count
     result["embeddings"] = embedding_count
 
-    logger.warning(f"[CHRONICLE] Stored: {stored_chronicle_count} chronicle, {stored_lorebook_count} lorebook, "
-                   f"{embedding_count} embeddings, {len(programmatic_rejections)} programmatic rejections")
+    logger.info(f"[CHRONICLE] Stored: {stored_chronicle_count} chronicle, {stored_lorebook_count} lorebook, "
+                f"{embedding_count} embeddings, {len(programmatic_rejections)} programmatic rejections")
 
     # --- Write debug log ---
     _write_debug_log({
@@ -1047,7 +1047,7 @@ async def maybe_generate_snapshots(
 
             db.flush()
             result["snapshots_generated"] += 1
-            logger.warning(f"[SNAPSHOT] Generated snapshot for {character.name} ({current_count} entries)")
+            logger.info(f"[SNAPSHOT] Generated snapshot for {character.name} ({current_count} entries)")
 
         except Exception as e:
             logger.error(f"[SNAPSHOT] Failed to generate snapshot for {character.name}: {e}")
@@ -1057,5 +1057,5 @@ async def maybe_generate_snapshots(
     if result["snapshots_generated"] > 0:
         db.commit()
 
-    logger.warning(f"[SNAPSHOT] Complete: {result}")
+    logger.info(f"[SNAPSHOT] Complete: {result}")
     return result
