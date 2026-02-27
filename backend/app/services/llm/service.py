@@ -5631,9 +5631,6 @@ Chapter Conclusion:"""
         suppress_reasoning = client.reasoning_effort == "disabled"
         is_openrouter = client.api_type == "openrouter" or "openrouter" in (client.api_url or "").lower()
 
-        # Log key streaming params for debugging
-        logger.info(f"[STREAM PARAMS] model={gen_params.get('model')}, reasoning_in_extra_body={gen_params.get('extra_body', {}).get('reasoning')}, thinking_model_type={thinking_model_type}, thinking_enabled_gen={thinking_enabled_gen}, suppress_reasoning={suppress_reasoning}, is_openrouter={is_openrouter}")
-
         try:
             import time
             stream_start = time.monotonic()

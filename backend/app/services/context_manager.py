@@ -566,9 +566,16 @@ class ContextManager:
         # Use 5% of effective max tokens (matches hybrid path allocation)
         entity_token_budget = int(self.effective_max_tokens * 0.05)
         try:
+            # Use actual max scene sequence from DB, not context window subset
+            from sqlalchemy import func
+            max_seq_row = db.query(func.max(Scene.sequence_number)).filter(
+                Scene.story_id == story_id,
+                Scene.branch_id == branch_id,
+                Scene.is_deleted == False
+            ).scalar()
             entity_states_text = await self._get_entity_states(
                 story_id=story_id, token_budget=entity_token_budget, db=db,
-                current_scene_sequence=scene_context.get("current_scene_sequence"),
+                current_scene_sequence=max_seq_row,
                 branch_id=branch_id
             )
             if entity_states_text:
@@ -2462,7 +2469,12 @@ Appearance: {char.get('appearance', '')}
         # Build live entity states if no snapshot
         if not entity_states_content:
             try:
-                _current_seq = max(s.sequence_number for s in scenes if s.sequence_number) if scenes else None
+                from sqlalchemy import func
+                _current_seq = db.query(func.max(Scene.sequence_number)).filter(
+                    Scene.story_id == story_id,
+                    Scene.branch_id == branch_id,
+                    Scene.is_deleted == False
+                ).scalar()
                 entity_states_content = await self._get_entity_states(
                     story_id=story_id, token_budget=entity_tokens, db=db,
                     current_scene_sequence=_current_seq, branch_id=branch_id
@@ -4973,22 +4985,22 @@ Appearance: {char.get('appearance', '')}
             # Character States
             # Filter to only show characters with recent state updates
             if character_states:
+                logger.info(f"[ENTITY_STATES] Found {len(character_states)} character states, current_scene_sequence={current_scene_sequence}, recency_window={self.location_recency_window}")
+                for _cs in character_states:
+                    _char = db.query(Character).filter(Character.id == _cs.character_id).first()
+                    logger.info(f"[ENTITY_STATES] {_char.name if _char else _cs.character_id}: last_updated={_cs.last_updated_scene}, appearance={_cs.appearance}")
+
                 # Filter character states by recency (only show if updated recently)
                 filtered_char_states = []
                 for char_state in character_states:
                     # Include if updated recently OR if it's a main character (always show main characters)
                     include = True
                     if current_scene_sequence is not None and char_state.last_updated_scene is not None:
-                        # Skip entity states that reference scenes beyond current branch's range
-                        if char_state.last_updated_scene > current_scene_sequence:
-                            include = False  # Scene doesn't exist in current branch context
-                        else:
-                            scene_age = current_scene_sequence - char_state.last_updated_scene
-                            # Only include if updated within recency window (or has meaningful state)
-                            if scene_age > self.location_recency_window:
-                                # Still include if character has attire or physical condition tracked
-                                if not (char_state.appearance or char_state.physical_condition):
-                                    include = False
+                        scene_age = max(0, current_scene_sequence - char_state.last_updated_scene)
+                        # Only exclude if outdated AND has no meaningful physical state
+                        if scene_age > self.location_recency_window:
+                            if not (char_state.appearance or char_state.physical_condition):
+                                include = False
 
                     if include:
                         filtered_char_states.append(char_state)

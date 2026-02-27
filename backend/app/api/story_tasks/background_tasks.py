@@ -1457,9 +1457,7 @@ async def restore_entity_states_in_background(
                         user_settings=local_user_settings
                     )
 
-                    # Phase 2: Invalidate batches that overlap with deleted scenes (filtered by branch)
-                    # Note: Entity state restoration is already handled by the main delete transaction.
-                    # This task only needs to invalidate stale batches as a safety net.
+                    # Phase 2: Invalidate batches that overlap with deleted scenes
                     phase_start = time.perf_counter()
                     entity_service.invalidate_entity_batches_for_scenes(
                         bg_db, story_id, min_deleted_seq, max_deleted_seq, branch_id=branch_id
@@ -1467,8 +1465,16 @@ async def restore_entity_states_in_background(
                     bg_db.commit()
                     logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=invalidate_batches duration_ms={(time.perf_counter()-phase_start)*1000:.2f}")
 
+                    # Phase 3: Restore character states from last valid batch before deleted scene
+                    phase_start = time.perf_counter()
+                    restore_result = entity_service.restore_from_last_complete_batch(
+                        bg_db, story_id, min_deleted_seq, branch_id=branch_id
+                    )
+                    bg_db.commit()
+                    logger.info(f"[DELETE-BG:ENTITY:PHASE] trace_id={trace_id} phase=restore duration_ms={(time.perf_counter()-phase_start)*1000:.2f} result={restore_result}")
+
                     total_duration = (time.perf_counter() - task_start) * 1000
-                    logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=invalidated_batches")
+                    logger.info(f"[DELETE-BG:ENTITY:END] trace_id={trace_id} total_duration_ms={total_duration:.2f} action=restored")
 
                     # Success - exit retry loop
                     return

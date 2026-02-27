@@ -513,21 +513,14 @@ class EntityStateService:
                 characters_expected=len(character_names)
             )
 
-            # Check if we should create a batch snapshot (every 5 scenes, matching chapter summary batch threshold)
-            batch_threshold = self.user_settings.get("context_summary_threshold", 5)
-            if scene_sequence % batch_threshold == 0:
-                # Find the start of this batch
-                batch_start = ((scene_sequence - 1) // batch_threshold) * batch_threshold + 1
-                batch_end = scene_sequence
-                
-                # Create batch snapshot
-                try:
-                    self.create_entity_state_batch_snapshot(
-                        db, story_id, batch_start, batch_end, branch_id=branch_id
-                    )
-                except Exception as e:
-                    # Don't fail extraction if batch creation fails
-                    logger.warning(f"[ENTITY:BATCH:ERROR] trace_id={trace_id} story_id={story_id} batch={batch_start}-{batch_end} error={e}")
+            # Create batch snapshot every scene (attire changes per-scene, rollback needs latest state)
+            try:
+                self.create_entity_state_batch_snapshot(
+                    db, story_id, scene_sequence, scene_sequence, branch_id=branch_id
+                )
+            except Exception as e:
+                # Don't fail extraction if batch creation fails
+                logger.warning(f"[ENTITY:BATCH:ERROR] trace_id={trace_id} story_id={story_id} scene={scene_sequence} error={e}")
             
         except Exception as e:
             logger.error(f"[ENTITY:ERROR] trace_id={trace_id} story_id={story_id} scene_id={scene_id} error={e}")
