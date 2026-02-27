@@ -336,22 +336,25 @@ class LLMClient:
             params["extra_body"] = extra_body
 
         # Add reasoning/thinking parameters
+        # reasoning_effort is a top-level LiteLLM param — it handles provider translation:
+        # OpenAI: passes natively, Anthropic: translates to thinking budget, etc.
         if self.reasoning_effort and self.reasoning_effort != "disabled":
-            if "extra_body" not in params:
-                params["extra_body"] = {}
-            params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
-            logger.debug(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
+            params["reasoning_effort"] = self.reasoning_effort
+            logger.debug(f"Reasoning effort set to: {self.reasoning_effort} via top-level param")
         elif self.reasoning_effort == "disabled":
-            if "extra_body" not in params:
-                params["extra_body"] = {}
+            # No standard "disable" value — just don't send the param
             if is_openrouter:
                 # OpenRouter accepts reasoning.effort="none" to suppress thinking
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
                 params["extra_body"]["reasoning"] = {"effort": "none"}
                 logger.debug("Reasoning disabled for OpenRouter via reasoning.effort=none")
-            else:
-                # For local servers, include_reasoning=False is safe
+            elif self.api_type not in self.CLOUD_PROVIDERS:
+                # For local servers, include_reasoning=False hint
+                if "extra_body" not in params:
+                    params["extra_body"] = {}
                 params["extra_body"]["include_reasoning"] = False
-                logger.debug("Reasoning disabled via include_reasoning=False")
+                logger.debug("Reasoning disabled for local server via include_reasoning=False")
         
         logger.debug(f"Final generation params: {params}")
         return params
