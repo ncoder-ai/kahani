@@ -588,7 +588,9 @@ class EntityStateService:
 
             if updates:
                 # Apply updates
-                memory.recent_focus = updates.get('recent_focus', [])[:3]  # Limit to 3
+                # Coerce to list of strings — LLM sometimes returns dicts
+                raw_focus = updates.get('recent_focus', [])[:3]
+                memory.recent_focus = [str(f) if not isinstance(f, str) else f for f in raw_focus]
                 memory.character_spotlight = updates.get('character_spotlight', {})
                 memory.chapter_id = chapter_id
                 memory.last_scene_sequence = scene_sequence
@@ -618,7 +620,8 @@ class EntityStateService:
         If scene_generation_context is provided, uses cache-friendly unified extraction
         that matches the scene generation message structure for cache hits.
         """
-        current_focus_str = ', '.join(current_focus[:3]) if current_focus else 'None'
+        # Coerce items to str — LLM sometimes returns dicts instead of plain strings
+        current_focus_str = ', '.join(str(f) for f in current_focus[:3]) if current_focus else 'None'
 
         # === CACHE-FRIENDLY PATH: Use unified service method ===
         if scene_generation_context is not None:

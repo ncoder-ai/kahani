@@ -2241,11 +2241,12 @@ function StoryPageContent({ storyId }: { storyId: number }) {
             }
             
             // Clear streaming states
+            setCustomPrompt('');
             setStreamingVariantContent('');
             setStreamingVariantSceneId(null);
             setIsStreaming(false);
             setIsRegenerating(false);
-            
+
             // Clear abort controller reference after completion
             variantGenerationAbortControllerRef.current = null;
             
@@ -2379,10 +2380,11 @@ function StoryPageContent({ storyId }: { storyId: number }) {
             
             
             // Then clear streaming states after story is loaded
+            setCustomPrompt('');
             setIsStreamingContinuation(false);
             setStreamingContinuation('');
             setStreamingContinuationSceneId(null);
-            
+
             // Clear abort controller reference after completion
             continuationAbortControllerRef.current = null;
           },
