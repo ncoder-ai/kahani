@@ -342,15 +342,14 @@ class LLMClient:
             params["extra_body"]["reasoning"] = {"effort": self.reasoning_effort}
             logger.info(f"Reasoning effort set to: {self.reasoning_effort} via extra_body")
         elif self.reasoning_effort == "disabled":
+            if "extra_body" not in params:
+                params["extra_body"] = {}
             if is_openrouter:
-                # For OpenRouter thinking models (Kimi, DeepSeek, etc.):
-                # Do NOT send include_reasoning=False — it causes empty responses.
-                # Thinking detection is handled via timing in the streaming handler.
-                logger.info("Reasoning disabled for OpenRouter - omitting param (time-based thinking detection)")
+                # OpenRouter accepts reasoning.effort="none" to suppress thinking
+                params["extra_body"]["reasoning"] = {"effort": "none"}
+                logger.info("Reasoning disabled for OpenRouter via reasoning.effort=none")
             else:
                 # For local servers, include_reasoning=False is safe
-                if "extra_body" not in params:
-                    params["extra_body"] = {}
                 params["extra_body"]["include_reasoning"] = False
                 logger.info("Reasoning disabled via include_reasoning=False")
         

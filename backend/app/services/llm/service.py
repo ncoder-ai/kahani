@@ -459,6 +459,24 @@ class UnifiedLLMService:
             scene_length_description=scene_length_description
         )
 
+        # Append attire reminder from entity states (LLMs ignore separate state messages)
+        entity_states_text = context.get("entity_states_text")
+        if entity_states_text:
+            # Extract just attire lines
+            attire_lines = []
+            current_name = None
+            for line in entity_states_text.split('\n'):
+                stripped = line.strip()
+                if stripped and not stripped.startswith(('CURRENT', 'Location:', 'Position:', 'Emotional', 'Physical Condition:', 'Holding:')):
+                    if not stripped.startswith('Current Attire:') and ':' not in stripped:
+                        current_name = stripped.rstrip(':')
+                    elif stripped.startswith('Current Attire:'):
+                        attire = stripped.replace('Current Attire:', '').strip()
+                        if current_name and attire and attire.lower() not in ('null', 'none', 'unspecified'):
+                            attire_lines.append(f"- {current_name}: {attire}")
+            if attire_lines:
+                task_content += "\n\nCHARACTER ATTIRE (do NOT contradict):\n" + "\n".join(attire_lines)
+
         # Append choices reminder if needed (with plot guidance for choices only)
         if include_choices_reminder:
             chapter_plot_for_choices = self._format_plot_for_choices(context, user_settings)
@@ -5611,7 +5629,10 @@ Chapter Conclusion:"""
         
         # Check if reasoning should be suppressed (disabled but model may still think)
         suppress_reasoning = client.reasoning_effort == "disabled"
-        is_openrouter = "openrouter" in (client.api_url or "").lower()
+        is_openrouter = client.api_type == "openrouter" or "openrouter" in (client.api_url or "").lower()
+
+        # Log key streaming params for debugging
+        logger.info(f"[STREAM PARAMS] model={gen_params.get('model')}, reasoning_in_extra_body={gen_params.get('extra_body', {}).get('reasoning')}, thinking_model_type={thinking_model_type}, thinking_enabled_gen={thinking_enabled_gen}, suppress_reasoning={suppress_reasoning}, is_openrouter={is_openrouter}")
 
         try:
             import time
@@ -5636,11 +5657,14 @@ Chapter Conclusion:"""
             auto_detect_think = (thinking_model_type == 'none')
             auto_detect_done = False
             # When a tag-based thinking model is configured but thinking display is
-            # disabled, assume the stream starts in a think block. Some backends
+            # disabled, assume the stream starts in a think block. Some LOCAL backends
             # (e.g. koboldcpp) ignore suppression params and emit reasoning as plain
             # text followed by </think> (no opening <think> tag). Starting in_think_block
             # =True treats everything as thinking until </think> is found.
-            in_think_block = (local_think_filter and not thinking_enabled_gen)
+            # Cloud providers handle thinking via API fields or proper tags — never pre-assume.
+            from .client import LLMClient
+            is_local_backend = getattr(client, 'api_type', '') not in LLMClient.CLOUD_PROVIDERS
+            in_think_block = (local_think_filter and not thinking_enabled_gen and is_local_backend)
             content_buffer = ""  # Small buffer for tag boundary detection
 
             async for chunk in response:
@@ -5749,7 +5773,7 @@ Chapter Conclusion:"""
                                         # Safety valve: if we've discarded a huge amount without
                                         # finding </think>, the model may not be thinking at all.
                                         # Flush everything as content to avoid eating the whole scene.
-                                        if reasoning_chars > 30000:
+                                        if reasoning_chars > 4000:
                                             logger.warning(f"[THINK FILTER] No </think> after {reasoning_chars} chars — assuming no thinking, flushing as content")
                                             content_chars += len(content_buffer)
                                             yield content_buffer
