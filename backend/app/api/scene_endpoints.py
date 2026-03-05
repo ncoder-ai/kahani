@@ -125,6 +125,18 @@ async def generate_scene(
     # Get user settings and include permission flags (with story for content rating)
     user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
 
+    # LLM-based input moderation for SFW stories
+    if not user_settings.get('allow_nsfw', False) and (user_content or custom_prompt):
+        from ..utils.content_filter import moderate_content
+        moderation_text = ((user_content or "") + " " + (custom_prompt or "")).strip()
+        if moderation_text:
+            is_blocked, reason = await moderate_content(moderation_text, user_settings, content_type="input")
+            if is_blocked:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Your input contains content not permitted for this story's rating."
+                )
+
     # Handle different content modes
     scene_content = ""
     effective_custom_prompt = custom_prompt
@@ -236,6 +248,19 @@ async def generate_scene(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to generate scene"
+            )
+
+    # LLM-based output moderation for SFW stories
+    content_warning = None
+    if not user_settings.get('allow_nsfw', False) and scene_content:
+        from ..utils.content_filter import moderate_content
+        is_blocked, reason = await moderate_content(scene_content[:2000], user_settings, content_type="output")
+        if is_blocked:
+            logger.warning(f"NSFW output blocked for SFW story {story_id}: {reason}")
+            content_warning = "Generated scene flagged as inappropriate for this story rating."
+            scene_content = (
+                "[Content flagged: does not match story rating. Please regenerate.]\n\n"
+                + scene_content
             )
 
     # Create scene with variant system - use active scene count from StoryFlow
@@ -474,6 +499,10 @@ async def generate_scene(
         "message": "Scene generated successfully with smart context management"
     }
 
+    # Add content warning if output was flagged
+    if content_warning:
+        response_data["content_warning"] = content_warning
+
     # Add auto-play info if enabled
     if auto_play_session_id:
         response_data["auto_play"] = {
@@ -557,6 +586,18 @@ async def generate_scene_streaming_endpoint(
 
     # Get user settings (with story for content rating)
     user_settings = get_or_create_user_settings(current_user.id, db, current_user, story)
+
+    # LLM-based input moderation for SFW stories (fires before streaming begins → clean 400)
+    if not user_settings.get('allow_nsfw', False) and (user_content or custom_prompt):
+        from ..utils.content_filter import moderate_content
+        moderation_text = ((user_content or "") + " " + (custom_prompt or "")).strip()
+        if moderation_text:
+            is_blocked, reason = await moderate_content(moderation_text, user_settings, content_type="input")
+            if is_blocked:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Your input contains content not permitted for this story's rating."
+                )
 
     # Parse is_concluding (form data comes as string)
     is_concluding_bool = is_concluding.lower() == "true"
@@ -944,6 +985,20 @@ async def generate_scene_streaming_endpoint(
             # Save the scene to database FIRST (before choices)
             # Clean the final assembled content comprehensively (chunk cleaning may miss patterns)
             cleaned_full_content = llm_service._clean_scene_content(full_content.rstrip())
+
+            # LLM-based output moderation for SFW stories
+            if not user_settings.get('allow_nsfw', False) and cleaned_full_content:
+                from ..utils.content_filter import moderate_content
+                is_blocked, reason = await moderate_content(
+                    cleaned_full_content[:2000], user_settings, content_type="output"
+                )
+                if is_blocked:
+                    logger.warning(f"NSFW output blocked for SFW story {story_id}: {reason}")
+                    _emit({'type': 'content_warning', 'message': 'Generated scene flagged as inappropriate for this story rating.'})
+                    cleaned_full_content = (
+                        "[Content flagged: does not match story rating. Please regenerate.]\n\n"
+                        + cleaned_full_content
+                    )
 
             # Get or create active chapter BEFORE scene creation to ensure chapter_id is set atomically
             chapter_id = None

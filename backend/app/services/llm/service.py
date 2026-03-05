@@ -366,10 +366,12 @@ class UnifiedLLMService:
                 pov = active_preset.pov
 
         # 3. Build system prompt with CONSISTENT skip_choices setting
+        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
         system_prompt = prompt_manager.get_prompt(
             "scene_with_immediate", "system",
             user_id=user_id,
             db=db,
+            allow_nsfw=user_allow_nsfw,
             scene_length_description=scene_length_description,
             choices_count=choices_count,
             skip_choices=separate_choice_generation  # ALWAYS use user setting!
@@ -383,8 +385,12 @@ class UnifiedLLMService:
 
         # 4.5. Inject content permission (uncensored or family-friendly) into system prompt
         from ...utils.content_filter import get_content_permission_prompt
-        user_allow_nsfw = user_settings.get('allow_nsfw', False) if user_settings else False
-        system_prompt += "\n\n" + get_content_permission_prompt(user_allow_nsfw)
+        content_policy = get_content_permission_prompt(user_allow_nsfw)
+        if not user_allow_nsfw:
+            # SFW: policy FIRST so it takes precedence over any preset language
+            system_prompt = content_policy + "\n\n" + system_prompt
+        else:
+            system_prompt += "\n\n" + content_policy
 
         # 5. Build messages array
         messages = [{"role": "system", "content": system_prompt.strip()}]
@@ -5413,7 +5419,11 @@ Chapter Conclusion:"""
             system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
             if system_idx is not None:
                 if "CONTENT POLICY:" not in messages[system_idx]["content"] and "CONTENT POLICY -" not in messages[system_idx]["content"]:
-                    messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
+                    if not user_allow_nsfw:
+                        # SFW: prepend policy so it takes precedence
+                        messages[system_idx]["content"] = content_prompt + "\n\n" + messages[system_idx]["content"].strip()
+                    else:
+                        messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
             else:
                 messages.insert(0, {"role": "system", "content": content_prompt})
 
@@ -5540,7 +5550,11 @@ Chapter Conclusion:"""
             system_idx = next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
             if system_idx is not None:
                 if "CONTENT POLICY:" not in messages[system_idx]["content"] and "CONTENT POLICY -" not in messages[system_idx]["content"]:
-                    messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
+                    if not user_allow_nsfw:
+                        # SFW: prepend policy so it takes precedence
+                        messages[system_idx]["content"] = content_prompt + "\n\n" + messages[system_idx]["content"].strip()
+                    else:
+                        messages[system_idx]["content"] = messages[system_idx]["content"].strip() + "\n\n" + content_prompt
             else:
                 messages.insert(0, {"role": "system", "content": content_prompt})
 

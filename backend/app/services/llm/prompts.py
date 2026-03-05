@@ -66,6 +66,35 @@ class PromptManager:
         """Reload prompts from file (useful for development)"""
         self._load_prompts()
     
+    @staticmethod
+    def _sanitize_preset_for_sfw(text: str) -> str:
+        """Strip phrases from writing presets that contradict SFW content policy.
+
+        Called when allow_nsfw=False before using style_prompt from a preset.
+        Removes phrases like "uncensored roleplay", "no content restrictions", etc.
+        """
+        if not text:
+            return text
+        patterns = [
+            r'(?i)\buncensored\s+roleplay\b',
+            r'(?i)\bno\s+content\s+restrictions?\b',
+            r'(?i)\bnsfw\s+allowed\b',
+            r'(?i)\bignore\s+content\s+filters?\b',
+            r'(?i)\bno\s+limits?\s+on\s+content\b',
+            r'(?i)\badult\s+content\s+(is\s+)?permitted\b',
+            r'(?i)\bexplicit\s+content\s+(is\s+)?(allowed|permitted|encouraged)\b',
+            r'(?i)\bno\s+censorship\b',
+            r'(?i)\bfully?\s+uncensored\b',
+            r'(?i)this\s+uncensored\s+roleplay\s+thrives\s+on\s+creative\s+freedom[^.]*\.\s*',
+        ]
+        import re as _re
+        for pattern in patterns:
+            text = _re.sub(pattern, '', text)
+        # Clean up any resulting double spaces/newlines
+        text = _re.sub(r'  +', ' ', text)
+        text = _re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
     def get_raw_prompt(self, template_key: str, **template_vars) -> str:
         """
         Get a raw prompt from YAML without system/user distinction.
@@ -111,6 +140,9 @@ class PromptManager:
             "roleplay.narration_rich": ("roleplay", "narration_rich"),
             "roleplay.summary_system": ("roleplay", "summary_system"),
             "roleplay.summary_prompt": ("roleplay", "summary_prompt"),
+            # Content moderation prompts
+            "content_moderation.input": ("content_moderation", "input"),
+            "content_moderation.output": ("content_moderation", "output"),
         }
 
         if template_key not in yaml_mapping:
@@ -139,6 +171,7 @@ class PromptManager:
         prompt_type: str = "system",
         user_id: Optional[int] = None,
         db: Optional[Session] = None,
+        allow_nsfw: bool = True,
         **template_vars
     ) -> str:
         """
@@ -209,6 +242,9 @@ class PromptManager:
                         if not style_prompt:
                             logger.warning(f"[GET_PROMPT] Preset '{active_preset.name}' (id={active_preset.id}) has EMPTY system_prompt! Falling back to YAML.")
                         if style_prompt:
+                            # Sanitize preset for SFW stories (strip "uncensored" language)
+                            if not allow_nsfw:
+                                style_prompt = self._sanitize_preset_for_sfw(style_prompt)
                             # Get POV from preset if available
                             pov = getattr(active_preset, 'pov', None) if hasattr(active_preset, 'pov') else None
                             
@@ -998,6 +1034,9 @@ Chapter Conclusion:"""
             "character_snapshot_generation": ("character_snapshot_generation", ""),
             # Roleplay prompts
             "roleplay": ("roleplay", ""),
+            # Content moderation prompts
+            "content_moderation.input": ("content_moderation", "input"),
+            "content_moderation.output": ("content_moderation", "output"),
         }
         
         if template_key not in yaml_mapping:

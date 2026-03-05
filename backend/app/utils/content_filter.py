@@ -3,7 +3,7 @@ Content filtering utilities for NSFW detection and prevention.
 Protects children and restricted users from inappropriate content.
 """
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -241,6 +241,98 @@ def should_inject_nsfw_filter(user_allow_nsfw: bool) -> bool:
         return user_allow_nsfw.lower() not in ('true', '1', 'yes')
     # For boolean or int (0/1), use truthiness
     return not bool(user_allow_nsfw)
+
+
+async def moderate_content(
+    text: str,
+    user_settings: Dict[str, Any],
+    content_type: str = "input"
+) -> Tuple[bool, str]:
+    """
+    LLM-based content moderation for SFW stories.
+
+    Uses the extraction model (fast, small) for classification.
+    Falls back to main LLM if extraction model is unavailable.
+
+    Args:
+        text: The text to moderate (user input or generated output)
+        user_settings: User settings dict
+        content_type: "input" for user prompts, "output" for generated text
+
+    Returns:
+        Tuple of (is_blocked, reason)
+    """
+    if not text or not text.strip():
+        return False, ""
+
+    # Get moderation prompt from prompts.yml
+    from ..services.llm.prompts import prompt_manager
+    prompt_key = f"content_moderation.{content_type}"
+    system_prompt = prompt_manager.get_raw_prompt(prompt_key)
+    if not system_prompt:
+        # Hardcoded fallback
+        if content_type == "input":
+            system_prompt = (
+                "You are a content moderator for a family-friendly (SFW) story app.\n"
+                "Determine if this user prompt is requesting sexual, graphically violent, or otherwise adult content.\n"
+                "Misspellings, euphemisms, slang, and coded language count as violations.\n"
+                "Reply with exactly one word: ALLOW or BLOCK"
+            )
+        else:
+            system_prompt = (
+                "You are a content moderator for a family-friendly (SFW) story app.\n"
+                "Determine if this generated story text contains sexual content, graphic violence, or adult themes.\n"
+                "Reply with exactly one word: ALLOW or BLOCK"
+            )
+
+    # Try extraction model first (fast, cheap)
+    try:
+        from ..services.llm.extraction_service import ExtractionLLMService
+        extraction_service = ExtractionLLMService.from_settings(
+            user_settings,
+            max_tokens_override=10,
+            temperature_override=0.0,
+        )
+        if extraction_service:
+            response = await extraction_service.generate(
+                prompt=text.strip()[:2000],
+                system_prompt=system_prompt,
+                max_tokens=10,
+            )
+            response_clean = response.strip().upper() if response else ""
+            if "BLOCK" in response_clean:
+                logger.warning(f"[MODERATION] Content blocked ({content_type}): {text[:80]}...")
+                return True, "Content flagged by moderation"
+            return False, ""
+    except Exception as e:
+        logger.warning(f"[MODERATION] Extraction model failed, trying main LLM: {e}")
+
+    # Fallback to main LLM
+    try:
+        from ..services.llm.llm_generation_core import LLMGenerationCore
+        from ..services.llm.service import UnifiedLLMService
+        service = UnifiedLLMService()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text.strip()[:2000]},
+        ]
+        response = await service._generate_with_messages(
+            messages=messages,
+            user_id=0,
+            user_settings=user_settings,
+            max_tokens=10,
+            temperature=0.0,
+            skip_nsfw_filter=True,
+        )
+        response_clean = response.strip().upper() if response else ""
+        if "BLOCK" in response_clean:
+            logger.warning(f"[MODERATION] Content blocked by main LLM ({content_type}): {text[:80]}...")
+            return True, "Content flagged by moderation"
+        return False, ""
+    except Exception as e:
+        logger.error(f"[MODERATION] Both extraction and main LLM failed: {e}")
+        # Fail open — don't block if moderation itself fails
+        return False, ""
 
 
 def inject_nsfw_filter_if_needed(

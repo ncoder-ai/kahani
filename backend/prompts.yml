@@ -3875,3 +3875,17 @@ roleplay:
     Summarize this roleplay conversation concisely. Focus on: key events, relationship developments, current situation, and emotional state of characters. Write in present tense.
 
     {conversation_text}
+
+# =============================================================================
+# CONTENT MODERATION - LLM-based classification for SFW stories
+# =============================================================================
+content_moderation:
+  input: |
+    You are a content moderator for a family-friendly (SFW) story app.
+    Determine if this user prompt is requesting sexual, graphically violent, or otherwise adult content.
+    Misspellings, euphemisms, slang, and coded language count as violations.
+    Reply with exactly one word: ALLOW or BLOCK
+  output: |
+    You are a content moderator for a family-friendly (SFW) story app.
+    Determine if this generated story text contains sexual content, graphic violence, or adult themes.
+    Reply with exactly one word: ALLOW or BLOCK
