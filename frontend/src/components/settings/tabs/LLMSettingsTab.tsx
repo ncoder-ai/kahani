@@ -5,6 +5,7 @@ import { getApiBaseUrl } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import { SamplerSettings, DEFAULT_SAMPLER_SETTINGS } from '@/types/settings';
 import TextCompletionTemplateEditor from '../../TextCompletionTemplateEditor';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { SettingsTabProps, LLMSettings, ExtractionModelSettings, EmbeddingModelSettings, ReembedProgress, LLMProvider, THINKING_DISABLE_OPTIONS, ConfiguredProviders } from '../types';
 
 // Helper function to safely parse JSON template
@@ -1092,18 +1093,12 @@ export default function LLMSettingsTab({
                 {availableModels.length > 0 && (
                   <div>
                     <label className="block text-sm font-medium text-white mb-2">Select Model</label>
-                    <select
+                    <SearchableSelect
                       value={llmSettings.model_name ?? ''}
-                      onChange={(e) => setLlmSettings({ ...llmSettings, model_name: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                    >
-                      <option value="">Select a model...</option>
-                      {availableModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => setLlmSettings({ ...llmSettings, model_name: val })}
+                      options={availableModels}
+                      placeholder="Select a model..."
+                    />
                     <div className="text-xs text-gray-400 mt-1">
                       {availableModels.length} models available
                     </div>
@@ -1428,16 +1423,12 @@ export default function LLMSettingsTab({
                       <div className="flex gap-2">
                         <div className="flex-1">
                           {availableExtractionModels.length > 0 ? (
-                            <select
+                            <SearchableSelect
                               value={extractionModelSettings.model_name}
-                              onChange={(e) => setExtractionModelSettings({ ...extractionModelSettings, model_name: e.target.value })}
-                              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white"
-                            >
-                              <option value="">Select a model...</option>
-                              {availableExtractionModels.map((model) => (
-                                <option key={model} value={model}>{model}</option>
-                              ))}
-                            </select>
+                              onChange={(val) => setExtractionModelSettings({ ...extractionModelSettings, model_name: val })}
+                              options={availableExtractionModels}
+                              placeholder="Select a model..."
+                            />
                           ) : (
                             <input
                               type="text"
