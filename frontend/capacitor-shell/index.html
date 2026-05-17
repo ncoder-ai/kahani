@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>Saga</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #0a0a0f;
+      color: #e8e8ee;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: env(safe-area-inset-top, 0) 20px env(safe-area-inset-bottom, 0);
+    }
+    .screen { width: 100%; max-width: 420px; }
+    .hidden { display: none !important; }
+
+    .loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader p { color: #8a8a96; font-size: 14px; margin: 0; }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .brand h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 6px;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand p {
+      margin: 0;
+      color: #8a8a96;
+      font-size: 14px;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    label {
+      font-size: 13px;
+      color: #a8a8b4;
+      margin-bottom: -4px;
+    }
+    input[type="url"] {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 16px;
+      background: #15151c;
+      color: #e8e8ee;
+      border: 1px solid #2a2a36;
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+      font-family: inherit;
+    }
+    input[type="url"]:focus {
+      border-color: #a78bfa;
+    }
+    input[type="url"]::placeholder { color: #555560; }
+
+    button {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.15s ease;
+    }
+    button:active { opacity: 0.8; }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .error {
+      margin: 4px 0 0;
+      padding: 10px 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .hint {
+      margin: 16px 0 0;
+      text-align: center;
+      font-size: 12px;
+      color: #555560;
+      line-height: 1.5;
+    }
+    .hint code {
+      background: #15151c;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #a8a8b4;
+    }
+  </style>
+</head>
+<body>
+  <div id="loader" class="screen loader">
+    <div class="spinner"></div>
+    <p id="loader-msg">Connecting&hellip;</p>
+  </div>
+
+  <div id="form-screen" class="screen hidden">
+    <div class="brand">
+      <h1>Saga</h1>
+      <p>Connect to your server</p>
+    </div>
+    <form id="connect-form" autocomplete="off">
+      <label for="url-input">Server URL</label>
+      <input
+        id="url-input"
+        type="url"
+        inputmode="url"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
+        placeholder="https://makemysaga.com"
+        required
+      />
+      <button type="submit" id="connect-btn">Connect</button>
+      <p id="error" class="error hidden"></p>
+    </form>
+    <p class="hint">
+      Self-hosted? Use your server's address.<br/>
+      LAN testing example: <code>http://192.168.1.50:6789</code>
+    </p>
+  </div>
+
+  <script src="launcher.js"></script>
+</body>
+</html>

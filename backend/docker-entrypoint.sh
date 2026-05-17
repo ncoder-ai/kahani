@@ -1,0 +1,131 @@
+#!/bin/bash
+# Docker Entrypoint Script for Kahani
+
+set -e
+
+echo "🎭 Starting Kahani Docker Container..."
+
+# Function to wait for service
+wait_for_service() {
+    local host=$1
+    local port=$2
+    local service_name=$3
+    local max_attempts=${4:-30}
+    local attempt=0
+    
+    echo "⏳ Waiting for $service_name to be ready..."
+    while ! nc -z $host $port 2>/dev/null; do
+        attempt=$((attempt+1))
+        if [ $attempt -ge $max_attempts ]; then
+            echo "❌ Failed to connect to $service_name after $max_attempts attempts"
+            return 1
+        fi
+        sleep 1
+    done
+    echo "✅ $service_name is ready!"
+    return 0
+}
+
+# Create necessary directories (only if we have permission)
+echo "📁 Creating directories..."
+mkdir -p /app/data /app/data/audio /app/logs /app/root_logs 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
+mkdir -p /app/exports /app/backups 2>/dev/null || echo "⚠️  Some directories could not be created (mounted volumes)"
+
+# Fix permissions for mounted volumes (critical for Docker volume mounts)
+echo "🔧 Setting up permissions for mounted volumes..."
+# Try to fix permissions, but don't fail if we can't
+chmod -R 755 /app/data 2>/dev/null || echo "⚠️  Could not set data directory permissions (mounted volume)"
+chmod -R 777 /app/logs 2>/dev/null || echo "⚠️  Could not set logs directory permissions (mounted volume)"
+chmod -R 777 /app/root_logs 2>/dev/null || echo "⚠️  Could not set root_logs directory permissions (mounted volume)"
+chmod -R 755 /app/exports /app/backups 2>/dev/null || echo "⚠️  Could not set export/backup permissions"
+
+# Handle ownership for user 1000:1000 (Docker user mapping)
+echo "🔧 Ensuring proper ownership for user 1000:1000..."
+echo "  - Current user: $(id -u):$(id -g)"
+echo "  - Target user: 1000:1000"
+
+# Fix ownership of mounted volumes (run as root to have permission to change ownership)
+if [ "$(id -u)" = "0" ]; then
+    echo "🔧 Running as root - fixing ownership of mounted volumes..."
+    chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
+    chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
+    chown -R 1000:1000 /app/root_logs 2>/dev/null && echo "✅ Fixed root_logs directory ownership" || echo "⚠️  Could not change root_logs directory ownership"
+    
+    # Set permissions after ownership change (use 777 for logs to ensure writability)
+    chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
+    chmod -R 777 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/root_logs 2>/dev/null && echo "✅ Set root_logs directory permissions" || echo "⚠️  Could not set root_logs directory permissions"
+else
+    # If not running as root, try to fix ownership with current user
+    echo "🔧 Not running as root - attempting to fix ownership with current user..."
+    chown -R 1000:1000 /app/data 2>/dev/null && echo "✅ Fixed data directory ownership" || echo "⚠️  Could not change data directory ownership"
+    chown -R 1000:1000 /app/logs 2>/dev/null && echo "✅ Fixed logs directory ownership" || echo "⚠️  Could not change logs directory ownership"
+    chown -R 1000:1000 /app/root_logs 2>/dev/null && echo "✅ Fixed root_logs directory ownership" || echo "⚠️  Could not change root_logs directory ownership"
+    
+    chmod -R 755 /app/data 2>/dev/null && echo "✅ Set data directory permissions" || echo "⚠️  Could not set data directory permissions"
+    chmod -R 777 /app/logs 2>/dev/null && echo "✅ Set logs directory permissions" || echo "⚠️  Could not set logs directory permissions"
+    chmod -R 777 /app/root_logs 2>/dev/null && echo "✅ Set root_logs directory permissions" || echo "⚠️  Could not set root_logs directory permissions"
+fi
+
+# Ensure data directory is writable by the application
+echo "🗄️  Ensuring data directory is writable..."
+touch /app/data/.test_write 2>/dev/null && rm -f /app/data/.test_write && echo "✅ Data directory is writable" || echo "❌ Data directory is not writable - database will fail!"
+
+# Ensure logs directory is writable by the application
+echo "📝 Ensuring logs directory is writable..."
+touch /app/logs/.test_write 2>/dev/null && rm -f /app/logs/.test_write && echo "✅ Logs directory is writable" || echo "⚠️  Logs directory may not be writable, will use console logging"
+
+# Ensure root_logs directory is writable by the application
+echo "📝 Ensuring root_logs directory is writable..."
+touch /app/root_logs/.test_write 2>/dev/null && rm -f /app/root_logs/.test_write && echo "✅ Root_logs directory is writable" || echo "⚠️  Root_logs directory may not be writable, will use console logging"
+
+# If PostgreSQL is configured, wait for it
+if [[ "$DATABASE_URL" == postgresql* ]]; then
+    echo "🐘 PostgreSQL database detected"
+    # Extract host and port from DATABASE_URL
+    DB_HOST=$(echo $DATABASE_URL | sed -n 's/.*@\([^:]*\):.*/\1/p' || echo "postgres")
+    DB_PORT=$(echo $DATABASE_URL | sed -n 's/.*:\([0-9]*\)\/.*/\1/p' || echo "5432")
+    
+    wait_for_service $DB_HOST $DB_PORT "PostgreSQL" 60
+    
+    # Give PostgreSQL a bit more time to fully initialize
+    sleep 2
+fi
+
+# Run Alembic migrations
+echo "🗄️ Running Alembic migrations to upgrade schema..."
+alembic upgrade head || echo "⚠️ Alembic migration failed"
+
+# Seed default data if needed
+echo "🌱 Seeding default data..."
+python init_database_data.py || echo "⚠️ Default data seeding failed (database will still work)"
+
+# Check for TTS provider availability (optional)
+if [ ! -z "$TTS_API_URL" ]; then
+    echo "🔊 TTS provider configured at: $TTS_API_URL"
+    # Extract host and port for health check (optional, non-blocking)
+    TTS_HOST=$(echo $TTS_API_URL | sed -n 's|.*//\([^:]*\).*|\1|p')
+    TTS_PORT=$(echo $TTS_API_URL | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
+    
+    if [ ! -z "$TTS_HOST" ] && [ ! -z "$TTS_PORT" ]; then
+        echo "⏳ Checking TTS provider availability (non-blocking)..."
+        if wait_for_service $TTS_HOST $TTS_PORT "TTS Provider" 10; then
+            echo "✅ TTS provider is available"
+        else
+            echo "⚠️  TTS provider not available, can be configured later via Settings UI"
+        fi
+    fi
+else
+    echo "ℹ️  TTS not pre-configured, can be set up via Settings UI"
+fi
+
+echo "🚀 Starting Kahani application..."
+
+# Switch to user 1000:1000 for the application (AFTER all setup is complete)
+if [ "$(id -u)" = "0" ]; then
+    echo "🔧 Switching to user 1000:1000 for application..."
+    exec gosu 1000:1000 "$@"
+else
+    # If not running as root, execute directly
+    exec "$@"
+fi

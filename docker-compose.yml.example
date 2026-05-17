@@ -1,0 +1,69 @@
+# Kahani Docker Compose Configuration
+# See QUICK_START.md for setup instructions
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kahani-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kahani}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kahani}
+      POSTGRES_DB: ${POSTGRES_DB:-kahani}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kahani} -d ${POSTGRES_DB:-kahani}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: kahani-backend
+    restart: unless-stopped
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/logs:/app/logs
+      - ./logs:/app/root_logs
+      - ./config.yaml:/app/config.yaml
+      - ./backend/prompts.yml:/app/prompts.yml
+      - ./backend/interaction_presets.yml:/app/interaction_presets.yml
+    user: "root"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://kahani:kahani@postgres:5432/kahani}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required - see .env.example}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY required - see .env.example}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - PORT=9876
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+      - HF_HOME=/app/.cache/huggingface
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: kahani-frontend
+    restart: unless-stopped
+    ports:
+      - "6789:6789"
+    environment:
+      - PORT=6789
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:9876}
+    depends_on:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Note: postgres_data uses a bind mount (./postgres_data/) instead of a named volume
+# for easier backup and management of database files

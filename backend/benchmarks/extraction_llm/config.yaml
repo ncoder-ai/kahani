@@ -1,0 +1,137 @@
+# Extraction LLM Benchmark — Configuration
+#
+# Models registered for benchmarking. `baseline_model` is run first every
+# battery to refresh reference outputs. Candidate models are scored against
+# the baseline outputs.
+#
+# Adding a model: append to `models:` with a unique label and the path
+# to its GGUF. Paths use ${MODELS_DIR} which defaults to ~/App/kobold but
+# can be overridden via the MODELS_DIR env var.
+#
+# `thinking_disable` controls per-model chain-of-thought suppression:
+#   none                       — model has no thinking mode (Ministral, Granite,
+#                                Phi-4, most non-reasoning models)
+#   enable_thinking_false      — Qwen3 / Qwen3.5 / GLM / Gemma 4 — sends
+#                                chat_template_kwargs.enable_thinking=False
+#   reasoning_effort_none      — OpenAI-style reasoning models
+#   thinking_budget_zero       — Gemini-style models with thinking budget
+# Without this set correctly, models with hidden thinking modes burn their
+# token budget on <think> blocks and return empty content. The runner's
+# preflight health check (run_baseline.py:check_thinking_health) catches
+# this failure mode by sending a trivial "reply OK" prompt before any
+# real fixtures run.
+
+endpoint:
+  # Production extraction LLM endpoint = port 5002 (Ministral-8B-Q8).
+  # The active provider is `ik-llama-extraction` in user_settings.configured_providers
+  # (NOT the legacy `extraction_model_url` column, which is stale and points to 5001).
+  # Port 5001 hosts the MAIN LLM (Gemma-4-31B-uncensored), not the extraction model.
+  # Override via --endpoint if you load a candidate model on a different port.
+  url: http://localhost:5002
+  health_path: /v1/models
+  inference_path: /v1/chat/completions
+
+# Run the baseline first every battery so reference outputs reflect the
+# current production model (in case prompts.yml or kahani code changed).
+baseline_model: ministral-8b-q8
+
+# Directory where GGUF files live. Override with env var MODELS_DIR.
+# Default: ${HOME}/App/kobold
+models_dir: ${MODELS_DIR}
+
+models:
+  - label: ministral-8b-q8
+    path: ${MODELS_DIR}/Ministral-3-8B-Instruct-2512-Q8_0.gguf
+    ctx_size: 32768
+    role: baseline
+    notes: Current production extraction LLM (2026-05).
+    thinking_disable: none  # Ministral has no chain-of-thought mode
+
+  # Candidate slots — small 4B models tested at BOTH Q5_K_M and Q8_0 because
+  # low-bit quantization disproportionately damages small models. Q8 ≈ FP16
+  # quality at ~half the size; Q5 is the size sweet spot but may regress on
+  # JSON discipline / instruction following. Same prompt budget, same fixtures.
+
+  - label: qwen3.5-4b-q5
+    path: ${MODELS_DIR}/Qwen_Qwen3.5-4B-Q5_K_M.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Qwen 3.5 4B (Qwen/Qwen3.5-4B via bartowski GGUF), Q5_K_M.
+    enabled: true
+    thinking_disable: enable_thinking_false
+
+  - label: qwen3.5-4b-q8
+    path: ${MODELS_DIR}/Qwen_Qwen3.5-4B-Q8_0.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Qwen 3.5 4B (Qwen/Qwen3.5-4B via bartowski GGUF), Q8_0. Quant control.
+    enabled: true
+    thinking_disable: enable_thinking_false
+
+  - label: gemma-4-e4b-q5
+    path: ${MODELS_DIR}/google_gemma-4-E4B-it-Q5_K_M.gguf
+    ctx_size: 32768
+    thinking_disable: enable_thinking_false
+    role: candidate
+    notes: Gemma 4 E4B-it (google/gemma-4-E4B-it via bartowski GGUF), Q5_K_M. With thinking-disable Gemma produces valid output (T10 was 100%/100%) but throughput is ~5 tok/s in ik_llama — 15x slower than Ministral. Disqualified on speed.
+    enabled: false
+
+  - label: gemma-4-e4b-q8
+    path: ${MODELS_DIR}/google_gemma-4-E4B-it-Q8_0.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Gemma 4 E4B-it (google/gemma-4-E4B-it via bartowski GGUF), Q8_0. Skipped — Q5 was disqualified on speed, Q8 is slower.
+    enabled: false
+    thinking_disable: enable_thinking_false
+
+  - label: granite-4.1-8b-q5
+    path: ${MODELS_DIR}/granite-4.1-8b-Q5_K_M.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Same-size control to Ministral. Already on disk.
+    enabled: true
+    thinking_disable: none
+
+  - label: phi-4-mini-q5
+    path: ${MODELS_DIR}/microsoft_Phi-4-mini-instruct-Q5_K_M.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Phi-4-mini-instruct 3.8B, Q5_K_M.
+    enabled: true
+    thinking_disable: none
+
+  - label: phi-4-mini-q8
+    path: ${MODELS_DIR}/microsoft_Phi-4-mini-instruct-Q8_0.gguf
+    ctx_size: 32768
+    role: candidate
+    notes: Phi-4-mini-instruct 3.8B, Q8_0. Quant control.
+    enabled: true
+    thinking_disable: none
+
+run_settings:
+  runs_per_fixture: 1   # bump to 3 once thinking-disable + judge layer are wired
+  per_case_timeout_s: 120  # Gemma 4 generates ~5 tok/s even with thinking off; needs headroom on large fixtures
+  agent_replay_timeout_s: 180
+
+# Auto-grading thresholds (a model "passes" a task if these are met)
+pass_thresholds:
+  auto_check_pass_rate: 0.95
+  judge_mean_score_min: 3.0
+  judge_high_score_rate_min: 0.80   # fraction of cases scoring >= 3
+
+# Judge LLM — OpenRouter (Claude Sonnet) by default. Reads the OpenRouter
+# API key from user_settings.llm_api_key for the user_id below at runtime
+# (the configured user must have an OpenRouter provider set up in kahani).
+#
+# The judge SHOULD be a strong frontier model — it's evaluating prose-grade
+# extraction correctness, not just structure. Cost is bounded: ~3 calls per
+# candidate output × ~100 outputs per battery ≈ 300 judge calls per model.
+judge:
+  endpoint: https://openrouter.ai/api/v1
+  api_key_source: db          # 'db' = read from user_settings; 'env' = use OPENROUTER_API_KEY
+  api_key_user_id: 2          # used when api_key_source == 'db'; this is the kahani user_id, not a name
+  model: anthropic/claude-sonnet-4.6
+  fallback_model: google/gemini-2.5-pro
+  scores_per_output: 3        # call judge N times per candidate output, average
+  temperature: 0.2
+  max_tokens: 500

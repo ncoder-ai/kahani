@@ -1,0 +1,29 @@
+# Per-run outputs — regenerated every battery
+reports/
+
+# Local-only model files (lived elsewhere on disk anyway)
+*.gguf
+
+# Pyc / cache
+__pycache__/
+*.pyc
+
+# Fixture content contains real story text (character names, scene prose)
+# pulled from the local DB or captured logs — treat as private to each user.
+# Regenerate per-machine with:
+#   python orchestrator/db_extract_scenes.py
+#   python orchestrator/extract_fixtures.py
+#   python orchestrator/render_real_fixtures.py
+fixtures/T*/*.json
+fixtures/_scenes_pool/*.json
+fixtures/_main_llm_captures/**/*.json
+
+# Synthetic probes are PII-free and STAY committed
+!fixtures/_synthetic_probes/**/*.json
+
+# README files in fixture dirs are documentation, keep them
+!fixtures/**/README.md
+
+# Un-ignore: the benchmark's own config.yaml (root .gitignore blocks all config.yaml,
+# but the benchmark config is intentional + portable — it uses ${MODELS_DIR} placeholders).
+!config.yaml

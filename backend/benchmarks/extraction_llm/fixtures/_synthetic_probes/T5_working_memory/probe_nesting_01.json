@@ -1,0 +1,29 @@
+{
+  "task": "T5_working_memory",
+  "case_id": "probe_nesting_01",
+  "source": "synthetic — JSON nesting failure probe",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Extract working memory from this scene. Return ONLY valid JSON with these keys: recent_focus (string, NOT object), pending_items (list of strings), character_spotlight (object mapping character names to strings)."
+    },
+    {
+      "role": "user",
+      "content": "Scene: Alex confronts Maya in the kitchen about the missing key. Maya admits she gave it to her brother last week. They argue but eventually agree to call him together. The phone call is set for tomorrow morning. Alex remains worried — the brother has a history of theft.\n\nOutput JSON ONLY. values are PLAIN STRINGS, not objects."
+    }
+  ],
+  "request_params": {
+    "temperature": 0.3,
+    "max_tokens": 400
+  },
+  "expected_schema": {
+    "type": "working_memory",
+    "flat_string_fields": [
+      "recent_focus"
+    ],
+    "list_of_strings_fields": [
+      "pending_items"
+    ]
+  },
+  "rubric_notes": "MUST NOT return {recent_focus: {type:..., description:...}}. Penalize nesting heavily."
+}

@@ -1,0 +1,224 @@
+name: Build and Publish Docker Images
+
+on:
+  push:
+    branches: [ main, dev ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    if: false  # Workflow disabled - set to true to enable
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.12]
+        node-version: [22]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install Python dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio httpx
+
+    - name: Install Node.js dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Run Python tests
+      run: |
+        cd backend
+        python -m pytest tests/ -v || echo "No tests found, skipping"
+
+    - name: Run Node.js tests
+      run: |
+        cd frontend
+        npm test -- --passWithNoTests || echo "No test script found, skipping tests"
+
+    - name: Install Python linting tools
+      run: |
+        pip install black flake8 || echo "Failed to install linting tools, skipping lint checks"
+    
+    - name: Lint Python code
+      run: |
+        cd backend
+        black --check app/ || echo "Black check failed, continuing"
+        flake8 app/ || echo "Flake8 check failed, continuing"
+      continue-on-error: true
+
+    - name: Lint Node.js code
+      run: |
+        cd frontend
+        npm run lint || echo "Lint failed, continuing"
+
+  build:
+    if: false && github.event_name != 'pull_request'  # Workflow disabled - remove "false &&" to enable
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Check disk space
+      run: |
+        df -h
+        docker system df || true
+
+    - name: Clean up Docker resources
+      run: |
+        # Remove unused containers, networks, images, and build cache
+        docker system prune -af --volumes || true
+        # Remove dangling images
+        docker image prune -af || true
+        # Clear build cache
+        docker builder prune -af || true
+        echo "Disk space after cleanup:"
+        df -h
+        docker system df || true
+
+    - name: Set up GitHub CLI
+      run: |
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg || exit 1
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt update && sudo apt install -y gh || echo "Failed to install GitHub CLI, public image step may fail"
+      continue-on-error: true
+
+    - name: Extract metadata for backend
+      id: meta-backend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Extract metadata for frontend
+      id: meta-frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push backend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        push: true
+        tags: ${{ steps.meta-backend.outputs.tags }}
+        labels: ${{ steps.meta-backend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=min
+        platforms: linux/amd64
+
+    - name: Build and push frontend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        push: true
+        tags: ${{ steps.meta-frontend.outputs.tags }}
+        labels: ${{ steps.meta-frontend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=min
+        platforms: linux/amd64
+
+    - name: Make images public
+      run: |
+        # Wait a moment for images to be fully processed
+        sleep 10
+        
+        # Make backend image public
+        echo "Making backend image public..."
+        gh api -X PATCH /user/packages/container/${{ env.IMAGE_NAME }}-backend/visibility \
+          -f visibility=public || echo "Failed to make backend public"
+        
+        # Make frontend image public  
+        echo "Making frontend image public..."
+        gh api -X PATCH /user/packages/container/${{ env.IMAGE_NAME }}-frontend/visibility \
+          -f visibility=public || echo "Failed to make frontend public"
+        
+        echo "Images should now be public and accessible"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Clean up Docker resources after build
+      if: always()
+      run: |
+        # Remove intermediate build images and cache to free up space
+        docker system prune -af || true
+        docker builder prune -af || true
+        echo "Final disk space:"
+        df -h
+        docker system df || true
+
+  security-scan:
+    if: false && github.event_name != 'pull_request'  # Workflow disabled - remove "false &&" to enable
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      id: trivy
+      uses: aquasecurity/trivy-action@master
+      env:
+        TRIVY_NO_TELEMETRY: 1
+      with:
+        scan-type: 'repo'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        skip-dirs: '.git,node_modules'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always() && steps.trivy.outcome == 'success'
+      continue-on-error: true
+      with:
+        sarif_file: 'trivy-results.sarif'

@@ -1,0 +1,26 @@
+{
+  "task": "T1_semantic_decompose",
+  "case_id": "probe_recall_multiattr_01",
+  "source": "synthetic — multi-attribute recall probe",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Decompose the user's story-continuation intent into search queries. Return ONLY JSON: {\"intent\": \"direct|recall|react\", \"queries\": [list of focused sub-queries], \"keywords\": [list of distinctive keywords]}. Recall intent = callback to past events. One attribute per sub-query."
+    },
+    {
+      "role": "user",
+      "content": "Characters: Mira, Caleb\n\nNext scene intent: She's wearing the red sundress from the rooftop party, and they're at the kitchen counter where they argued last week."
+    }
+  ],
+  "request_params": {
+    "temperature": 0.3,
+    "max_tokens": 300
+  },
+  "expected_schema": {
+    "type": "decompose",
+    "expected_intent": "recall",
+    "min_queries": 2,
+    "max_queries": 4
+  },
+  "rubric_notes": "Should classify as 'recall' (callbacks). Should split into 2-3 sub-queries: one per attribute (sundress / rooftop / kitchen counter argument). NO generic verbs like 'wearing' / 'at' as queries."
+}

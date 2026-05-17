@@ -1,0 +1,455 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Font is now loaded via Next.js font optimization in layout.tsx for better performance */
+
+:root {
+  --primary-50: #eff6ff;
+  --primary-100: #dbeafe;
+  --primary-500: #3b82f6;
+  --primary-600: #2563eb;
+  --primary-700: #1d4ed8;
+}
+
+/* Light theme variables */
+.light {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+}
+
+/* Dark theme variables (default) */
+.dark {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-tertiary: #374151;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --border-color: #4b5563;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Font size variations */
+.text-small {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.text-medium {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.text-large {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+/* Apply font size to common text elements */
+.text-small p, .text-small div, .text-small span {
+  font-size: 0.875rem;
+}
+
+.text-medium p, .text-medium div, .text-medium span {
+  font-size: 1rem;
+}
+
+.text-large p, .text-large div, .text-large span {
+  font-size: 1.125rem;
+}
+
+/* Custom utility classes */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Animation for new content indicator */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+/* Modern scene layout styles */
+.modern-scene {
+  position: relative;
+  transition: all 0.3s ease-in-out;
+}
+
+.modern-scene.new-scene {
+  animation: slide-in-from-bottom 0.5s ease-out forwards;
+}
+
+.variant-transitioning {
+  animation: slide-out-left 0.4s ease-in-out;
+}
+
+.variant-transitioning .scene-content {
+  transition: opacity 0.4s ease-in-out;
+}
+
+/* Slide animations for variant switching */
+@keyframes slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.variant-slide-in {
+  animation: slide-in-from-right 0.4s ease-in-out;
+}
+
+/* Smooth slide-in animation for new scenes */
+@keyframes slide-in-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Enhanced variant navigation with swipe effect */
+.variant-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(31, 41, 55, 0.5);
+  border-radius: 0.75rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.variant-nav-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.8), rgba(59, 130, 246, 0.8));
+  backdrop-filter: blur(10px);
+}
+
+.variant-nav-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(147, 51, 234, 0.3);
+}
+
+.variant-nav-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modern scene container */
+.scene-container.modern-scene {
+  margin-bottom: 2rem;
+  padding: 0;
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--color-textTertiary) !important;
+  padding-bottom: 1.5rem;
+}
+
+.scene-container.modern-scene .scene-content {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Enhanced choice buttons for modern layout */
+.modern-choice-button {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-cardBg) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--color-cardBorder) !important;
+  transition: all 0.3s ease;
+}
+
+/* Compact choice buttons */
+.modern-choice-button.compact {
+  padding: 0.5rem 0.75rem !important; /* Even smaller padding */
+  font-size: 0.75rem; /* Smaller font size */
+  min-height: 44px; /* Ensure minimum touch target on mobile */
+}
+
+.modern-choice-button.compact span {
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+/* Continue and guided regeneration buttons */
+.continue-scene-button {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(67, 56, 202, 0.2));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  transition: all 0.3s ease;
+}
+
+.continue-scene-button:hover {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.3), rgba(67, 56, 202, 0.3));
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+.guided-regen-button {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(236, 72, 153, 0.2));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  transition: all 0.3s ease;
+}
+
+.guided-regen-button:hover {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.3), rgba(236, 72, 153, 0.3));
+  border-color: rgba(168, 85, 247, 0.5);
+  transform: translateY(-1px);
+}
+
+.modern-choice-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px var(--color-cardHoverBorder);
+  border-color: var(--color-cardHoverBorder) !important;
+}
+
+.modern-choice-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--color-accentPrimary), transparent);
+  transition: left 0.5s;
+}
+
+.modern-choice-button:hover::before {
+  left: 100%;
+}
+
+/* Modern input container */
+.modern-input-container {
+  background-color: var(--color-cardBg) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--color-cardBorder) !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Theme-aware utilities */
+.theme-banner {
+  background: linear-gradient(to right, var(--color-bannerFrom), var(--color-bannerVia), var(--color-bannerTo)) !important;
+}
+
+.theme-bg-primary { background-color: var(--color-bgPrimary) !important; }
+.theme-bg-secondary { background-color: var(--color-bgSecondary) !important; }
+.theme-bg-tertiary { background-color: var(--color-bgTertiary) !important; }
+
+.theme-card {
+  background-color: var(--color-cardBg) !important;
+  border-color: var(--color-cardBorder) !important;
+}
+
+.theme-card-hover:hover {
+  border-color: var(--color-cardHoverBorder);
+}
+
+.theme-btn-primary {
+  background-color: var(--color-btnPrimary);
+  color: var(--color-btnPrimaryText);
+}
+
+.theme-btn-primary:hover {
+  background-color: var(--color-btnPrimaryHover);
+}
+
+.theme-btn-secondary {
+  background-color: var(--color-btnSecondary);
+  color: var(--color-btnSecondaryText);
+}
+
+.theme-btn-secondary:hover {
+  background-color: var(--color-btnSecondaryHover);
+}
+
+.theme-text-primary { color: var(--color-textPrimary); }
+.theme-text-secondary { color: var(--color-textSecondary); }
+.theme-text-tertiary { color: var(--color-textTertiary); }
+
+.theme-accent-primary { color: var(--color-accentPrimary); }
+.theme-accent-secondary { color: var(--color-accentSecondary); }
+
+.theme-border-accent { border-color: var(--color-borderAccent); }
+
+.theme-placeholder::placeholder {
+  color: var(--color-textTertiary) !important;
+}
+
+.theme-scene-bubble {
+  background: linear-gradient(to right, var(--color-sceneBubbleFrom), var(--color-sceneBubbleTo)) !important;
+  border-color: var(--color-sceneBubbleBorder) !important;
+}
+
+/* Theme-aware focus ring */
+.theme-focus-ring:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--color-accentPrimary) !important;
+}
+
+.theme-focus-ring:focus-visible {
+  outline: 2px solid var(--color-accentPrimary) !important;
+  outline-offset: 2px !important;
+}
+
+/* Prevent iOS Safari zoom on input focus - ensure minimum 16px font size on mobile */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  [contenteditable] {
+    font-size: 16px !important;
+  }
+  
+  /* Ensure textarea and contenteditable maintain readable size */
+  textarea {
+    font-size: 16px !important;
+  }
+  
+  [contenteditable] {
+    font-size: 16px !important;
+  }
+  
+  /* Ensure all interactive elements have minimum 44px touch targets */
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Compact header on mobile */
+  .compact-header {
+    padding: 0.375rem 0.75rem !important;
+    font-size: 0.75rem !important;
+  }
+}
+
+/* FAB positioning and animation */
+.floating-action-menu {
+  position: fixed;
+  bottom: 5rem;
+  right: 1rem;
+  z-index: 50;
+}
+
+.floating-action-menu-items {
+  animation: slideUpFade 0.2s ease-out;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Variant navigation arrows - responsive positioning */
+.variant-nav-arrow {
+  transition: all 0.2s ease;
+}
+
+.variant-nav-arrow:hover {
+  transform: scale(1.1);
+}
+
+/* Smooth transitions for all layout changes */
+.scene-variant-container,
+.scene-container,
+.modern-choice-button,
+.variant-nav-arrow,
+.floating-action-menu {
+  transition: all 0.3s ease;
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 768px) {
+  /* Reduce spacing on mobile */
+  .scene-variant-container {
+    margin-bottom: 1rem;
+  }
+  
+  /* Ensure FAB doesn't overlap with content */
+  .floating-action-menu {
+    bottom: 5rem;
+  }
+  
+  /* Compact variant indicator */
+  .variant-indicator {
+    font-size: 0.625rem;
+    margin-top: 0.5rem;
+  }
+}
+
+/* Constellation view animations */
+@keyframes starAppear {
+  from { opacity: 0; transform: scale(0); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes lineDrawIn {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Desktop-specific adjustments */
+@media (min-width: 769px) {
+  /* Margin arrows positioning */
+  .variant-nav-arrow-left {
+    left: -3rem;
+  }
+  
+  .variant-nav-arrow-right {
+    right: -3rem;
+  }
+}
